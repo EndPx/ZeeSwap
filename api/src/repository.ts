@@ -8,6 +8,7 @@ export type Direction = 'ZCASH_TO_BASE'|'BASE_TO_ZCASH';
 export interface QuoteInput {
   direction: Direction; inputAmount: string; payoutFee: string; refundFee: string;
   recipient: string; refundRecipient: string; depositReceiver: string;
+  executionMode?: 'base-settlement-v1'; baseContract?: string;
 }
 export interface DepositInput {
   network: 'zcash-testnet'|'base-sepolia'; txid: string; index: number;
@@ -47,11 +48,11 @@ export class Repository {
     const payload=this.privateData.seal({...input,outputAmount:output,reference,settlementId},`quote:${id}:v1`);
     await this.db.query(`WITH stamp AS MATERIALIZED (SELECT clock_timestamp() AS issued)
       INSERT INTO zee.quotes(id,direction,source_asset,destination_asset,input_amount,output_amount,
-      payout_fee_asset,payout_fee,refund_fee_asset,refund_fee,private_payload,deposit_reference_hash,receiver_hash,access_hash,settlement_id,created_at,expires_at)
-      SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,issued,issued+interval '120 seconds' FROM stamp`,
+      payout_fee_asset,payout_fee,refund_fee_asset,refund_fee,private_payload,deposit_reference_hash,receiver_hash,access_hash,settlement_id,execution_mode,base_contract,created_at,expires_at)
+      SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,issued,issued+interval '120 seconds' FROM stamp`,
       [id,input.direction,forward?'TAZ':'mockUSDC',forward?'mockUSDC':'TAZ',input.inputAmount,output,
        forward?'baseETH':'TAZ',input.payoutFee,forward?'TAZ':'baseETH',input.refundFee,payload,
-       this.privateData.lookup('reference',reference),this.privateData.lookup('receiver',input.depositReceiver),accessHash(token),settlementId]);
+       this.privateData.lookup('reference',reference),this.privateData.lookup('receiver',input.depositReceiver),accessHash(token),settlementId,input.executionMode||'observe-only',input.baseContract||null]);
     return {id,reference,accessToken:token,outputAmount:output,memo:makeMemo(reference)};
   }
   async privateQuote(id: string, token: string) {

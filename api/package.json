@@ -11,7 +11,10 @@
     "test:api": "tsx scripts/test-live.ts test/api.test.ts",
     "test:integration": "tsx scripts/test-live.ts",
     "start": "tsx scripts/serve.ts",
-    "observe": "tsx scripts/observe.ts"
+    "observe": "tsx scripts/observe.ts",
+    "base:preflight": "tsx scripts/base-preflight.ts",
+    "base:dispatch": "tsx scripts/base-dispatch.ts",
+    "test:settlement": "tsx scripts/test-live.ts test/base-integration.test.ts"
   },
   "dependencies": {
     "pg": "8.23.1",

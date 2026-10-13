@@ -12,6 +12,7 @@ The Zcash CLI feasibility experiment, database foundation and local HTTP/scanner
 - [Submission readiness](docs/submission-readiness.md): evidence available to reviewers and the remaining demo requirements.
 - [Explorer verification](docs/evidence/explorer-verification.md): confirmed transaction and explanation of the stale explorer link.
 - [Foundry contracts](contracts/README.md), [deployment registry](contracts/deployments/base-sepolia.json) and [G3 evidence](docs/evidence/g3-contracts.md): tested, deployed and source-verified mockUSDC and Base settlement.
+- [Forward backend integration](docs/base-integration.md) and [integration evidence](docs/evidence/g3-base-integration.md): private API, durable Base signer, finalized receipt observer and accounting tested through settlement on Anvil + Neon; live Base Sepolia connection checks passed without a payment.
 
 ## Verify locally
 
@@ -30,4 +31,4 @@ python -m unittest discover -s workers/zcash-wallet -p 'test_*.py'
 
 The operator can decrypt payments addressed to its shielded receiver and holds settlement inventory. This prototype uses a custodial operator model. Base transfers are public, and the operator can associate both sides of an order. The shielded claim applies to the Zcash leg; it does not promise end-to-end anonymity, atomic settlement or trustless custody.
 
-There is no deployed frontend or automated cross-chain payout service yet. The standalone Zcash payment experiment, incoming API order and deployed Base contracts are evidence for those components. Both-direction swap execution and the bridge remain open. Contract tests require `git submodule update --init --recursive`; see the Foundry module guide.
+There is no deployed frontend or publicly operated cross-chain payout service yet. The forward worker is integrated and tested locally; a real public-testnet swap, reverse Zcash payout signer and bridge remain open. Contract tests require `git submodule update --init --recursive`; see the Foundry module guide.

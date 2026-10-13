@@ -9,6 +9,9 @@
     "test:api": "pnpm --filter @zeeswap/api test:api",
     "test:integration": "pnpm --filter @zeeswap/api test:integration",
     "api:start": "pnpm --filter @zeeswap/api start",
-    "observe": "pnpm --filter @zeeswap/api observe"
+    "observe": "pnpm --filter @zeeswap/api observe",
+    "base:preflight": "pnpm --filter @zeeswap/api base:preflight",
+    "base:dispatch": "pnpm --filter @zeeswap/api base:dispatch",
+    "test:settlement": "pnpm --filter @zeeswap/api test:settlement"
   }
 }

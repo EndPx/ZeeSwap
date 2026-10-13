@@ -2,8 +2,9 @@
 
 This module owns the server-side PostgreSQL schema, private-data envelope,
 repository, local HTTP quote/order API and one-shot observer orchestration.
-The viewing-only wallet adapter synchronizes Zcash externally. It does not sign
-transactions or execute cross-chain payouts. See [HTTP/observer guide](../docs/api.md).
+The viewing-only wallet adapter synchronizes Zcash externally. The forward Base
+worker uses a separate restricted signer and finalized receipt observer. See the
+[HTTP/observer guide](../docs/api.md) and [Base integration guide](../docs/base-integration.md).
 
 ## Verified deployment
 
@@ -14,14 +15,16 @@ Project `raspy-truth-63998651`, database `neondb`:
 | `production` | `br-empty-meadow-aowxzfl5` | User-selected primary; migrated after development tests; no fixture data |
 | `zeeswap-g2-database` | `br-solitary-flower-ao8ccjex` | Real incoming-payment integration evidence; destination inventory is a fixture |
 | `zeeswap-g2-tests` | `br-muddy-waterfall-aoqd8o9b` | Isolated synthetic regression fixtures |
+| `zeeswap-g3-settlement-tests` | `br-wispy-dawn-aorsbba5` | Dedicated Anvil + Neon settlement fixtures |
 
-All three branches have eight checksummed migrations, 16 tables and a restricted
-status view under schema `zee`.
+All four branches have nine checksummed migrations, 18 tables and two restricted
+status views under schema `zee`.
 The primary's initial state is reconciliation required, acceptance disabled and
 dispatch disabled. Assets are testnet TAZ, project-owned mockUSDC and Base Sepolia
-ETH. The database asset address remains unset pending service integration; the
-deployed mock and settlement are recorded in the [Base registry](../contracts/deployments/base-sepolia.json).
-These rows do not activate or authorize transfers automatically.
+ETH. The verified mock address is registered on primary and intake-evidence
+branches from the [Base registry](../contracts/deployments/base-sepolia.json).
+Test branches retain fixture configuration. These rows do not activate or
+authorize transfers automatically.
 
 ## Run
 
@@ -68,7 +71,7 @@ original line endings, because those bytes determine the stored checksum.
 - `ZEE_PAYLOAD_KEY_HEX` and `ZEE_LOOKUP_KEY_HEX`: separate 32-byte keys outside Neon.
 
 The original admin/migration credential lives separately in `.deploy-local/`.
-Do not pass it to the API or worker. On this Windows checkout, the five generated
+Do not pass it to the API or worker. On this Windows checkout, the generated
 credential files have access restricted to the current user and SYSTEM. This is
 local credential storage, not a cloud secret manager or encrypted-at-rest claim.
 
@@ -151,17 +154,21 @@ database operators; do not claim the database is zero-knowledge.
 
 The database consumes **trusted observer attestations**. The local Zcash adapter
 now validates the receiver from SDK-decrypted canonical transaction data. Hosted
-lightwalletd remains trusted; a full-validator proof and Base contract-event
-adapter are not implemented. Primary order intake remains closed.
+lightwalletd remains trusted; a full-validator proof is not implemented.
+The forward Base adapter verifies recorded reservation/payment receipts and their
+events. Reverse source-event ingestion and Zcash payout execution remain open.
+Primary order intake remains closed.
 
-Outbox jobs currently represent **operation evaluation**, not permission to sign
-or pay. `chain_authorization_verified` is constrained to false until a later G3
-migration adds the real on-chain exclusion evidence and guarded transitions.
-No database uniqueness constraint makes blockchain payments exactly-once.
+Legacy outbox jobs remain evaluation-only. New `base-settlement-v1` quotes use
+fenced forward dispatch, immutable signed attempts and finalized receipt evidence.
+`chain_authorization_verified` can become true only with a confirmed Base
+reservation row. The database trusts the restricted receipt observer; a row or
+uniqueness constraint alone is not a blockchain proof or an exactly-once guarantee.
 
-Private HTTP capability authorization is implemented. Remaining G2/G3 work includes
-restricted signer handoff, signed quote/contract authorization, source escrow
-acknowledgement, full settlement/refund journal transitions and fee reconciliation.
+Private HTTP capability authorization, forward signer handoff and finalized
+payout accounting are implemented and tested on Anvil + Neon. Remaining G2/G3
+work includes live capital reconciliation, reverse source escrow acknowledgement,
+Zcash payout/refund signing, refund accounting and broader recovery verification.
 Inventory credits must come from verified operator-capital reconciliation; test
 fixtures are not a funding API. Bridge accounting arrives in G6.
 

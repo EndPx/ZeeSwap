@@ -1,0 +1,12 @@
+{
+  "cast": "/absolute/path/to/cast",
+  "rpcUrl": "https://sepolia.base.org",
+  "account": "YOUR_SEPARATE_OPERATOR_KEYSTORE",
+  "operator": "ADDRESS_FROM_CANONICAL_REGISTRY",
+  "passwordFile": "/private/operator-password",
+  "journalRoot": "/private/zeeswap-base-journal",
+  "token": "TOKEN_FROM_CANONICAL_REGISTRY",
+  "settlement": "SETTLEMENT_FROM_CANONICAL_REGISTRY",
+  "tokenCodeHash": "TOKEN_RUNTIME_HASH_FROM_REGISTRY",
+  "settlementCodeHash": "SETTLEMENT_RUNTIME_HASH_FROM_REGISTRY"
+}

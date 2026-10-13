@@ -18,6 +18,7 @@ The prototype uses TAZ and project-owned mockUSDC, with fixture pricing.
 | Accounting and persistence | [Database evidence](evidence/g2-database.md) |
 | Real incoming payment through the local API and scanner | [G2 intake evidence](evidence/g2-api-scanner.md) |
 | Foundry contracts and verified Base Sepolia deployment | [G3 contract evidence](evidence/g3-contracts.md) |
+| Forward backend and durable signer integration | [Anvil + Neon integration evidence](evidence/g3-base-integration.md); live connection checks without payment |
 | Public transaction lookup | [Explorer discrepancy and replacement link](evidence/explorer-verification.md) |
 
 Only source, migrations, lockfiles, tests, configuration examples and sanitized
@@ -39,9 +40,9 @@ was saved during this review.
 
 The public repository exists. A working frontend/demo and video are still
 missing. mockUSDC and settlement contracts are deployed and source-verified.
-Their service integration, both swap directions, live payout/refund execution,
+Forward service integration and payout accounting have passed Anvil + Neon tests.
+Public-testnet execution, the reverse signer, live refund execution, broader
 recovery tests and the two-direction bridge remain open under G3–G7.
-G2 still needs settlement accounting and signer/contract handoff.
 Never present `READY` as a successful destination payment.
 
 ## Verification for this publication

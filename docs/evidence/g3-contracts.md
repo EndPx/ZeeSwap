@@ -3,6 +3,9 @@
 Date: 2026-10-14 (Asia/Jakarta). Read-only post-deployment check at
 2026-10-13 21:07:45 UTC / 2026-10-14 04:07:45 WIB.
 
+Subsequent [backend integration evidence](g3-base-integration.md) confirms finalized
+deployment inclusion and records the forward Anvil + Neon settlement test.
+
 ## Outcome
 
 `MockUSDC` and `ZeeSwapSettlement` were built from a `forge init` project, locally

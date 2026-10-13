@@ -109,8 +109,10 @@ replays. The snapshot timestamp cannot simply be refreshed on an old saved file:
 obtain a new live snapshot for every observer cycle.
 
 `baseHead` independently verifies chain ID 84532, a fresh latest header, a
-`finalized` header, and the canonical hash at that finalized height. It does not
-yet ingest settlement-contract events or prove a Base receipt for a ZeeSwap order.
+`finalized` header, and the canonical hash at that finalized height. The separate
+[forward Base adapter](base-integration.md) verifies recorded reservation/payment
+receipts and updates private destination status only after finality. Reverse
+source-event ingestion and Zcash payout execution remain gated.
 
 ## Commands and configuration
 
@@ -138,9 +140,10 @@ enters reconciliation mode. The local adapter config names the pinned CLI/read
 binary commands, viewing-only wallet directory, protobuf directory and private
 process-lock path. Keep that configuration and wallet data outside Git.
 
-The runtime remains a local API plus a **one-shot observer**, not a deployed
-continuous relayer. Service supervision, isolated OS identities, signer policy,
-operator inventory reconciliation and recovery approval still need integration.
+The runtime remains a local API, one-shot observer and optional one-step forward
+Base dispatcher. It is not a publicly deployed continuous relayer. Service
+supervision, isolated OS identities, operator capital reconciliation and broader
+refund/recovery integration remain open.
 Hosted lightwalletd remains a trusted provider; this is not a full-validator proof.
 
 ## Live incoming-payment evidence
