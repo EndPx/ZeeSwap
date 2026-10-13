@@ -1,0 +1,9 @@
+diff --git a/zingo-cli/src/lib.rs b/zingo-cli/src/lib.rs
+--- a/zingo-cli/src/lib.rs
++++ b/zingo-cli/src/lib.rs
+@@ -1475,1 +1475,1 @@
+-    if filled_template.sync && indexer_ready {
++    if filled_template.sync && indexer_ready && !filled_template.waitsync {
+@@ -1502,1 +1502,1 @@
+-        && let Err(e) = lightclient.await_sync().await
++        && let Err(e) = lightclient.sync_to_tip_and_await().await

@@ -1,0 +1,26 @@
+{
+  "name": "@zeeswap/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/unit.test.ts",
+    "db:preflight": "tsx scripts/preflight.ts",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "test:db": "tsx scripts/test-live.ts test/database.test.ts",
+    "test:api": "tsx scripts/test-live.ts test/api.test.ts",
+    "test:integration": "tsx scripts/test-live.ts",
+    "start": "tsx scripts/serve.ts",
+    "observe": "tsx scripts/observe.ts"
+  },
+  "dependencies": {
+    "pg": "8.23.1",
+    "viem": "2.57.5"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "@types/pg": "8.23.1",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2"
+  }
+}

@@ -1,0 +1,6 @@
+# Stable line endings for source and scripts across Windows/Linux checkouts.
+* text=auto eol=lf
+# Already-applied SQL migrations are hashed byte-for-byte; never normalize them.
+api/migrations/*.sql -text whitespace=trailing-space,space-before-tab,cr-at-eol
+# This applied migration includes an intentional preserved final blank line.
+api/migrations/0005_source_liabilities.sql whitespace=-blank-at-eof,cr-at-eol

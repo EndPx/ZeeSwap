@@ -1,0 +1,20 @@
+{
+ "$schema":"https://json-schema.org/draft/2020-12/schema",
+ "title":"ZeeSwap private Zcash observer snapshot v1",
+ "type":"object","additionalProperties":false,
+ "required":["schemaVersion","network","consensusBranch","observedAt","scannedHeight","tipHash","blocks","outputs"],
+ "properties":{
+  "schemaVersion":{"const":1},"network":{"const":"zcash-testnet"},"consensusBranch":{"const":"77190ad9"},
+  "observedAt":{"type":"string","format":"date-time"},"scannedHeight":{"type":"integer","minimum":0},
+  "tipHash":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+  "blocks":{"type":"array","maxItems":1000,"items":{"type":"object","additionalProperties":false,
+   "required":["height","hash","time"],"properties":{"height":{"type":"integer","minimum":0},"hash":{"type":"string","pattern":"^[0-9a-f]{64}$"},"time":{"type":"string","format":"date-time"}}}},
+  "outputs":{"type":"array","maxItems":1000,"items":{"type":"object","additionalProperties":false,
+   "required":["txid","index","pool","amount","receiver","memo","height","blockHash","blockTime","shieldedSource"],
+   "properties":{"txid":{"type":"string","pattern":"^[0-9a-f]{64}$"},"index":{"type":"integer","minimum":0},
+    "pool":{"enum":["orchard","ironwood"]},"amount":{"type":"string","pattern":"^(0|[1-9][0-9]{0,77})$"},
+    "receiver":{"type":"string","maxLength":512},"memo":{"type":["string","null"],"maxLength":512},
+    "height":{"type":"integer","minimum":0},"blockHash":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+    "blockTime":{"type":"string","format":"date-time"},"shieldedSource":{"type":"boolean"}}}}
+ }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "zeeswap", "private": true, "packageManager": "pnpm@10.21.0",
+  "scripts": {
+    "typecheck": "pnpm --filter @zeeswap/api typecheck",
+    "test": "pnpm --filter @zeeswap/api test",
+    "db:preflight": "pnpm --filter @zeeswap/api db:preflight",
+    "db:migrate": "pnpm --filter @zeeswap/api db:migrate",
+    "test:db": "pnpm --filter @zeeswap/api test:db",
+    "test:api": "pnpm --filter @zeeswap/api test:api",
+    "test:integration": "pnpm --filter @zeeswap/api test:integration",
+    "api:start": "pnpm --filter @zeeswap/api start",
+    "observe": "pnpm --filter @zeeswap/api observe"
+  }
+}

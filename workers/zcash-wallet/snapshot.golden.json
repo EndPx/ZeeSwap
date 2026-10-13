@@ -1,0 +1,9 @@
+{
+ "schemaVersion":1,"network":"zcash-testnet","consensusBranch":"77190ad9",
+ "observedAt":"2026-10-14T00:00:00Z","scannedHeight":1000,
+ "tipHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+ "blocks":[
+  {"height":1000,"hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","time":"2026-10-14T00:00:00Z"},
+  {"height":991,"hash":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","time":"2026-10-13T23:50:00Z"}
+ ],"outputs":[]
+}

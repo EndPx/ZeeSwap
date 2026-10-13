@@ -1,0 +1,19 @@
+# Local G1 tools, wallets, keys, raw receipts, and runtime state.
+.deploy-local/
+.zingo-cli/
+.env
+.env.*
+!.env.example
+target/
+__pycache__/
+*.pyc
+node_modules/
+dist/
+.neon
+
+# Private wallet/signing material, including accidental copies outside runtime roots.
+*.wallet.dat
+*.age
+*.pem
+*.key
+*.operation.json
