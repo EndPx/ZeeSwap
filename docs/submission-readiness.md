@@ -17,6 +17,7 @@ The prototype uses TAZ and project-owned mockUSDC, with fixture pricing.
 | Shielded wallet feasibility | [G1 testnet receipts](evidence/g1-feasibility.md) |
 | Accounting and persistence | [Database evidence](evidence/g2-database.md) |
 | Real incoming payment through the local API and scanner | [G2 intake evidence](evidence/g2-api-scanner.md) |
+| Foundry contracts and verified Base Sepolia deployment | [G3 contract evidence](evidence/g3-contracts.md) |
 | Public transaction lookup | [Explorer discrepancy and replacement link](evidence/explorer-verification.md) |
 
 Only source, migrations, lockfiles, tests, configuration examples and sanitized
@@ -37,9 +38,10 @@ Recheck the official form before the final submission. No draft or submission
 was saved during this review.
 
 The public repository exists. A working frontend/demo and video are still
-missing. mockUSDC and Base settlement contracts, both swap directions, payout
-and refund execution, recovery tests and the two-direction bridge remain open
-under G3–G7. G2 still needs settlement accounting and signer/contract handoff.
+missing. mockUSDC and settlement contracts are deployed and source-verified.
+Their service integration, both swap directions, live payout/refund execution,
+recovery tests and the two-direction bridge remain open under G3–G7.
+G2 still needs settlement accounting and signer/contract handoff.
 Never present `READY` as a successful destination payment.
 
 ## Verification for this publication

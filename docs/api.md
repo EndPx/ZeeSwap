@@ -56,7 +56,7 @@ shielded receiver is canonicalized, with no transparent fallback. Expiring UAs
 and Sapling-only destinations are not supported by this first adapter.
 
 Reverse `BASE_TO_ZCASH` funding currently returns `BASE_ESCROW_NOT_READY`.
-Its signed escrow instructions require G3; the API does not substitute an EOA or
+Its signed escrow instructions require integration with the deployed G3 contracts; the API does not substitute an EOA or
 pretend a direct mock-token transfer satisfies that contract flow.
 
 Responses use `Cache-Control: no-store`. Query-string credentials are rejected.

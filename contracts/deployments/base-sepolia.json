@@ -1,0 +1,28 @@
+{
+  "chainId": 84532,
+  "network": "base-sepolia",
+  "rpcUrl": "https://sepolia.base.org",
+  "deployer": "0xc82f469Aa95a2f7792300c8d11230e9023A98600",
+  "operator": "0x037F334b58D6Be70730aEe0d830096F9a431aF9B",
+  "compiler": { "solc": "0.8.30", "evmVersion": "cancun", "optimizerRuns": 200 },
+  "contracts": {
+    "MockUSDC": {
+      "address": "0xD64C116352CEF2Adc9484098Ae332Fd9bA339A63",
+      "transactionHash": "0xa04932baa5d65f75d9ead3fd8fe8263b3def27893015ace7e4d769b9c64f82e3",
+      "blockNumber": 48078597,
+      "blockHash": "0x9f71eb90875973d7851849a80344fa32937b427eed453b8c09649a8af0700b53",
+      "runtimeCodeHash": "0x46c011d67236b418b5af0e8ebb45036224c42d331f7414cc0fff2ed7ffe967bd",
+      "sourceVerification": "Pass - Verified",
+      "explorer": "https://sepolia.basescan.org/address/0xD64C116352CEF2Adc9484098Ae332Fd9bA339A63#code"
+    },
+    "ZeeSwapSettlement": {
+      "address": "0xe99aC648F85450B8ddEAEA088Aa99749C5e16DA3",
+      "transactionHash": "0x3894790840eacdf734caedd07497c9d2e6c16f4fc8bf5583e412f43c7c2510ca",
+      "blockNumber": 48078599,
+      "blockHash": "0x605cd911493e231aba1474b74c0fd701fd8e5c38b61b6645e9f42fb09fe3c700",
+      "runtimeCodeHash": "0xd6f7a1d239b6e0022ef3a6ae3b6b867f29e994d160e25f10532d24524eec90f6",
+      "sourceVerification": "Pass - Verified",
+      "explorer": "https://sepolia.basescan.org/address/0xe99aC648F85450B8ddEAEA088Aa99749C5e16DA3#code"
+    }
+  }
+}

@@ -1,7 +1,7 @@
 # ZeeSwap
 **Swap across chains. Keep your ZEC shielded.**
 
-ZeeSwap is building bidirectional swaps, constrained intents and a backed-token bridge between shielded Zcash and Base. The first swap pair is ZEC / USDC; the prototype targets TAZ on Zcash testnet and a project-owned mockUSDC on Base Sepolia. The mock token is not deployed yet.
+ZeeSwap is building bidirectional swaps, constrained intents and a backed-token bridge between shielded Zcash and Base. The first swap pair is ZEC / USDC; the prototype uses TAZ on Zcash testnet and a project-owned mockUSDC on Base Sepolia. The mock and settlement contracts are deployed and source-verified; cross-chain execution is still under construction.
 
 The Zcash CLI feasibility experiment, database foundation and local HTTP/scanner incoming-payment flow are verified. The testnet cross-chain product is still under construction.
 
@@ -11,6 +11,7 @@ The Zcash CLI feasibility experiment, database foundation and local HTTP/scanner
 - [HTTP API and observer](docs/api.md) and [real incoming-payment evidence](docs/evidence/g2-api-scanner.md): one shielded deposit advances one private order to READY without a destination payout.
 - [Submission readiness](docs/submission-readiness.md): evidence available to reviewers and the remaining demo requirements.
 - [Explorer verification](docs/evidence/explorer-verification.md): confirmed transaction and explanation of the stale explorer link.
+- [Foundry contracts](contracts/README.md), [deployment registry](contracts/deployments/base-sepolia.json) and [G3 evidence](docs/evidence/g3-contracts.md): tested, deployed and source-verified mockUSDC and Base settlement.
 
 ## Verify locally
 
@@ -29,4 +30,4 @@ python -m unittest discover -s workers/zcash-wallet -p 'test_*.py'
 
 The operator can decrypt payments addressed to its shielded receiver and holds settlement inventory. This prototype uses a custodial operator model. Base transfers are public, and the operator can associate both sides of an order. The shielded claim applies to the Zcash leg; it does not promise end-to-end anonymity, atomic settlement or trustless custody.
 
-There is no deployed frontend, Base contract or automated cross-chain payout service yet. The standalone Zcash payment experiment and incoming API order are evidence for those specific components, not a completed swap or bridge.
+There is no deployed frontend or automated cross-chain payout service yet. The standalone Zcash payment experiment, incoming API order and deployed Base contracts are evidence for those components. Both-direction swap execution and the bridge remain open. Contract tests require `git submodule update --init --recursive`; see the Foundry module guide.

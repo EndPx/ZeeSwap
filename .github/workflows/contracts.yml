@@ -1,0 +1,26 @@
+name: Contracts
+on:
+  push:
+    paths: ['contracts/**', '.gitmodules', '.github/workflows/contracts.yml']
+  pull_request:
+    paths: ['contracts/**', '.gitmodules', '.github/workflows/contracts.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  foundry:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.8.3
+      - run: forge fmt --check
+      - run: forge build --sizes
+      - run: forge test -vv

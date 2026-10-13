@@ -19,8 +19,9 @@ All three branches have eight checksummed migrations, 16 tables and a restricted
 status view under schema `zee`.
 The primary's initial state is reconciliation required, acceptance disabled and
 dispatch disabled. Assets are testnet TAZ, project-owned mockUSDC and Base Sepolia
-ETH. The mock token's contract address remains unset until G3; asset rows do not
-claim a deployment or authorize a transfer.
+ETH. The database asset address remains unset pending service integration; the
+deployed mock and settlement are recorded in the [Base registry](../contracts/deployments/base-sepolia.json).
+These rows do not activate or authorize transfers automatically.
 
 ## Run
 
