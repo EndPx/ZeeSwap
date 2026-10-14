@@ -1,9 +1,9 @@
 # ZeeSwap
 **Swap across chains. Keep your ZEC shielded.**
 
-ZeeSwap is building bidirectional swaps, constrained intents and a backed-token bridge between shielded Zcash and Base. The first swap pair is ZEC / USDC; the prototype uses TAZ on Zcash testnet and a project-owned mockUSDC on Base Sepolia. The mock and settlement contracts are deployed and source-verified; cross-chain execution is still under construction.
+ZeeSwap is building bidirectional swaps, constrained intents and a backed-token bridge between shielded Zcash and Base. The first swap pair is ZEC / USDC; the prototype uses TAZ on Zcash testnet and a project-owned mockUSDC on Base Sepolia. The mock and settlement contracts are deployed and source-verified.
 
-The Zcash CLI feasibility experiment, database foundation and local HTTP/scanner incoming-payment flow are verified. The testnet cross-chain product is still under construction.
+One real forward testnet swap is verified: **0.001 shielded TAZ → 0.1 mockUSDC**, with a finalized Base recipient balance increase, a SETTLED private order and balanced accounting. It ran through a bounded local operator harness. The reverse direction and full product remain under construction.
 
 - [Implementation plan](plan.md): scope, decisions and acceptance gates.
 - [Zcash wallet tooling](workers/zcash-wallet/README.md) and [live G1 evidence](docs/evidence/g1-feasibility.md).
@@ -13,6 +13,7 @@ The Zcash CLI feasibility experiment, database foundation and local HTTP/scanner
 - [Explorer verification](docs/evidence/explorer-verification.md): confirmed transaction and explanation of the stale explorer link.
 - [Foundry contracts](contracts/README.md), [deployment registry](contracts/deployments/base-sepolia.json) and [G3 evidence](docs/evidence/g3-contracts.md): tested, deployed and source-verified mockUSDC and Base settlement.
 - [Forward backend integration](docs/base-integration.md) and [integration evidence](docs/evidence/g3-base-integration.md): private API, durable Base signer, finalized receipt observer and accounting tested through settlement on Anvil + Neon; live Base Sepolia connection checks passed without a payment.
+- [Forward public-testnet settlement](docs/evidence/g4-live-forward.md): source and destination receipts, exact recipient delta, fees, ledger reconciliation and remaining gates.
 
 ## Verify locally
 
@@ -31,4 +32,4 @@ python -m unittest discover -s workers/zcash-wallet -p 'test_*.py'
 
 The operator can decrypt payments addressed to its shielded receiver and holds settlement inventory. This prototype uses a custodial operator model. Base transfers are public, and the operator can associate both sides of an order. The shielded claim applies to the Zcash leg; it does not promise end-to-end anonymity, atomic settlement or trustless custody.
 
-There is no deployed frontend or publicly operated cross-chain payout service yet. The forward worker is integrated and tested locally; a real public-testnet swap, reverse Zcash payout signer and bridge remain open. Contract tests require `git submodule update --init --recursive`; see the Foundry module guide.
+There is no deployed frontend or publicly operated cross-chain payout service yet. One forward public-testnet swap passed; reverse Zcash settlement, recovery/soak and the bridge remain open. Primary intake and dispatch remain disabled. Contract tests require `git submodule update --init --recursive`; see the Foundry module guide.

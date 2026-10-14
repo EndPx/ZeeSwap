@@ -16,8 +16,9 @@ Project `raspy-truth-63998651`, database `neondb`:
 | `zeeswap-g2-database` | `br-solitary-flower-ao8ccjex` | Real incoming-payment integration evidence; destination inventory is a fixture |
 | `zeeswap-g2-tests` | `br-muddy-waterfall-aoqd8o9b` | Isolated synthetic regression fixtures |
 | `zeeswap-g3-settlement-tests` | `br-wispy-dawn-aorsbba5` | Dedicated Anvil + Neon settlement fixtures |
+| `zeeswap-g4-live-forward` | `br-crimson-river-aobpimyq` | One real forward public-testnet settlement; closed operator experiment |
 
-All four branches have nine checksummed migrations, 18 tables and two restricted
+All five branches have ten checksummed migrations, 18 tables and two restricted
 status views under schema `zee`.
 The primary's initial state is reconciliation required, acceptance disabled and
 dispatch disabled. Assets are testnet TAZ, project-owned mockUSDC and Base Sepolia
@@ -166,8 +167,10 @@ reservation row. The database trusts the restricted receipt observer; a row or
 uniqueness constraint alone is not a blockchain proof or an exactly-once guarantee.
 
 Private HTTP capability authorization, forward signer handoff and finalized
-payout accounting are implemented and tested on Anvil + Neon. Remaining G2/G3
-work includes live capital reconciliation, reverse source escrow acknowledgement,
+payout accounting are implemented and tested on Anvil + Neon. One real forward
+testnet settlement also passed capital, receipt and ledger reconciliation; see
+[G4 live evidence](../docs/evidence/g4-live-forward.md). Remaining work includes
+ongoing capital reconciliation, reverse source escrow acknowledgement,
 Zcash payout/refund signing, refund accounting and broader recovery verification.
 Inventory credits must come from verified operator-capital reconciliation; test
 fixtures are not a funding API. Bridge accounting arrives in G6.

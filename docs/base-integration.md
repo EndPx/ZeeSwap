@@ -113,3 +113,9 @@ bounded one-time source send and read-only fee-capital check. See
 [G4 preparation](evidence/g4-forward-preflight.md) for the sequence and recovery
 limits. Migration 0010 renews a live worker fence while signing/scanning proceeds;
 observer freshness is checked again before transaction persistence and broadcast.
+
+The first bounded run completed on public testnets; see [G4 receipts and
+reconciliation](evidence/g4-live-forward.md). With the existing private experiment
+configuration, `pnpm --filter @zeeswap/api exec tsx scripts/verify-live-forward.ts`
+checks final receipts, the recipient balance delta and ledger conservation without
+signing, broadcasting, running the observer or changing runtime controls.

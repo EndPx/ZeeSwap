@@ -3,6 +3,9 @@
 Read `plan.md` and inspect Git status before work. Preserve its product decisions
 and acceptance gates. Complete one bounded task at a time.
 
+Use Sol 6.1 (`gpt-6.1-sol`) subagents for coding, as requested by the user.
+The main agent coordinates review, verification and operator execution.
+
 For each completed task that changes files:
 
 1. Run checks appropriate to the change and record the result in the relevant evidence document.

@@ -19,6 +19,7 @@ The prototype uses TAZ and project-owned mockUSDC, with fixture pricing.
 | Real incoming payment through the local API and scanner | [G2 intake evidence](evidence/g2-api-scanner.md) |
 | Foundry contracts and verified Base Sepolia deployment | [G3 contract evidence](evidence/g3-contracts.md) |
 | Forward backend and durable signer integration | [Anvil + Neon integration evidence](evidence/g3-base-integration.md); live connection checks without payment |
+| One real forward public-testnet swap | [G4 receipts and reconciliation](evidence/g4-live-forward.md): 0.001 shielded TAZ to 0.1 mockUSDC, finalized and SETTLED |
 | Public transaction lookup | [Explorer discrepancy and replacement link](evidence/explorer-verification.md) |
 
 Only source, migrations, lockfiles, tests, configuration examples and sanitized
@@ -41,11 +42,12 @@ was saved during this review.
 The public repository exists. A working frontend/demo and video are still
 missing. mockUSDC and settlement contracts are deployed and source-verified.
 Forward service integration and payout accounting have passed Anvil + Neon tests.
-Public-testnet execution, the reverse signer, live refund execution, broader
-recovery tests and the two-direction bridge remain open under G3–G7.
+One forward public-testnet swap passed, including the recipient balance delta
+and final accounting. The reverse signer, live refund execution, broader
+recovery tests and the two-direction bridge remain open under G4–G7.
 Never present `READY` as a successful destination payment.
 
-## Verification for this publication
+## Historical clean-export verification
 
 An export containing only staged public files passed frozen-lockfile installation,
 TypeScript typecheck, five unit tests and five Python receipt tests on 2026-10-14.
@@ -55,3 +57,8 @@ it is not a comprehensive security audit. All eight exported migration checksums
 match the applied working files, including their original line endings.
 Historical live database/HTTP results are recorded separately in G2 evidence.
 No test payment was resent while correcting explorer links.
+
+The later bounded forward harness passed nine unit, 38 DB/HTTP, eight Anvil/Neon
+and eight Python tests; see [G4 preparation](evidence/g4-forward-preflight.md).
+The live settlement publication additionally passed TypeScript typecheck and the
+read-only chain/database verifier described in [G4 evidence](evidence/g4-live-forward.md).
