@@ -17,6 +17,8 @@ import { LocalReverseWalletAdapter } from '../src/reverse-wallet-adapter.ts';
 import { withLeaseHeartbeat } from '../src/lease-heartbeat.ts';
 import { accessHash } from '../src/private-data.ts';
 import {approvalDigest} from '../src/reverse-authority.ts';
+import {refreshReverseObservers} from '../src/reverse-observer-refresh.ts';
+import {spawn} from 'node:child_process';
 
 const [step,path]=process.argv.slice(2);
 const steps=['quote','funding','observe-funding','prepare-commit','broadcast-commit','observe-commit','approve-wallet','prepare-zcash','recover-zcash','broadcast-zcash','observe-zcash','prepare-settle','broadcast-settle','observe-settle'];
@@ -38,6 +40,18 @@ async function durable(path:string,value:unknown){
  if(process.platform!=='win32'){const dir=await open(dirname(path),'r');try{await dir.sync();}finally{await dir.close();}}
 }
 const save=()=>durable(statePath,state);
+async function refreshObservers(){
+ if(!config.observerRefreshCommand||!Array.isArray(config.observerRefreshArgs))throw Error('FIXED_OBSERVER_REFRESH_COMMAND_REQUIRED');
+ await new Promise<void>((resolve,reject)=>{
+  const child=spawn(config.observerRefreshCommand,config.observerRefreshArgs,{stdio:['ignore','pipe','pipe'],windowsHide:true});
+  let size=0;const timer=setTimeout(()=>{child.kill();reject(Error('REVERSE_OBSERVER_CAPTURE_TIMEOUT'));},240000);
+  child.on('error',()=>{clearTimeout(timer);reject(Error('REVERSE_OBSERVER_CAPTURE_FAILED'));});
+  child.stdout.on('data',b=>{size+=b.length;if(size>32768)child.kill();});child.stderr.on('data',()=>{});
+  child.on('close',code=>{clearTimeout(timer);if(code===0&&size<=32768)resolve();else reject(Error('REVERSE_OBSERVER_CAPTURE_FAILED'));});
+ });
+ const proof=JSON.parse(await readFile(resolve(config.capitalProofFile),'utf8'));
+ await refreshReverseObservers(worker,base,proof.snapshot);
+}
 async function leased(run:(job:any,owner:string,check:()=>Promise<void>)=>Promise<unknown>){
  let owner=state.currentLease?.owner,job:any;
  if(owner){
@@ -107,6 +121,7 @@ try{
    result=await leased(async(job,owner,check)=>{
     if(phase==='SETTLE'){await observeReversePayout(worker,r.keys,state.orderId,zcash);await worker.query('SELECT zee.check_reverse_delivery($1)',[state.orderId]);}
     const terms=await escrowTerms(worker,r.keys,base,state.orderId),signed=await baseSigner.prepareEscrow(terms,phase);await check();
+    await refreshObservers();await check();
     if(phase==='COMMIT')await storeEscrowCommit(worker,r.keys,base,state.orderId,job.id,owner,job.fence,signed);
     else await storeEscrowSettlement(worker,r.keys,base,state.orderId,job.id,owner,job.fence,signed);
     return {status:`${phase}_SIGNED_DURABLY`};
@@ -144,8 +159,10 @@ try{
   }
   else if(step==='observe-settle')result=await observeEscrowSettlement(worker,r.keys,base,state.orderId);
   else if(step==='prepare-zcash'||step==='recover-zcash')result=await leased(async(job,owner,check)=>{
+   if(!config.observerRefreshCommand)throw Error('FIXED_OBSERVER_REFRESH_COMMAND_REQUIRED');
    await worker.query('SELECT zee.check_reverse_signing($1,$2,$3,$4)',[state.orderId,job.id,owner,job.fence]);
    const prepared=step==='recover-zcash'?await zcash.recover():await zcash.prepare();await check();
+   await refreshObservers();await check();
    await storeReversePayout(worker,r.keys,state.orderId,job.id,owner,job.fence,prepared,zcash);return {status:'ZCASH_SIGNED_DURABLY'};
   });
   else if(step==='broadcast-zcash')result=await leased(async(job,owner,check)=>{
@@ -153,6 +170,7 @@ try{
    if(row.confirmed)return {status:'ZCASH_ALREADY_FINALIZED'};
    const prepared=r.keys.open(row.signed_payload,`reverse-payout:${state.orderId}:v1`) as PreparedZcashTransaction;
    const terms=await reversePayoutTerms(worker,r.keys,state.orderId);await zcash.verifyPrepared(prepared,terms);await check();
+   await refreshObservers();await check();
    await worker.query('SELECT zee.check_reverse_signing($1,$2,$3,$4)',[state.orderId,job.id,owner,job.fence]);
    await zcash.broadcast(prepared,terms);return {status:'AWAITING_ZCASH_FINALITY'};
   });

@@ -12,6 +12,38 @@ import {assertReverseAuthority,approvalDigest} from '../src/reverse-authority.ts
 import type {PreparedZcashTransaction} from '../src/reverse-settlement.ts';
 import type {FundingTerms} from '../src/base-escrow.ts';
 import {validateReverseCapital,validateCapitalOpening,type ReverseCapitalProof,type CapitalOpening} from '../src/reverse-capital.ts';
+import {recipientShieldedBalance} from '../src/reverse-recipient-balance.ts';
+import {refreshReverseObservers} from '../src/reverse-observer-refresh.ts';
+import type {BaseContract} from '../src/base-contract.ts';
+import type pg from 'pg';
+
+test('recipient final balance sums real confirmed SDK notes and rejects duplicate, unsafe and premature notes',()=>{
+ const old={spend_status:'unspent',status:'confirmed at block height 900',value:500000,txid:'aa'.repeat(32),output_index:0};
+ const paid={...old,status:'confirmed at block height 991',value:100000,txid:'bb'.repeat(32)};
+ const notes={ironwood_notes:{note_summaries:[old,paid]},orchard_notes:{note_summaries:[]},sapling_notes:{note_summaries:[]}};
+ assert.equal(recipientShieldedBalance({...notes,ironwood_notes:{note_summaries:[old]}}),500000n);
+ assert.equal(recipientShieldedBalance(notes,1000),600000n);
+ assert.throws(()=>recipientShieldedBalance(notes,999),/UNCONFIRMED/);
+ assert.throws(()=>recipientShieldedBalance({...notes,ironwood_notes:{note_summaries:[old,old]}}),/DUPLICATE/);
+ assert.throws(()=>recipientShieldedBalance({...notes,ironwood_notes:{note_summaries:[{...old,value:Number.MAX_SAFE_INTEGER+1}]}}),/UNCONFIRMED/);
+});
+test('reverse observer refresh preserves policy and money; contradictory finalized Base view prevents all writes',async()=>{
+ const hash='aa'.repeat(32),now=new Date().toISOString();
+ const snapshot={schemaVersion:1,network:'zcash-testnet',consensusBranch:'77190ad9',observedAt:now,scannedHeight:1000,tipHash:hash,
+ blocks:[{height:991,hash,time:now},{height:1000,hash,time:now}],outputs:[]};
+ const queries:string[]=[];
+ const client={query:async(sql:string)=>{queries.push(sql);return {rows:[]};},release(){}};
+ const pool={query:async()=>({rows:[]}),connect:async()=>client} as unknown as pg.Pool;
+ const heads={latest:{number:100n,hash:'0x'+hash},finalized:{number:90n,hash:'0x'+hash,timestamp:1n}};
+ const base={heads:async()=>heads,client:{getBlock:async()=>({hash:'0x'+hash,timestamp:1n})}} as unknown as BaseContract;
+ await refreshReverseObservers(pool,base,snapshot);
+ assert.equal(queries[0],'BEGIN');assert.equal(queries.at(-1),'COMMIT');
+ assert.ok(queries.some(q=>q.includes('scanner_checkpoints')));
+ assert.ok(queries.every(q=>!q.includes('UPDATE zee.runtime_control')&&!q.includes('inventory_accounts')&&!q.includes('INSERT INTO zee.deposits')));
+ queries.length=0;
+ const reorg={...base,client:{getBlock:async()=>({hash:'0x'+'bb'.repeat(32),timestamp:1n})}} as unknown as BaseContract;
+ await assert.rejects(()=>refreshReverseObservers(pool,reorg,snapshot),/BASE_REORG/);assert.equal(queries.length,0);
+});
 
 test('reverse opening retry rejects changed gas, altered ledger and already reserved or spent capital',()=>{
  const txid='aa'.repeat(32),gas='1000000000000000';

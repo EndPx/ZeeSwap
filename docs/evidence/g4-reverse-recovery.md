@@ -97,8 +97,22 @@ up successfully. No reset or deletion of historical evidence was needed.
   Anvil, and the PostgreSQL transactions run on Neon.
 - Existing DB/HTTP regression tests passed **38/38**. Independent review and
   TypeScript typechecking checked the concrete adapter/operator boundaries.
-  API unit tests passed **12/12**, including capital, opening-ledger retry and
-  approval/broadcast-authority negatives.
+  API unit tests subsequently passed **14/14**, including capital, opening-ledger
+  retry, approval/broadcast-authority negatives, recipient-note balance parsing
+  and observer-refresh policy isolation.
+
+The operator refreshes trusted canonical observers after lengthy SDK preparation
+or recovery and again before broadcast. This preserves the current runtime
+policy and lease while allowing the existing freshness gate to reject genuine
+staleness or a contradictory chain view.
+
+`api/scripts/verify-live-reverse.ts` is a separate final read-only verifier. It
+checks the original journals, canonical finalized Base receipts, independent
+Zcash raw decryption, actual recipient before/after note sums and exact ledger
+totals. Its Python companion creates only a private temporary parser input and
+does not synchronize wallets or update signing journals. Four negative Python
+checks passed. Executing this verifier successfully against the finished order
+is required before claiming public-testnet reverse settlement.
 
 The actual capital collector also synchronized the isolated funded wallet and
 verified one approved 200,000-zatoshi note at height 4,500,919 with 49 confirmations
