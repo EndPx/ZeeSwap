@@ -277,7 +277,7 @@ test('reverse source reorg pauses dispatch and invalidates even a finalized comm
 let reverseLease:any,reverseLeaseOwner:string,settle:PreparedBaseTransaction;
 const preparedZcash:PreparedZcashTransaction={txid:'c'.repeat(64),rawTransaction:'aa',feeZatoshi:'10000',expiryHeight:'1000000',
  operationId:'',amount:'100000',fee:'10000',recipient:'fixture:shielded-recipient',
- selectedNotes:[{pool:'ironwood',txid:'d'.repeat(64),index:1,value:'110000'}],outputs:[{recipient:'fixture:shielded-recipient',amount:'100000',ownChange:false}]};
+ selectedNotes:[{pool:'ironwood',txid:'d'.repeat(64),index:1,value:'110000'}],outputs:[{recipient:'fixture:shielded-recipient',amount:'100000',ownChange:false,index:0}]};
 let delivery:VerifiedZcashReceipt|null=null;
 const fixtureVerifier:ReverseZcashVerifier={
  async verifyPrepared(p,t){assert.equal(p.txid,'c'.repeat(64));assert.equal(p.rawTransaction,'aa');assert.equal(t.recipient,'fixture:shielded-recipient');assert.equal(t.amountZatoshi,'100000');},
@@ -287,7 +287,7 @@ test('reverse durable bytes reject mismatches and stale fences; delivery does no
  preparedZcash.operationId=reverse.id;
  await seedFresh();await expireLease();reverseLeaseOwner=randomUUID();
  reverseLease=(await worker.query('SELECT * FROM zee.claim_escrow_job($1)',[reverseLeaseOwner])).rows[0];assert.equal(reverseLease.id,reverseJob.id);
- await assert.rejects(()=>storeReversePayout(worker,r.keys,reverse.id,reverseLease.id,reverseLeaseOwner,reverseLease.fence,{...preparedZcash,outputs:[{recipient:'fixture:other',amount:'100000',ownChange:false}]},fixtureVerifier),/INVALID_PREPARED/);
+ await assert.rejects(()=>storeReversePayout(worker,r.keys,reverse.id,reverseLease.id,reverseLeaseOwner,reverseLease.fence,{...preparedZcash,outputs:[{recipient:'fixture:other',amount:'100000',ownChange:false,index:0}]},fixtureVerifier),/INVALID_PREPARED/);
  await assert.rejects(()=>storeReversePayout(worker,r.keys,reverse.id,reverseLease.id,reverseLeaseOwner,reverseLease.fence,preparedZcash,{...fixtureVerifier,verifyPrepared:async()=>{throw Error('INDEPENDENT_RAW_VERIFICATION_FAILED');}}),/INDEPENDENT_RAW/);
  assert.equal((await worker.query('SELECT count(*) FROM zee.reverse_payouts')).rows[0].count,'0');
  await assert.rejects(()=>storeReversePayout(worker,r.keys,reverse.id,reverseLease.id,randomUUID(),reverseLease.fence,preparedZcash,fixtureVerifier),/stale lease/);

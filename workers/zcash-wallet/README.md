@@ -27,7 +27,11 @@ errors before exporting. Recovery exports already calculated transactions and
 never creates another proposal. The export contains actual serialized bytes,
 SDK txid/expiry/fee, nullifier-linked input note IDs and OVK-decrypted outputs.
 `ownChange` is true only for an output also decrypted with the wallet's internal
-incoming key. Its response is private and must not be printed in public logs.
+incoming key. The pinned SDK's outgoing list excludes internal change, so the
+export also includes incoming-internal notes from the same stored transaction,
+using their actual decoded recipient/value rather than arithmetic inference.
+Both output types carry their actual output index; indices must be nonnegative
+and unique. Its response is private and must not be printed in public logs.
 
 Provision a mode-0700 Linux private runtime directory with mode-0600 files. The
 config fields are `cliCommand`, `readCommand`, `verifyCommand`,
@@ -407,8 +411,22 @@ rereads finalized Base commitment, immutable order authority and the durable job
 guard. The actual compiled SDK was exercised with an isolated empty test wallet's
 recovery export; no funded preparation or spend is proved by this local check.
 
+The first funded preparation exposed the upstream outgoing-list omission of
+internal change. The adapter refused incomplete conservation metadata and left
+the signing intent intact. After the export correction, recovery read the already
+persisted transaction and verified the exact original txid and signed bytes, one
+100,000-zatoshi external output, 90,000-zatoshi authenticated change, a
+10,000-zatoshi fee and unique actual output indices. The narrow metadata repair
+may fill missing output indices only from the same persisted SDK transaction;
+any difference in raw bytes, txid, fee, expiry, selected notes or output terms
+refuses the update. This recovery did not calculate or broadcast another payment.
+Actual delivery and cross-chain settlement require their separate receipts.
+Private failures record only exception class and source locations in a mode-0600
+file; exception text, subprocess arguments, keys, raw bytes and full memos are
+excluded.
+
 Verification: `python3 -m unittest discover -s workers/zcash-wallet -p 'test_*.py'`
-passed 36 tests on Linux (including thirteen durable-adapter checks, three
+passed 40 tests on Linux (including seventeen durable-adapter checks, three
 capital proof checks and three RPC transport checks). EVM selectors
 and the event topic were independently derived with installed Foundry `cast sig`
 and `cast keccak` against the Solidity function/event names, rather than inferred

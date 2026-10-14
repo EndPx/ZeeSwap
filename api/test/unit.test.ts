@@ -9,7 +9,7 @@ import { validateSnapshot } from '../src/observer.ts';
 import { filterHistorical,validateCapital } from '../scripts/live-forward-state.ts';
 import { withLeaseHeartbeat } from '../src/lease-heartbeat.ts';
 import {assertReverseAuthority,approvalDigest} from '../src/reverse-authority.ts';
-import type {PreparedZcashTransaction} from '../src/reverse-settlement.ts';
+import {requireFreshReverseDelivery,validatePreparedZcash,type PreparedZcashTransaction} from '../src/reverse-settlement.ts';
 import type {FundingTerms} from '../src/base-escrow.ts';
 import {validateReverseCapital,validateCapitalOpening,type ReverseCapitalProof,type CapitalOpening} from '../src/reverse-capital.ts';
 import {recipientShieldedBalance} from '../src/reverse-recipient-balance.ts';
@@ -18,6 +18,26 @@ import type {BaseContract} from '../src/base-contract.ts';
 import type pg from 'pg';
 import {reverseBaseRegistry} from '../src/reverse-base-rpc.ts';
 import type {BaseRegistry} from '../src/base-contract.ts';
+
+test('SETTLE refuses fresh pending delivery even when an older database confirmation and signed SETTLE exist',async()=>{
+ const durable={confirmed:true,signedSettlement:true};let irreversibleCalls=0;
+ const act=async()=>{assert.ok(durable.confirmed&&durable.signedSettlement);irreversibleCalls++;};
+ await assert.rejects(()=>requireFreshReverseDelivery(async()=>({status:'AWAITING_ZCASH_FINALITY'}),act),/FRESH_ZCASH_DELIVERY_REQUIRED/);
+ assert.equal(irreversibleCalls,0);
+ await assert.rejects(()=>requireFreshReverseDelivery(async()=>{throw Error('CANONICAL_RECEIPT_CHANGED');},act),/CANONICAL_RECEIPT_CHANGED/);
+ assert.equal(irreversibleCalls,0);
+ await requireFreshReverseDelivery(async()=>({status:'ZCASH_DELIVERY_FINALIZED'}),act);assert.equal(irreversibleCalls,1);
+});
+test('authenticated payout plus change conserve capital and require distinct bounded output indices',()=>{
+ const terms={orderId:'11111111-1111-1111-1111-111111111111',operationId:'22222222-2222-2222-2222-222222222222',recipient:'fixture:recipient',amountZatoshi:'100000',maxFeeZatoshi:'10000'};
+ const prepared:PreparedZcashTransaction={operationId:terms.orderId,amount:'100000',recipient:terms.recipient,fee:'10000',feeZatoshi:'10000',expiryHeight:'2000',txid:'aa'.repeat(32),rawTransaction:'abcd',
+ selectedNotes:[{pool:'ironwood',txid:'bb'.repeat(32),index:0,value:'200000'}],outputs:[{recipient:terms.recipient,amount:'100000',ownChange:false,index:1},{recipient:'fixture:change',amount:'90000',ownChange:true,index:0}]};
+ assert.doesNotThrow(()=>validatePreparedZcash(prepared,terms));
+ for(const index of [0,-1,0x100000000,Number.NaN]){
+  assert.throws(()=>validatePreparedZcash({...prepared,outputs:[{...prepared.outputs[0],index},prepared.outputs[1]]},terms),/INVALID_PREPARED_ZCASH_PAYOUT/);
+ }
+ assert.throws(()=>validatePreparedZcash({...prepared,outputs:[prepared.outputs[0]]},terms),/INVALID_PREPARED_ZCASH_NOTES/);
+});
 
 test('private reverse RPC override accepts only the two verified HTTPS endpoints and preserves deployment identity',()=>{
  const registry={chainId:84532,rpcUrl:'https://sepolia.base.org',contracts:{MockUSDC:{address:'fixture'},ZeeSwapSettlement:{address:'fixture'}}} as unknown as BaseRegistry;
@@ -91,7 +111,7 @@ test('final reverse broadcast authority rejects stale approval, another order, a
  const funding={id:'0x'+'11'.repeat(32),token:'0x'+'22'.repeat(20),payer:'0x'+'44'.repeat(20),refundRecipient:'0x'+'55'.repeat(20),amount:'100000',nonce:'1',fundingCutoff:'9000',cancellationAvailableAt:'16200'} as FundingTerms;
  const terms={orderId:id,operationId:'22222222-2222-2222-2222-222222222222',recipient:'fixture:shielded',amountZatoshi:'100000',maxFeeZatoshi:'10000'};
  const prepared:PreparedZcashTransaction={operationId:id,amount:'100000',fee:'10000',recipient:terms.recipient,txid:'aa'.repeat(32),rawTransaction:'abcd',feeZatoshi:'10000',expiryHeight:'1020',
- selectedNotes:[{pool:'ironwood',txid:'bb'.repeat(32),index:0,value:'200000'}],outputs:[{recipient:terms.recipient,amount:'100000',ownChange:false},{recipient:'fixture:change',amount:'90000',ownChange:true}]};
+ selectedNotes:[{pool:'ironwood',txid:'bb'.repeat(32),index:0,value:'200000'}],outputs:[{recipient:terms.recipient,amount:'100000',ownChange:false,index:1},{recipient:'fixture:change',amount:'90000',ownChange:true,index:0}]};
  const approved={version:1,orderId:id,settlementId:funding.id,recipient:terms.recipient,amountZatoshi:'100000',maxFeeZatoshi:'10000',
  base:{contract,token:funding.token,payer:funding.payer,refundRecipient:funding.refundRecipient,amountAtomic:'100000',cancellationAvailableAt:funding.cancellationAvailableAt}};
  const digest=approvalDigest(approved),request={operationId:id,approvedDigest:digest,txid:prepared.txid,rawSha256:createHash('sha256').update(Buffer.from('abcd','hex')).digest('hex')};

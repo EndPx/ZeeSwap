@@ -13,7 +13,21 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import traceback
 from reverse_preflight import validate_request
+
+
+_error_path = None
+
+
+def private_error(path, error):
+    """Log only exception class and source locations, never exception text/data."""
+    frames = traceback.extract_tb(error.__traceback__)
+    record = {'observedAt': datetime.now(timezone.utc).isoformat(),
+              'errorClass': type(error).__name__,
+              'frames': [{'file': Path(frame.filename).name, 'function': frame.name, 'line': frame.lineno}
+                         for frame in frames[-5:]]}
+    durable(path, record, exclusive=not Path(path).exists())
 
 
 def durable(path, value, exclusive=False):
@@ -79,6 +93,9 @@ def validate_prepared(export, request, intent, structure, tip, sdk, require_safe
         raise ValueError('Selected notes must be exact isolated confirmed capital')
     # These outgoing notes were decrypted by SDK at calculation. Validate its
     # encoded receiver using the same maintained parser as the approved address.
+    indices = [out.get('index') for out in tx['outputs']]
+    if any(type(index) is not int or index < 0 for index in indices) or len(indices) != len(set(indices)):
+        raise ValueError('Unique nonnegative actual shielded output indices required')
     outputs = [out for out in tx['outputs'] if out.get('ownChange') is not True]
     if len(outputs) != 1 or outputs[0]['amount'] != request['amountZatoshi']:
         raise ValueError('SDK outgoing exact recipient amount required')
@@ -211,6 +228,22 @@ class Adapter:
                 durable(self.path, {**intent, 'state': 'PREPARED', 'prepared': prepared})
                 intent = json.loads(self.path.read_text())
             prepared = intent['prepared']
+            if command == 'recover' and any('index' not in out for out in prepared['outputs']):
+                # Narrow metadata repair for the SDK export revision. This
+                # never calculates: only the exact already persisted raw/txid
+                # may supply its missing authenticated output indices.
+                export = self.run(self.base + ['--offline', '--nosync', 'calculate', '--recover'])
+                repaired = self.verify(export, intent, tip, require_safe_expiry=False)
+                identity_fields = ('txid', 'rawTransaction', 'feeZatoshi', 'expiryHeight', 'selectedNotes')
+                old_outputs = [{key: out[key] for key in ('recipient', 'amount', 'ownChange')}
+                               for out in prepared['outputs']]
+                new_outputs = [{key: out[key] for key in ('recipient', 'amount', 'ownChange')}
+                               for out in repaired['outputs']]
+                if any(repaired[field] != prepared[field] for field in identity_fields) or new_outputs != old_outputs:
+                    raise ValueError('Metadata repair cannot alter original signed transaction or outputs')
+                prepared = repaired
+                intent = {**intent, 'prepared': prepared}
+                durable(self.path, intent)
             if command == 'receipt':
                 txid = prepared['txid']
                 import grpc
@@ -299,11 +332,13 @@ class Adapter:
 
 
 def main():
+    global _error_path
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', required=True, type=Path)
     args = parser.parse_args()
     os.umask(0o077)
     config = json.loads(args.config.read_text())
+    _error_path = Path(config['journalPath']).with_name('adapter-error.private.json')
     payload = json.loads(sys.stdin.read(8192))
     if set(payload) != {'command'}:
         raise ValueError('Only operator-owned immutable request is accepted')
@@ -319,6 +354,11 @@ def main():
 if __name__ == '__main__':
     try:
         main()
-    except Exception:
+    except Exception as error:
+        if _error_path is not None:
+            try:
+                private_error(_error_path, error)
+            except Exception:
+                pass
         print('Durable reverse adapter refused; retain private journal and reconcile original transaction', file=sys.stderr)
         sys.exit(1)

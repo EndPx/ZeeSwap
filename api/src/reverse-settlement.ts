@@ -12,7 +12,7 @@ export interface PreparedZcashTransaction {
  operationId:string;amount:string;fee:string;recipient:string;
  txid:string;rawTransaction:string;feeZatoshi:string;expiryHeight:string;
  selectedNotes:{pool:'ironwood';txid:string;index:number;value:string}[];
- outputs:{recipient:string;amount:string;ownChange:boolean}[];
+ outputs:{recipient:string;amount:string;ownChange:boolean;index:number}[];
 }
 export interface ReversePayoutTerms {orderId:string;operationId:string;recipient:string;amountZatoshi:string;maxFeeZatoshi:string}
 export interface VerifiedZcashReceipt {
@@ -41,23 +41,34 @@ export async function reversePayoutTerms(pool:pg.Pool,keys:PrivateData,orderId:s
  return {orderId,operationId:row.operation_id,recipient:q.recipient,amountZatoshi:row.output_amount,maxFeeZatoshi:row.payout_fee};
 }
 
-function validatePrepared(p:PreparedZcashTransaction,q:ReversePayoutTerms){
+export function validatePreparedZcash(p:PreparedZcashTransaction,q:ReversePayoutTerms){
  const external=p.outputs.filter(o=>o.ownChange===false);
  if(p.operationId!==q.orderId||p.amount!==q.amountZatoshi||p.fee!==p.feeZatoshi||p.recipient!==q.recipient
  ||!/^[0-9a-f]{64}$/.test(p.txid)||!/^([0-9a-f]{2})+$/.test(p.rawTransaction)||p.rawTransaction.length>4_000_000
  ||!/^[1-9][0-9]*$/.test(p.expiryHeight)||BigInt(p.expiryHeight)>0xffffffffn||!/^[1-9][0-9]*$/.test(p.feeZatoshi)||BigInt(p.feeZatoshi)>BigInt(q.maxFeeZatoshi)
  ||external.length!==1||external[0].recipient!==q.recipient||external[0].amount!==q.amountZatoshi
- ||p.outputs.some(o=>typeof o.ownChange!=='boolean'||!/^[1-9][0-9]*$/.test(o.amount)||!o.recipient)
+ ||p.outputs.some(o=>typeof o.ownChange!=='boolean'||!/^[1-9][0-9]*$/.test(o.amount)||!o.recipient
+   ||!Number.isSafeInteger(o.index)||o.index<0||o.index>0xffffffff)
+ ||new Set(p.outputs.map(o=>o.index)).size!==p.outputs.length
  ||!p.selectedNotes.length||p.selectedNotes.some(n=>n.pool!=='ironwood'||!/^[0-9a-f]{64}$/.test(n.txid)||!Number.isSafeInteger(n.index)||n.index<0||!/^[1-9][0-9]*$/.test(n.value)))throw Error('INVALID_PREPARED_ZCASH_PAYOUT');
  const notes=new Set(p.selectedNotes.map(n=>`${n.pool}:${n.txid}:${n.index}`));
  if(notes.size!==p.selectedNotes.length||p.selectedNotes.reduce((v,n)=>v+BigInt(n.value),0n)!==p.outputs.reduce((v,o)=>v+BigInt(o.amount),0n)+BigInt(p.feeZatoshi))throw Error('INVALID_PREPARED_ZCASH_NOTES');
+}
+
+/** A prior durable confirmation cannot substitute for a fresh canonical receipt.
+ * The callback is unreachable for pending, missing or contradictory evidence.
+ */
+export async function requireFreshReverseDelivery<T>(observe:()=>Promise<{status:string}>,afterFreshProof:()=>Promise<T>):Promise<T>{
+ const result=await observe();
+ if(result.status!=='ZCASH_DELIVERY_FINALIZED')throw Error('FRESH_ZCASH_DELIVERY_REQUIRED_RECONCILE');
+ return afterFreshProof();
 }
 
 /** Signer journal and wallet save must precede this durable DB record. */
 export async function storeReversePayout(pool:pg.Pool,keys:PrivateData,orderId:string,jobId:string,owner:string,fence:string,
  prepared:PreparedZcashTransaction,verifier:ReverseZcashVerifier){
  await pool.query('SELECT zee.check_reverse_signing($1,$2,$3,$4)',[orderId,jobId,owner,fence]);
- const terms=await reversePayoutTerms(pool,keys,orderId);validatePrepared(prepared,terms);
+ const terms=await reversePayoutTerms(pool,keys,orderId);validatePreparedZcash(prepared,terms);
  await verifier.verifyPrepared(prepared,terms);
  // Recheck the lease/source/COMMIT after the independent wallet/decoder work.
  await pool.query('SELECT zee.store_reverse_payout($1,$2,$3,$4,$5,$6,$7,$8)',[orderId,jobId,owner,fence,
@@ -69,7 +80,7 @@ export async function observeReversePayout(pool:pg.Pool,keys:PrivateData,orderId
  const row=(await pool.query('SELECT * FROM zee.reverse_payouts WHERE order_id=$1',[orderId])).rows[0];
  if(!row)throw Error('REVERSE_SIGNED_PAYOUT_MISSING');
  const prepared=keys.open(row.signed_payload,payoutContext(orderId)) as PreparedZcashTransaction;
- const terms=await reversePayoutTerms(pool,keys,orderId);validatePrepared(prepared,terms);
+ const terms=await reversePayoutTerms(pool,keys,orderId);validatePreparedZcash(prepared,terms);
  await verifier.verifyPrepared(prepared,terms);
  const proof=await verifier.receipt(prepared,terms);if(!proof)return {status:'AWAITING_ZCASH_FINALITY'};
  if(proof.txid!==prepared.txid||proof.recipient!==terms.recipient||proof.amountZatoshi!==terms.amountZatoshi

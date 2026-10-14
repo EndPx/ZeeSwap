@@ -19,7 +19,8 @@ def main():
     if 'zeeswap_prepared_v1' in source:
         raise SystemExit('Prepared export patch already applied')
     source = source.replace('OrchardNote, SaplingNote, SyncMode',
-                            'OrchardNote, SaplingNote, SyncMode, OutputInterface, OutgoingNoteInterface')
+                            'OrchardNote, SaplingNote, SyncMode, OutputInterface, OutgoingNoteInterface, NoteInterface')
+    source = source.replace('use zcash_keys::address::Address;', 'use zcash_keys::address::{Address, UnifiedAddress};')
     start = source.index('async fn calculate(lightclient:')
     end = source.index('\n/// The `change_server`', start)
     source = source[:start] + RUST + source[end:]
@@ -67,14 +68,29 @@ async fn calculate(lightclient: &mut LightClient, recover: bool, args: &[String]
                 "pool" => "ironwood", "txid" => n.output_id().txid().to_string(),
                 "index" => n.output_id().output_index(), "value" => n.value().to_string()
             }).collect::<Vec<_>>();
-        let outputs = record.outgoing_ironwood_notes().iter().map(|n| {
+        let mut outputs = record.outgoing_ironwood_notes().iter().map(|n| {
             Ok(object! {
                 "recipient" => n.encoded_recipient(&wallet.chain_type()).map_err(not_yet_typed)?,
+                "index" => n.output_id().output_index(),
                 "amount" => n.value().to_string(),
                 "ownChange" => record.ironwood_notes().iter().any(|own|
                     own.output_id() == n.output_id() && own.key_id().scope == zip32::Scope::Internal)
             })
         }).collect::<Result<Vec<_>, CommandError>>()?;
+        // The pinned SDK excludes internal change from its outgoing list.
+        // Include actual incoming-internal notes from this same transaction;
+        // they were authenticated/decrypted by the wallet's internal IVK.
+        for own in record.ironwood_notes().iter().filter(|own|
+            own.key_id().scope == zip32::Scope::Internal &&
+            !record.outgoing_ironwood_notes().iter().any(|n| n.output_id() == own.output_id())) {
+            let address = UnifiedAddress::from_receivers(Some(own.note().recipient()), None, None, None, None)
+                .ok_or_else(|| usage("calculate", "Internal receiver missing"))?;
+            outputs.push(object! {
+                "recipient" => address.encode(&wallet.chain_type()),
+                "index" => own.output_id().output_index(),
+                "amount" => own.value().to_string(), "ownChange" => true
+            });
+        }
         prepared.push(object! {
             "txid" => txid.to_string(),
             "rawTransaction" => raw.iter().map(|b| format!("{b:02x}")).collect::<String>(),

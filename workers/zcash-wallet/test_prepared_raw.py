@@ -9,7 +9,7 @@ import subprocess
 import sys
 import unittest
 from unittest.mock import patch
-from prepared_raw import Adapter, bind_receipt, durable, selected_capital, validate_prepared
+from prepared_raw import Adapter, bind_receipt, durable, private_error, selected_capital, validate_prepared
 
 
 TXID = 'a' * 64
@@ -17,8 +17,8 @@ INPUT = {'pool': 'ironwood', 'txid': 'b' * 64, 'index': 2, 'value': '200000'}
 REQUEST = {'orderId': 'test-order', 'recipient': 'recipient', 'amountZatoshi': '100000', 'maxFeeZatoshi': '10000'}
 PREPARED = {'txid': TXID, 'rawTransaction': '010203', 'feeZatoshi': '10000', 'expiryHeight': '150',
             'selectedNotes': [INPUT], 'outputs': [
-                {'recipient': 'recipient', 'amount': '100000', 'ownChange': False},
-                {'recipient': 'change', 'amount': '90000', 'ownChange': True}]}
+                {'recipient': 'recipient', 'amount': '100000', 'ownChange': False, 'index': 0},
+                {'recipient': 'change', 'amount': '90000', 'ownChange': True, 'index': 1}]}
 INTENT = {'state': 'SIGNING_INTENT', 'capitalNotes': [INPUT], 'approvedDigest': 'approved', 'request': REQUEST}
 
 
@@ -33,6 +33,23 @@ def validate(tx=PREPARED, tip=100, safe=True):
 
 
 class ValidationTests(unittest.TestCase):
+    def test_sdk_outgoing_list_excludes_internal_change(self):
+        # Actual pinned SDK outgoing_ironwood_notes held only the external
+        # recipient; authenticated incoming-internal notes complete the export.
+        omitted = copy.deepcopy(PREPARED)
+        omitted['outputs'] = omitted['outputs'][:1]
+        with self.assertRaises(ValueError):
+            validate(omitted)
+        complete = copy.deepcopy(omitted)
+        complete['outputs'].append({'recipient': 'change', 'amount': '90000', 'ownChange': True, 'index': 1})
+        self.assertEqual(validate(complete)['feeZatoshi'], '10000')
+
+    def test_duplicate_or_invalid_output_indices_refused(self):
+        for index in (0, -1, True, None):
+            broken = copy.deepcopy(PREPARED)
+            broken['outputs'][1]['index'] = index
+            with self.assertRaises(ValueError):
+                validate(broken)
     def test_same_recipient_amount_cannot_rebind_prior_order_receipt(self):
         proof = {'txid': TXID, 'amount': REQUEST['amountZatoshi'],
                  'recipient': REQUEST['recipient'], 'confirmed': True}
@@ -95,6 +112,17 @@ class ValidationTests(unittest.TestCase):
 
 
 class DurableTests(unittest.TestCase):
+    def test_private_error_records_no_exception_payload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'error.private.json'
+            try:
+                raise ValueError('SECRET_KEY_AND_FULL_MEMO_MUST_NEVER_APPEAR')
+            except ValueError as error:
+                private_error(path, error)
+            record = json.loads(path.read_text())
+            self.assertEqual(record['errorClass'], 'ValueError')
+            self.assertNotIn('SECRET_KEY_AND_FULL_MEMO_MUST_NEVER_APPEAR', path.read_text())
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
     def test_child_retains_writer_lock_if_parent_descriptor_closes(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'writer.lock'
@@ -184,6 +212,43 @@ class DurableTests(unittest.TestCase):
             self.assertEqual(first['rawTransaction'], second['rawTransaction'])
             self.assertEqual(len(calls), 1)
             self.assertEqual(json.loads(adapter.path.read_text())['state'], 'PREPARED')
+
+    def test_missing_output_indices_recovered_only_for_identical_original_bytes(self):
+        for different_raw in (False, True):
+            with tempfile.TemporaryDirectory() as directory:
+                adapter = Adapter.__new__(Adapter)
+                adapter.path = Path(directory) / 'intent.json'
+                old = copy.deepcopy(PREPARED)
+                for out in old['outputs']:
+                    del out['index']
+                durable(adapter.path, {**INTENT, 'state': 'PREPARED', 'prepared': old}, exclusive=True)
+                adapter.request = REQUEST
+                adapter.config = {'approvedDigest': 'approved'}
+                adapter.base = ['sdk']
+                class Channel:
+                    def close(self): pass
+                class Service:
+                    def GetLatestBlock(self, request, timeout):
+                        return type('Tip', (), {'height': 200})()
+                class Messages:
+                    def ChainSpec(self): return None
+                adapter.network = lambda: (Channel(), Service(), Messages())
+                actual = copy.deepcopy(PREPARED)
+                if different_raw:
+                    actual['rawTransaction'] = '040506'
+                def run(command):
+                    self.assertEqual(command, ['sdk', '--offline', '--nosync', 'calculate', '--recover'])
+                    return {'version': 'zeeswap_prepared_v1', 'transactions': [actual]}
+                adapter.run = run
+                adapter.verify = lambda export, intent, tip, require_safe_expiry=False: export['transactions'][0]
+                if different_raw:
+                    with self.assertRaises(ValueError):
+                        adapter.execute('recover')
+                    self.assertEqual(json.loads(adapter.path.read_text())['prepared'], old)
+                else:
+                    recovered = adapter.execute('recover')
+                    self.assertEqual(recovered['rawTransaction'], old['rawTransaction'])
+                    self.assertEqual([out['index'] for out in recovered['outputs']], [0, 1])
 
     def test_response_loss_keeps_unknown_and_retries_identical_bytes(self):
         with tempfile.TemporaryDirectory() as directory:

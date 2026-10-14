@@ -12,7 +12,7 @@ import { BaseContract,loadBaseRegistry } from '../src/base-contract.ts';
 import { Repository } from '../src/repository.ts';
 import { LocalReverseBaseSigner } from '../src/base-signer.ts';
 import { authorizeEscrow,fundingCall,escrowTerms,observeEscrowFunding,storeEscrowCommit,observeEscrowCommit } from '../src/base-escrow.ts';
-import { reversePayoutTerms,storeReversePayout,observeReversePayout,storeEscrowSettlement,observeEscrowSettlement,type PreparedZcashTransaction } from '../src/reverse-settlement.ts';
+import { reversePayoutTerms,storeReversePayout,observeReversePayout,storeEscrowSettlement,observeEscrowSettlement,requireFreshReverseDelivery,type PreparedZcashTransaction } from '../src/reverse-settlement.ts';
 import { LocalReverseWalletAdapter } from '../src/reverse-wallet-adapter.ts';
 import { withLeaseHeartbeat } from '../src/lease-heartbeat.ts';
 import { accessHash } from '../src/private-data.ts';
@@ -77,13 +77,11 @@ async function baseBroadcast(phase:'COMMIT'|'SETTLE'){
  return leased(async(job,owner,check)=>{
   const gate=phase==='COMMIT'?'check_escrow_dispatch':'check_reverse_signing';
   await check();await worker.query(`SELECT zee.${gate}($1,$2,$3,$4)`,[state.orderId,job.id,owner,job.fence]);
-  if(phase==='SETTLE'){
-   await observeReversePayout(worker,r.keys,state.orderId,zcash);
-   await worker.query('SELECT zee.check_reverse_delivery($1)',[state.orderId]);
-  }
   const known=await base.client.getTransaction({hash:signed.hash}).catch(e=>{if(e.name==='TransactionNotFoundError')return null;throw e;});
   if(known)return {status:'AWAITING_BASE_FINALITY'};
   if(await base.client.getTransactionCount({address:base.registry.operator,blockTag:'latest'})>signed.nonce)throw Error('BASE_NONCE_CONFLICT_RECONCILE');
+  if(phase==='SETTLE')await requireFreshReverseDelivery(()=>observeReversePayout(worker,r.keys,state.orderId,zcash),
+   ()=>worker.query('SELECT zee.check_reverse_delivery($1)',[state.orderId]));
   await check();await worker.query(`SELECT zee.${gate}($1,$2,$3,$4)`,[state.orderId,job.id,owner,job.fence]);
   try{const hash=await base.client.sendRawTransaction({serializedTransaction:signed.raw});if(hash!==signed.hash)throw Error('identity');}
   catch{throw Error('BASE_BROADCAST_UNCERTAIN_RECONCILE_OR_SAME_BYTES');}
@@ -120,7 +118,8 @@ try{
   }else if(step==='prepare-commit'||step==='prepare-settle'){
    const phase=step==='prepare-commit'?'COMMIT':'SETTLE';
    result=await leased(async(job,owner,check)=>{
-    if(phase==='SETTLE'){await observeReversePayout(worker,r.keys,state.orderId,zcash);await worker.query('SELECT zee.check_reverse_delivery($1)',[state.orderId]);}
+    if(phase==='SETTLE')await requireFreshReverseDelivery(()=>observeReversePayout(worker,r.keys,state.orderId,zcash),
+     ()=>worker.query('SELECT zee.check_reverse_delivery($1)',[state.orderId]));
     const terms=await escrowTerms(worker,r.keys,base,state.orderId),signed=await baseSigner.prepareEscrow(terms,phase);await check();
     await refreshObservers();await check();
     if(phase==='COMMIT')await storeEscrowCommit(worker,r.keys,base,state.orderId,job.id,owner,job.fence,signed);

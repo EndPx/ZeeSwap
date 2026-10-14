@@ -140,11 +140,41 @@ Opening capital was credited once through the guarded bootstrap; refresh does no
 re-credit it. An independent recipient baseline was 500,000 confirmed Ironwood
 zatoshi with no unconfirmed balance.
 
-Observed compiled binary SHA-256 values:
+## Funded recovery correction (2026-10-15, Asia/Jakarta)
+
+The actual funded calculation exposed a pinned-SDK behavior that the initial
+fixture had missed: `outgoing_ironwood_notes` omitted the internal change note.
+The adapter rejected the incomplete conservation metadata, retained its signing
+intent and did not broadcast. The corrected exporter obtains change from the
+same stored transaction's authenticated incoming-internal note, using its actual
+value and output index. It does not infer change by subtraction.
+
+Recovery exported the original 9,166 signed bytes unchanged, with SHA-256
+`8e7c96c6c917adc4a7e7972169c294322a903a3ea1244eac15b4de852bfa0ca7`.
+The selected 200,000-zatoshi input equals the 100,000 recipient output at index 1,
+90,000 authenticated change at index 0 and 10,000 fee. A narrow metadata upgrade
+only adds SDK-authenticated indices when all original transaction identities,
+bytes, inputs and output terms match. It never recalculates a payment.
+
+The TypeScript boundary now requires unique uint32 output indices. SETTLE
+preparation and broadcast also require a fresh observation returning exactly
+`ZCASH_DELIVERY_FINALIZED`, so an older stored confirmation cannot override a
+pending or contradictory current receipt. Private diagnostics record exception
+classes and source locations without exception text or payment data.
+
+Independent review passed 17 API unit tests, 40 wallet Python tests, four
+read-only verifier negatives, typecheck and diff validation. The final 14-case
+Anvil/Neon suite passed again with the corrected output-index schema. Its
+disposable database was removed; historical fixtures remain intact. The actual
+recovery, broadcast and recipient receipt remain separately recorded in the
+public-testnet settlement report.
+
+Observed compiled binary SHA-256 values (the original export build is historical):
 
 | Binary | SHA-256 |
 | --- | --- |
-| Patched `zingo-cli` | `2b7ee5018c46fad10d050eb79344a5b50d90bcbf8503438be92cefb42bcffef0` |
+| Original prepared-export `zingo-cli` | `2b7ee5018c46fad10d050eb79344a5b50d90bcbf8503438be92cefb42bcffef0` |
+| Corrected internal-change/index `zingo-cli` | `a84abb382f9a204d89e3d39884e20ff4f213deb9cf39bcd946d32c0b58447c42` |
 | `zeeswap-g1-verify` with expiry output | `df9ac9a919bea5f02c2609292478a9c4b25e52dbe67c168e2405b517a71936e2` |
 
 The dedicated live-reverse branch `br-small-sound-aozx7xa6` was cloned from the
