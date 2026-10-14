@@ -1,9 +1,11 @@
 # Reverse settlement integration
 
-The target flow is **Base mockUSDC escrow → shielded TAZ payout**. The deployed
+The implemented operator flow is **Base mockUSDC escrow → shielded TAZ payout**. The deployed
 Base contract already supports funding, a payout commitment and settlement.
-The public reverse quote route remains closed until the Zcash signer, durable
-transaction recovery and final accounting are integrated and verified.
+One bounded public-testnet order passed the signer, original-transaction recovery,
+independent recipient receipt and final accounting checks; see
+[the actual reverse evidence](evidence/g4-live-reverse.md). The public reverse
+quote route remains closed pending service and end-user integration gates.
 
 ## Required sequence
 
@@ -46,6 +48,11 @@ broadcast guard and a separate Base acknowledgement signer. See the
 [recovery checkpoint](evidence/g4-reverse-recovery.md) and
 [wallet module](../workers/zcash-wallet/README.md). Compiled code and synthetic
 recovery tests remain distinct from funded public-testnet execution.
+
+The first funded SDK export omitted internal change. The corrected exporter
+includes the same transaction's authenticated internal incoming note and output
+index. Recovery preserved the original signed bytes, which later confirmed as
+the exact recipient payout. No replacement payment was calculated.
 
 The deployed contract has no abort/refund transition from `PAYOUT_COMMITTED`.
 A failed or ambiguous Zcash payout after commitment therefore remains an

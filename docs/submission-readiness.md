@@ -20,8 +20,9 @@ The prototype uses TAZ and project-owned mockUSDC, with fixture pricing.
 | Foundry contracts and verified Base Sepolia deployment | [G3 contract evidence](evidence/g3-contracts.md) |
 | Forward backend and durable signer integration | [Anvil + Neon integration evidence](evidence/g3-base-integration.md); live connection checks without payment |
 | One real forward public-testnet swap | [G4 receipts and reconciliation](evidence/g4-live-forward.md): 0.001 shielded TAZ to 0.1 mockUSDC, finalized and SETTLED |
-| Reverse escrow/signing prerequisites | [Local reverse preflight](evidence/g4-reverse-preflight.md); no reverse public-testnet payout yet |
+| Reverse escrow/signing prerequisites | [Historical reverse preflight](evidence/g4-reverse-preflight.md) |
 | Durable reverse execution and recovery | [SDK adapter and repeatable tests](evidence/g4-reverse-recovery.md); distinguish synthetic destination proofs from live receipts |
+| One real reverse public-testnet swap | [G4 reverse receipts and reconciliation](evidence/g4-live-reverse.md): 0.1 mockUSDC to 0.001 shielded TAZ, confirmed recipient delta and finalized Base acknowledgement |
 | Public transaction lookup | [Explorer discrepancy and replacement link](evidence/explorer-verification.md) |
 
 Only source, migrations, lockfiles, tests, configuration examples and sanitized
@@ -44,9 +45,11 @@ was saved during this review.
 The public repository exists. A working frontend/demo and video are still
 missing. mockUSDC and settlement contracts are deployed and source-verified.
 Forward service integration and payout accounting have passed Anvil + Neon tests.
-One forward public-testnet swap passed, including the recipient balance delta
-and final accounting. The reverse signer, live refund execution, broader
-recovery tests and the two-direction bridge remain open under G4–G7.
+One public-testnet swap in each direction passed, including exact recipient
+balance deltas and final accounting. The operator's reverse signer and original
+transaction recovery were exercised with real TAZ. Public reverse HTTP intake,
+live refund execution, broader recovery tests and the two-direction bridge
+remain open under G4–G7.
 Never present `READY` as a successful destination payment.
 
 ## Historical clean-export verification

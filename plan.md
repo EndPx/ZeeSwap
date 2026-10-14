@@ -1,8 +1,8 @@
 # ZeeSwap implementation plan
 
-Last updated: 2026-10-14 (Asia/Jakarta).
+Last updated: 2026-10-15 (Asia/Jakarta).
 
-Status: One real forward public-testnet swap passed: 0.001 shielded TAZ to 0.1 mockUSDC, with a finalized recipient balance increase, SETTLED private order and balanced ledger. The bounded operator experiment is closed; the primary has ten migrations and remains empty and paused. Zcash CLI feasibility, HTTP/scanner intake, Anvil + Neon settlement tests and source-verified Base contracts precede this proof. Reverse execution, end-user wallet UX, recovery/soak, bridge and demo gates remain open. See docs/evidence/g4-live-forward.md; G4 as a whole is not complete.
+Status: One bounded public-testnet swap passed in each direction: 0.001 shielded TAZ to 0.1 mockUSDC, and 0.1 mockUSDC to 0.001 shielded TAZ. Both private orders are SETTLED with exact recipient receipts and balanced ledgers. Reverse recovery preserved the original signed transaction; finalized Base acknowledgement and the independent final verifier passed. All operator controls remain paused; primary has ten migrations and stays empty. Public reverse HTTP intake, end-user wallet/UI integration, broader recovery/soak, live refunds, bridge and demo gates remain open. See docs/evidence/g4-live-forward.md and docs/evidence/g4-live-reverse.md.
 
 ## 1. Read this before every task
 
@@ -34,12 +34,13 @@ Status: One real forward public-testnet swap passed: 0.001 shielded TAZ to 0.1 m
 | Neon integration branch | `br-solitary-flower-ao8ccjex` (`zeeswap-g2-database`): preserves the real testnet incoming-payment experiment; destination inventory is an explicit fixture. Never run fixture-reset tests against it. |
 | Neon regression branch | `br-muddy-waterfall-aoqd8o9b` (`zeeswap-g2-tests`): isolated synthetic DB/HTTP tests. Primary remains free of test orders/funds and dispatch is paused. |
 | Neon forward evidence branch | `br-crimson-river-aobpimyq` (`zeeswap-g4-live-forward`): one real forward settlement with reconciled capital, separate from fixtures and primary; experiment closed. |
+| Neon reverse evidence branch | `br-small-sound-aozx7xa6` (`zeeswap-g4-live-reverse`): one real reverse settlement, twelve migrations, isolated operator capital and reconciled final ledger; controls paused. |
 | Repository | Public: https://github.com/EndPx/ZeeSwap ; default branch `main` |
 | Public wording | Describe user outcomes. Keep memo-based routing in technical documentation, not the product vision or hero tagline. |
 
 ### Selected engineering baseline
 
-These are design choices made during this planning pass, not implemented capabilities.
+These design decisions govern implementation. Gate-specific evidence below establishes which capabilities are verified.
 
 - One operator supplies inventory and takes custody of received source funds during fulfillment. Separate observation, quote, payout, and administrative authority. Do not label this prototype trustless, non-custodial, or atomic.
 - Deliver the two-direction swap and constrained intent flow first, followed by the two-direction backed-token bridge. This is implementation order, not permission to remove bridge from the overall scope.
@@ -315,9 +316,9 @@ Do not create empty `cre/`, `indexer/`, SDK, or multi-chain adapter packages. Ad
 | P0 | This plan: custody, quote/refund, privacy, persistence, bridge liabilities, research references | Read-only review completed; four critical precision gaps corrected; user scope preserved; unknowns listed | Complete for planning only |
 | G1 | Integration feasibility; `workers/zcash-wallet/`, `docs/evidence/g1-feasibility.md` | Tested wallet versions; testnet identity; decode a funded shielded note's exact amount/memo; read-only scanner cannot spend; send shielded payout to an independent recipient wallet; source/destination receipts; repeat after restart | Five-step CLI experiment passed; direct/pooled Neon TLS verified. Base chain ID/latest/finalized headers and canonical finalized hash verified. A real ZeeSwap Base payout is now evidenced in G4; end-user wallet UX remains open |
 | G2 | Pure order rules/accounting and Neon; `api/`, `api/migrations/`, `packages/shared/` when shared consumers exist | Independent expected-value tests for precision, cutoff boundaries, under/overpayment, liquidity contention, replay, refund/payout exclusion; real Postgres transactions/reconnect/restore tests | Database + local HTTP/scanner intake passed: 8 migrations, 16 tables + status view, 5 unit and 38 DB/HTTP tests. Real 0.001 TAZ order reached READY at 21 confirmations with one deposit/operation/job after replay. Primary stays empty and paused. Forward signer handoff and payout accounting subsequently passed Anvil + Neon integration tests with migration 0009 (18 tables, two views). Live two-direction accounting, refunds and backup/signer-journal restore remain open; see `docs/evidence/g3-base-integration.md` |
-| G3 | mockUSDC + Base settlement contract; `contracts/` | Mock has 6 decimals and restricted minting; reject look-alike tokens, unauthorized signer/token/network, altered quote, expired funding, replay, and concurrent refund/payout; enforce quoted cancellation deadline and permanent `PAID`/`CANCELLED` exclusivity; internal reservations cannot spend escrow liabilities; exact transfer balance checks; local failure-path tests before testnet writes | Contract implementation and deployment passed: forge init, 29 tests including fuzz/invariants, source-verified Base Sepolia mock and settlement. Registry: contracts/deployments/base-sepolia.json. Explicit G4 setup minted/deposited 10 mockUSDC; 9.9 remain after the forward payout. Forward authorization, signer and finalized accounting passed local tests and one live run. Primary activation and reverse integration remain open. See docs/evidence/g4-live-forward.md |
-| G4 | Both swap directions + constrained intents; all execution modules | Independent sender/recipient wallets; TAZ->mockUSDC and mockUSDC->TAZ; confirmed exact net receipts; correct private order status; replay-safe payout; no runtime mint used as liquidity | Forward bounded public-testnet order passed: 0.001 shielded TAZ to 0.1 mockUSDC, finalized recipient delta, SETTLED order, one payout operation, balanced ledger and no runtime mint. Experiment closed; reverse direction remains open. See docs/evidence/g4-live-forward.md |
-| G5 | Recovery, privacy, and bounded soak; workers/contracts/API | Crash before/after signing/broadcast, RPC timeout, DB disconnect/restore, duplicate workers, stale lease, source reorg, late/extra/dust deposit, unavailable signer; 20 alternating testnet orders with reconciled totals and zero duplicate payouts/unexplained deficits | Not started |
+| G3 | mockUSDC + Base settlement contract; `contracts/` | Mock has 6 decimals and restricted minting; reject look-alike tokens, unauthorized signer/token/network, altered quote, expired funding, replay, and concurrent refund/payout; enforce quoted cancellation deadline and permanent `PAID`/`CANCELLED` exclusivity; internal reservations cannot spend escrow liabilities; exact transfer balance checks; local failure-path tests before testnet writes | Contract implementation/deployment passed: 29 Foundry tests, source-verified Base Sepolia registry. The original 10 mockUSDC setup supplied the forward payout; reverse finalized escrow restored inventory to 10 mockUSDC without a new mint. Both operator paths passed one real order. Primary activation remains open. See docs/evidence/g4-live-reverse.md |
+| G4 | Both swap directions + constrained intents; all execution modules | Independent sender/recipient wallets; TAZ->mockUSDC and mockUSDC->TAZ; confirmed exact net receipts; correct private order status; replay-safe payout; no runtime mint used as liquidity | One real bounded order in each direction passed: exact agreed outputs, shielded Zcash legs, SETTLED private orders, balanced ledgers and no runtime mint. Reverse includes actual recovery of unchanged signed bytes and finalized escrow acknowledgement. Public reverse HTTP intake and end-user journey remain open. See both G4 live receipt reports |
+| G5 | Recovery, privacy, and bounded soak; workers/contracts/API | Crash before/after signing/broadcast, RPC timeout, DB disconnect/restore, duplicate workers, stale lease, source reorg, late/extra/dust deposit, unavailable signer; 20 alternating testnet orders with reconciled totals and zero duplicate payouts/unexplained deficits | Recovery foundation passed selected local crash/response-loss/lease tests and one actual same-byte recovery. Broader process-kill/DB-restore/live-refund cases and the 20-order alternating soak remain open |
 | G6 | Two-direction bridge; dedicated wallet/account, contracts, bridge ledger | Deposit/mint then finalized burn/shielded redemption; inventory isolation; `C`/`D` coverage before signing, after inclusion/confirmation/expiry/reorg/restart; no automatic re-mint on ambiguity; independent recipient confirmation | Not started; required for full scope |
 | G7 | Usable demo/submission; `apps/web/`, README, evidence | Both-direction UI journey; no misleading completion/privacy claims; clean-clone reproduction; working demo and two-minute video; all claimed gates evidenced | Not started |
 
@@ -357,20 +358,20 @@ Evidence for each gate records commit, toolchain/config hashes without secret va
 
 ## 14. Open dependencies and change log
 
-Current reverse acceptance task: exercise the compiled prepared-raw SDK adapter,
-same-transaction recovery, concrete broadcast guard and independent recipient
-receipt path with one bounded public-testnet order. The operator harness and final
-escrow/accounting path are implemented and locally verified; the public HTTP
-route remains closed. The isolated capital wallet received 200,000 zatoshi and
-the reverse experiment is in progress. Report completion only after canonical
-recipient delivery and finalized Base acknowledgement reconcile; see
-`docs/evidence/g4-reverse-recovery.md` and `docs/reverse-integration.md`.
+Completed reverse acceptance: the prepared-raw adapter, unchanged-transaction
+recovery, concrete broadcast guard, independent recipient receipt and finalized
+escrow/accounting path passed one public-testnet order. The next bounded work is
+broader recovery and inventory reconciliation for repeatable operator runs;
+public reverse HTTP and end-user integration still require their gates. Preserve
+the completed order and both signer journals; see `docs/evidence/g4-live-reverse.md`.
 
-Open dependencies are not completed work: end-user wallet UX, production operator provisioning/isolation, reverse source-event ingestion, reverse signer integration, full two-direction settlement, refund recovery, backup/signer-journal restoration and bridge backing proof. One forward public-testnet run with explicit inventory/gas funding passed; see `docs/evidence/g4-live-forward.md`. Primary intake remains closed; the dedicated experiment does not authorize a public or continuous service. Live price feeds are optional for this fixture-priced prototype.
+Open dependencies are not completed work: end-user wallet/UI integration, production operator provisioning/isolation, public reverse route readiness, live refunds, broader backup/signer-journal recovery, alternating-order soak and bridge backing proof. One operator-driven public-testnet swap in each direction passed. Primary intake remains closed; the dedicated experiments do not authorize a public or continuous service. Live price feeds are optional for this fixture-priced prototype.
 
 When closing one, replace its status with the date and evidence path. Do not delete the original failure evidence. An unresolved integration gate may change the SDK or host after comparison, but not the pair, two-direction requirement, privacy promise, or full product scope without a recorded decision.
 
 Current changes:
+
+- 2026-10-15: Finished the actual reverse order: 0.1 mockUSDC escrow produced exactly 0.001 shielded TAZ. Source funding and COMMIT finalized before Zcash signing; the original 9,166 signed bytes were recovered after correcting omitted internal-change metadata, with no replacement payment. Recipient balance rose 500,000 to 600,000 zatoshi; isolated operator change is 90,000. SETTLE finalized at Base block 48118061, and the independent read-only verifier passed against finalized block 48118248 with 1,200 Zcash confirmations. Order SETTLED, source obligation DISCHARGED, all three reservations released, ledger balanced. Actual TAZ fee 10,000 zatoshi; COMMIT/SETTLE fees 1,570,140,001,011 wei. Source mock proceeds remain operator:unreconciled. Fixed the verifier's versioned deposit decryption context without weakening proof checks. Verification: 17 unit, 14 final Anvil/Neon, 40 wallet Python, five Base signer and four read-only verifier tests; primary remains empty/paused. See docs/evidence/g4-live-reverse.md.
 
 - 2026-10-14: The live reverse run found a stale finalized pointer on the primary Base RPC. Added an explicit private operator override limited to the original endpoint and PublicNode's documented Base Sepolia endpoint. Both providers matched canonical block 48102888, the original COMMIT receipt and deployment identity; finalized policy and all signed terms remain unchanged. PublicNode finalized the same COMMIT while primary lagged. See docs/evidence/g4-reverse-recovery.md.
 

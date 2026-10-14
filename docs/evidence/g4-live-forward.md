@@ -5,7 +5,8 @@ Date: 2026-10-14 (Asia/Jakarta).
 **Passed for one bounded forward order:** 0.001 shielded TAZ on Zcash testnet
 produced 0.1 mockUSDC in a separate recipient wallet on Base Sepolia. The payment
 is finalized, the private order is `SETTLED`, and receipt, inventory and ledger
-reconciliation passed. G4 still requires the reverse direction.
+reconciliation passed. The later [reverse public-testnet report](g4-live-reverse.md)
+records the other direction; this report preserves the original forward proof.
 
 The executable harness was published at commit
 `769a8e8e52e4415691b175d3c483218ebebc8ad5`. Sol 6.1 subagents implemented and

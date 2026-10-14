@@ -1,5 +1,5 @@
 /** Read-only final proof. No signing, observation writes or runtime changes. */
-import {readFile} from 'node:fs/promises';
+import {readFile,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {createHash} from 'node:crypto';
 import {spawn} from 'node:child_process';
@@ -88,7 +88,7 @@ async function main(){
    &&getAddress(fundEvents[0].args.payer)===getAddress(terms.payer)&&fundEvents[0].args.cancellationAvailableAt===BigInt(terms.cancellationAvailableAt)
    &&source.block.timestamp<BigInt(terms.fundingCutoff),'SOURCE_FUNDING_RECEIPT_MISMATCH');
   const sourceIdentity=JSON.stringify(['base-sepolia',84532,config.fundingTransactionHash.slice(2),fundEvents[0].index,contract.toLowerCase()]);
-  const storedSource=keys.open(deposits[0].private_payload,`deposit:${sourceIdentity}`) as any;
+  const storedSource=keys.open(deposits[0].private_payload,`deposit:${sourceIdentity}:v1`) as any;
   check(deposits[0].identity_hash.equals(keys.lookup('deposit',sourceIdentity))&&storedSource.txid===config.fundingTransactionHash.slice(2)
    &&storedSource.index===fundEvents[0].index&&storedSource.amount==='100000'&&storedSource.reference===privateQuote.reference
    &&storedSource.receiver===privateQuote.depositReceiver&&storedSource.emitter.toLowerCase()===contract.toLowerCase(),'SOURCE_IDENTITY_BINDING_MISMATCH');
@@ -174,4 +174,12 @@ async function main(){
    zcashConfirmations:zproof.confirmations,baseReceipts:receipts,checkedFinalizedBlock:heads.finalized.number.toString()}));
  }catch(e){if(open)await c.query('ROLLBACK').catch(()=>{});throw e;}finally{c.release();await pool.end();}
 }
-try{await main();}catch(error){const code=error instanceof Error&&/^[A-Z_]{1,64}$/.test(error.message)?error.message:'PRIVATE_VERIFICATION_ERROR';console.error(JSON.stringify({verified:false,readOnly:true,error:code}));process.exitCode=1;}
+try{await main();}catch(error){
+ const code=error instanceof Error&&/^[A-Z_]{1,64}$/.test(error.message)?error.message:'PRIVATE_VERIFICATION_ERROR';
+ // Capture only source locations and an allowlisted exception class. Never persist
+ // exception messages, RPC payloads, URLs or decrypted order values.
+ const locations=error instanceof Error?(error.stack??'').split('\n').slice(1).map(line=>line.match(/(?:verify-live-reverse\.ts|[a-zA-Z-]+\.ts):\d+:\d+/)?.[0]).filter(Boolean):[];
+ const exceptionClass=error instanceof TypeError?'TypeError':error instanceof SyntaxError?'SyntaxError':error instanceof RangeError?'RangeError':error instanceof Error?'Error':'Unknown';
+ await writeFile(new URL('../../.deploy-local/reverse-verifier-diagnostic.private.json',import.meta.url),JSON.stringify({code,exceptionClass,locations}),{mode:0o600}).catch(()=>{});
+ console.error(JSON.stringify({verified:false,readOnly:true,error:code}));process.exitCode=1;
+}

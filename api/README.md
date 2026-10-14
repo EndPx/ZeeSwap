@@ -167,21 +167,26 @@ lightwalletd remains trusted; a full-validator proof is not implemented.
 The forward Base adapter verifies recorded reservation/payment receipts and their
 events. The [reverse dependency checkpoint](../docs/reverse-integration.md) adds
 signed escrow terms, finalized funding observation and a fenced commitment gate.
-Reverse HTTP intake, a runtime Zcash signer and final settlement accounting remain open.
+The bounded reverse operator signer, independent receipt path and final accounting
+subsequently passed an actual testnet order; see
+[reverse settlement evidence](../docs/evidence/g4-live-reverse.md). Public reverse
+HTTP intake and continuous service operation remain open.
 Primary order intake remains closed.
 
 Legacy outbox jobs remain evaluation-only. New `base-settlement-v1` quotes use
 fenced forward dispatch, immutable signed attempts and finalized receipt evidence.
-`chain_authorization_verified` can become true only with a confirmed Base
-reservation row. The database trusts the restricted receipt observer; a row or
+`chain_authorization_verified` requires a confirmed Base reservation for forward
+orders or a finalized escrow commitment for reverse orders. The database trusts
+the restricted receipt observer; a row or
 uniqueness constraint alone is not a blockchain proof or an exactly-once guarantee.
 
 Private HTTP capability authorization, forward signer handoff and finalized
 payout accounting are implemented and tested on Anvil + Neon. One real forward
 testnet settlement also passed capital, receipt and ledger reconciliation; see
-[G4 live evidence](../docs/evidence/g4-live-forward.md). Remaining work includes
-ongoing capital reconciliation, reverse source escrow acknowledgement,
-Zcash payout/refund signing, refund accounting and broader recovery verification.
+[G4 live evidence](../docs/evidence/g4-live-forward.md). The actual reverse order
+also passed Zcash delivery, finalized escrow acknowledgement and fee accounting.
+Remaining work includes ongoing capital reconciliation, public route integration,
+refund signing/accounting and broader recovery verification.
 Inventory credits must come from verified operator-capital reconciliation; test
 fixtures are not a funding API. Bridge accounting arrives in G6.
 
