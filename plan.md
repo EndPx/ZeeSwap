@@ -357,11 +357,21 @@ Evidence for each gate records commit, toolchain/config hashes without secret va
 
 ## 14. Open dependencies and change log
 
+Next bounded reverse task: expose and durably journal the pinned SDK's calculated
+transaction bytes and chosen notes using an isolated operator-capital wallet.
+Verify immutable recipient/value/privacy/fee/expiry before broadcast, reconcile
+the original transaction after restart, and connect independent recipient receipt
+verification. Only then integrate reverse HTTP intake and final escrow/accounting
+completion for a bounded public-testnet run. The escrow preflight checkpoint does
+not satisfy this signer or delivery gate; see `docs/reverse-integration.md`.
+
 Open dependencies are not completed work: end-user wallet UX, production operator provisioning/isolation, reverse source-event ingestion, reverse signer integration, full two-direction settlement, refund recovery, backup/signer-journal restoration and bridge backing proof. One forward public-testnet run with explicit inventory/gas funding passed; see `docs/evidence/g4-live-forward.md`. Primary intake remains closed; the dedicated experiment does not authorize a public or continuous service. Live price feeds are optional for this fixture-priced prototype.
 
 When closing one, replace its status with the date and evidence path. Do not delete the original failure evidence. An unresolved integration gate may change the SDK or host after comparison, but not the pair, two-direction requirement, privacy promise, or full product scope without a recorded decision.
 
 Current changes:
+
+- 2026-10-14: Added the bounded reverse prerequisite layer: accepted escrow authorization, exact canonical finalized funding observation, immutable COMMIT attempt/receipt, specialized worker/signing fences and a read-only wallet-side commitment gate. Reverse HTTP remains closed. Anvil + Neon passed 12 checks, DB/HTTP 38, unit 9 and Python 17; independent review corrected event-topic and negative-test issues. Migration 0011 is only on the two synthetic test branches; primary and real evidence remain at ten migrations. The test escrow stays pending with its liability/reservations; subsequent suite runs explicitly require a fresh isolated fixture. No reverse public-testnet send occurred. Next is the durable SDK raw-transaction adapter and independent receipt integration. See docs/evidence/g4-reverse-preflight.md.
 
 - 2026-10-14: Completed one bounded forward public-testnet swap using the Sol 6.1-built harness. A 100,000-zatoshi Ironwood-only source payment with 10,000-zatoshi fee produced exactly 100,000 mockUSDC units at the separate recipient. Canonical Base RESERVE and PAY receipts finalized; order SETTLED, obligation DISCHARGED, three reservations released and ledger balanced. Actual runtime Base fees were 5,263,900,000,482 wei. Source proceeds stay in operator:unreconciled pending capital reconciliation. Migration 0010 reached all five isolated/primary branches; primary remains empty and paused. Nine unit, 38 DB/HTTP, eight Anvil/Neon and eight Python tests passed for the harness; final read-only reconciliation and typecheck passed. Closed the private experiment. Reverse direction is the next G4 dependency. See docs/evidence/g4-live-forward.md.
 

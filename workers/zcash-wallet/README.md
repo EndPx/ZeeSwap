@@ -197,3 +197,101 @@ refuse before reaching the wallet CLI. These checks do not replace the future
 G5 crash/broadcast/reorg/refund tests.
 
 Local receipt-policy tests: `python -m unittest discover -s workers/zcash-wallet -p 'test_*.py' -v`.
+
+# Reverse commitment preflight (2026-10-14)
+
+`reverse_preflight.py` is a read-only gate for an operator-approved private reverse
+request. It has no proposal, calculate, signing, transmission, wallet mutation or
+journal write command. Even a successful commitment check returns
+`dispatchEnabled: false`. It does not enable reverse execution.
+
+The private request uses the backend integration vocabulary:
+
+```json
+{
+  "version": 1,
+  "orderId": "private-order-uuid",
+  "settlementId": "0x...32-byte-id",
+  "recipient": "private-canonical-shielded-testnet-receiver",
+  "amountZatoshi": "100000",
+  "maxFeeZatoshi": "10000",
+  "base": {
+    "chainId": 84532,
+    "contract": "0x...settlement",
+    "token": "0x...mockUSDC",
+    "payer": "0x...payer",
+    "refundRecipient": "0x...refund-recipient",
+    "amountAtomic": "100000",
+    "cancellationAvailableAt": "...positive-decimal-timestamp",
+    "commitTxHash": "0x...32-byte-hash",
+    "commitBlockNumber": "...positive-decimal-height",
+    "commitBlockHash": "0x...32-byte-hash"
+  }
+}
+```
+
+The separately supplied approved SHA-256 is over UTF-8 JSON serialized with sorted
+keys and compact separators. It must come from trusted immutable private order
+state or operator review, rather than a payout caller. Base commitment alone
+cannot authenticate a Zcash recipient or output amount: those stay private and
+are bound by the approved request. This gate is bounded to the existing labelled
+fixture rate where source mockUSDC atomic units equal output zatoshis, existing
+input caps and at most 10,000-zatoshi fee; it supplies no market pricing.
+
+The private config contains `readCommand` for the existing SDK address-validation
+pipe, `hashCommand` for local `cast keccak`, and a TLS `rpcUrl`. `hashCommand` is a
+trusted command prefix such as `["/home/albary/.foundry/bin/cast", "keccak"]` when
+running natively in the existing WSL environment. Configuration and approved
+requests belong outside Git. The command takes `--config`, `--approved-request`,
+`--approved-digest` and `--registry`; successful stdout contains only gate status,
+finalized height and the unresolved blocker, with no receiver, memo or order ID.
+
+The gate independently reads Base chain ID, fresh latest/finalized heads,
+canonical successful commit receipt, exact `commitPayout(bytes32)` transaction,
+registered operator sender and one matching commitment event. It verifies
+registry contract addresses, canonical deployment blocks and finalized runtime
+code hashes, then pins `eth_call` and `eth_getCode` to the finalized canonical
+block hash using EIP-1898. Finalized `PAYOUT_COMMITTED`, full source escrow terms,
+configured token and six decimals must match. A final block-hash reread guards
+against a changed canonical snapshot. Any unsupported RPC method fails closed.
+This trusts the configured chain provider as the existing prototype does; it is
+not a Zcash proof or permission to spend after this process exits.
+
+`validate_private_receipt` is a pure validator over supplied trusted SDK/parser
+results. Tests prove rejection of incorrect amount, receiver, pool, transaction
+identity, duplicate recipient note, transparent output and insufficient
+confirmations. The function does not fetch raw bytes, authenticate caller data,
+or prove block inclusion/canonicality itself. A future adapter must independently
+fetch the raw transaction and canonical compact block, match inclusion and mined
+height, run the existing Rust raw parser, and decrypt using the independent
+recipient UFVK before using this function. Raw data, viewing keys and notes stay
+private. There is no live reverse receipt acceptance in this slice.
+
+Pinned SDK feasibility was inspected without wallet changes at zingolib commit
+`0243894aee9b615c091cf27499c58cdfe325d05f` under the existing WSL G1 tools directory:
+
+- `zingolib/src/lightclient/send.rs`: `calculate_stored_proposal` signs without
+  transmitting and stores `Calculated` transactions in the wallet;
+  `transmit_transactions` serializes the stored transaction before transmitting.
+- `zingo-cli/src/commands.rs`: `calculate` exposes only the resulting `txids`;
+  `transmit` sends stored calculated transactions. CLI source inspection found no
+  signed raw export boundary. Existing `quicksend` remains unsuitable for the
+  required external prepared-raw journal.
+
+The next adapter task must use a dedicated capital wallet/account whose notes
+cannot include customer-held or unreconciled source proceeds. It must establish
+one exclusive wallet/journal writer lock, fsync immutable intent before SDK
+signing, extract the exact calculated transaction bytes and chosen note set,
+verify recipient/value/privacy/fee/expiry from those bytes, and durably persist
+raw bytes plus txid before broadcast. Atomic journal replacement requires file
+and directory fsync. Recovery after a crash or timeout must reconcile that exact
+transaction; it cannot call another SDK send. Before broadcast, independently
+reread finalized Base commitment and immutable order authority. No new wallet,
+funding, note selection, signed transaction or spend has been performed here.
+
+Verification: `python -m unittest discover -s workers/zcash-wallet -p 'test_*.py'`
+passed 17 tests (nine new reverse tests and eight existing tests). EVM selectors
+and the event topic were independently derived with installed Foundry `cast sig`
+and `cast keccak` against the Solidity function/event names, rather than inferred
+from the fixture. Reverse test RPC responses are synthetic and do not constitute
+testnet commitment or reverse settlement evidence.

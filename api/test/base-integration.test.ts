@@ -14,6 +14,8 @@ import { dispatchBaseOnce,reconcileBaseReceipts } from '../src/base-settlement.t
 import { ingestSnapshot } from '../src/observer.ts';
 import { createApi } from '../src/http-api.ts';
 import { Repository } from '../src/repository.ts';
+import { authorizeEscrow, fundingCall, fundingTypedData, observeEscrowFunding, storeEscrowCommit, observeEscrowCommit } from '../src/base-escrow.ts';
+import type { Hex } from 'viem';
 
 const settings=requireDevelopment();
 if(settings.branchId!=='br-wispy-dawn-aorsbba5')throw Error('Dedicated settlement fixture branch required');
@@ -25,6 +27,7 @@ const tokenArtifact=JSON.parse(readFileSync(new URL('../../contracts/out/MockUSD
 const settlementArtifact=JSON.parse(readFileSync(new URL('../../contracts/out/ZeeSwapSettlement.sol/ZeeSwapSettlement.json',import.meta.url),'utf8'));
 let base:BaseContract,registry:BaseRegistry,deployer:Address,recipient:Address,server:ReturnType<typeof createApi>,origin:string;
 let order:any,accepted:any,terms:PayoutTerms,sourceHeight:number;
+let fixtureStarted=false;
 const owner=randomBytes(32).toString('base64url');
 const journal=new Map<string,PreparedBaseTransaction>();let preparations=0;
 const signer:BaseSigner={
@@ -53,6 +56,11 @@ const request=(path:string,method='GET',body?:unknown,token=owner)=>fetch(origin
  headers:{authorization:`Bearer ${token}`,'content-type':'application/json','idempotency-key':randomUUID()},body:body===undefined?undefined:JSON.stringify(body)});
 
 before(async()=>{
+ // Reverse COMMIT fixtures intentionally retain customer liabilities. A reused
+ // database must be reset by the operator; tests never fabricate settlement.
+ if((await admin.query("SELECT count(*) FROM zee.quotes WHERE execution_mode='base-escrow-v1'")).rows[0].count!=='0')
+  throw Error('pending reverse fixture requires a fresh/reset isolated settlement branch');
+ fixtureStarted=true;
  const accounts=await wallet.getAddresses();[deployer,recipient]=accounts;
  const starter=new BaseContract({chainId:84532,rpcUrl:rpc,deployer,operator:operator.address,contracts:{} as any},true);
  assert.equal(await starter.client.getChainId(),84532);
@@ -82,6 +90,7 @@ before(async()=>{
  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));origin=`http://127.0.0.1:${(server.address() as any).port}`;
 });
 after(async()=>{
+ if(!fixtureStarted){await Promise.all([admin.end(),worker.end(),api.end()]);return;}
  if(server)await new Promise<void>(resolve=>server.close(()=>resolve()));
  await admin.query('SELECT zee.enter_reconciliation()');await admin.query('UPDATE zee.inventory_accounts SET balance=0 WHERE reserved=0');
  await Promise.all([admin.end(),worker.end(),api.end()]);
@@ -179,4 +188,84 @@ test('turning on Base integration cannot accept an observation-only legacy quote
  const response=await request(`/v1/orders/${legacy.id}/accept`,'POST',{});
  assert.equal(response.status,409);assert.equal((await response.json() as any).error,'QUOTE_MODE_MISMATCH');
  assert.equal((await (await request(`/v1/orders/${legacy.id}`)).json() as any).funding,undefined);
+});
+
+let reverse:any,funding:any,fundHash:Hex,commit:PreparedBaseTransaction,reverseJob:any,reverseOwner:string;
+test('reverse escrow authorization binds accepted deadlines; funding is canonical finalized and replay safe',async()=>{
+ await seedFresh();
+ reverse=await new Repository(api,r.keys).issueQuote({direction:'BASE_TO_ZCASH',inputAmount:'100000',recipient:'fixture:shielded-recipient',
+  refundRecipient:recipient,payer:recipient,depositReceiver:'pending',payoutFee:'10000',refundFee:'100000000000000',
+  executionMode:'base-escrow-v1',baseContract:registry.contracts.ZeeSwapSettlement.address},owner);
+ await new Repository(api,r.keys).accept(reverse.id,owner);
+ funding=await authorizeEscrow(worker,r.keys,base,reverse.id,q=>operator.signTypedData(fundingTypedData(base,q)));
+ assert.equal(BigInt(funding.terms.cancellationAvailableAt)-BigInt(funding.terms.fundingCutoff),7200n);
+ assert.equal((await authorizeEscrow(worker,r.keys,base,reverse.id,q=>operator.signTypedData(fundingTypedData(base,q)))).signature,funding.signature);
+ await assert.rejects(()=>authorizeEscrow(worker,r.keys,base,reverse.id,()=>privateKeyToAccount(generatePrivateKey()).signTypedData(fundingTypedData(base,funding.terms))),/SIGNATURE_MISMATCH/);
+ await wallet.sendTransaction({account:deployer,to:registry.contracts.MockUSDC.address,data:encodeFunctionData({abi:tokenArtifact.abi,functionName:'mint',args:[recipient,100000n]})});
+ await wallet.sendTransaction({account:recipient,to:registry.contracts.MockUSDC.address,data:encodeFunctionData({abi:tokenArtifact.abi,functionName:'approve',args:[registry.contracts.ZeeSwapSettlement.address,100000n]})});
+ fundHash=await wallet.sendTransaction({account:recipient,to:registry.contracts.ZeeSwapSettlement.address,data:fundingCall(base,funding.terms,funding.signature)});
+ assert.equal((await observeEscrowFunding(worker,r.keys,base,reverse.id,fundHash)).status,'AWAITING_BASE_FINALITY');
+ assert.equal((await worker.query('SELECT state FROM zee.orders WHERE id=$1',[reverse.id])).rows[0].state,'AWAITING_FUNDS');
+ await mineFinality();await seedFresh();
+ assert.equal((await observeEscrowFunding(worker,r.keys,base,reverse.id,fundHash)).status,'READY');
+ await observeEscrowFunding(worker,r.keys,base,reverse.id,fundHash);
+ assert.equal((await worker.query('SELECT count(*) FROM zee.deposits WHERE order_id=$1',[reverse.id])).rows[0].count,'1');
+ assert.equal((await worker.query('SELECT count(*) FROM zee.operations WHERE order_id=$1',[reverse.id])).rows[0].count,'1');
+ await assert.rejects(()=>observeEscrowFunding(worker,r.keys,base,reverse.id,registry.contracts.MockUSDC.transactionHash),/BASE_ESCROW_FUNDING_MISMATCH/);
+});
+test('reverse commitment requires a fresh fence and cannot use generic completion or premature signing',async()=>{
+ await seedFresh();reverseOwner=randomUUID();
+ const generic=(await worker.query('SELECT * FROM zee.claim_job($1)',[randomUUID()])).rows;
+ for(const j of generic){const mode=(await worker.query('SELECT q.execution_mode FROM zee.quotes q JOIN zee.operations op ON op.order_id=q.id WHERE op.id=$1',[j.operation_id])).rows[0].execution_mode;assert.equal(mode,'observe-only');}
+ reverseJob=(await worker.query('SELECT * FROM zee.claim_escrow_job($1)',[reverseOwner])).rows[0];assert.ok(reverseJob);
+ await assert.rejects(()=>worker.query('SELECT zee.complete_job($1,$2,$3)',[reverseJob.id,reverseOwner,reverseJob.fence]),/requires finalized delivery/);
+ await assert.rejects(()=>worker.query('SELECT zee.check_reverse_signing($1,$2,$3,$4)',[reverse.id,reverseJob.id,reverseOwner,reverseJob.fence]),/finalized commitment missing/);
+ const nonce=await base.client.getTransactionCount({address:operator.address,blockTag:'pending'});
+ const raw=await operator.signTransaction({chainId:84532,type:'legacy',to:registry.contracts.ZeeSwapSettlement.address,
+  data:encodeFunctionData({abi:settlementArtifact.abi,functionName:'commitPayout',args:[funding.terms.id]}),gas:450000n,gasPrice:1000000n,nonce,value:0n});
+ commit={raw,hash:keccak256(raw),nonce,maxCost:'10000000000000'};
+ await assert.rejects(()=>storeEscrowCommit(worker,r.keys,base,reverse.id,reverseJob.id,randomUUID(),reverseJob.fence,commit),/stale lease/);
+ await admin.query('UPDATE zee.runtime_control SET dispatch_enabled=false');
+ await assert.rejects(()=>storeEscrowCommit(worker,r.keys,base,reverse.id,reverseJob.id,reverseOwner,reverseJob.fence,commit),/dispatch paused/);
+ await seedFresh();
+ await assert.rejects(()=>storeEscrowCommit(worker,r.keys,base,reverse.id,reverseJob.id,reverseOwner,reverseJob.fence,{...commit,maxCost:'1'}),/SIGNED_COMMIT_MISMATCH/);
+ await storeEscrowCommit(worker,r.keys,base,reverse.id,reverseJob.id,reverseOwner,reverseJob.fence,commit);
+ await storeEscrowCommit(worker,r.keys,base,reverse.id,reverseJob.id,reverseOwner,reverseJob.fence,commit);
+ await assert.rejects(()=>api.query('UPDATE zee.escrow_commits SET confirmed=true'),/permission denied/);
+ await base.client.sendRawTransaction({serializedTransaction:commit.raw});
+ assert.equal((await observeEscrowCommit(worker,r.keys,base,reverse.id)).status,'AWAITING_BASE_FINALITY');
+ await assert.rejects(()=>worker.query('SELECT zee.check_reverse_signing($1,$2,$3,$4)',[reverse.id,reverseJob.id,reverseOwner,reverseJob.fence]),/finalized commitment missing/);
+});
+test('finalized COMMIT preserves escrow liability, reservations and pending order; replays cannot discharge funds',async()=>{
+ await mineFinality();await seedFresh();
+ const before=(await worker.query('SELECT count(*) FROM zee.ledger_entries WHERE order_id=$1',[reverse.id])).rows[0].count;
+ assert.equal((await observeEscrowCommit(worker,r.keys,base,reverse.id)).status,'COMMIT_FINALIZED');
+ await observeEscrowCommit(worker,r.keys,base,reverse.id);
+ assert.equal((await worker.query('SELECT count(*) FROM zee.ledger_entries WHERE order_id=$1',[reverse.id])).rows[0].count,before);
+ assert.equal((await worker.query('SELECT state FROM zee.orders WHERE id=$1',[reverse.id])).rows[0].state,'READY');
+ assert.equal((await worker.query('SELECT state FROM zee.obligations WHERE order_id=$1',[reverse.id])).rows[0].state,'HELD');
+ assert.equal((await worker.query('SELECT count(*) FROM zee.reservations WHERE order_id=$1 AND released_at IS NULL',[reverse.id])).rows[0].count,'3');
+ const op=(await worker.query('SELECT * FROM zee.operations WHERE order_id=$1',[reverse.id])).rows[0];
+ assert.equal(op.state,'PLANNED');assert.equal(op.chain_authorization_verified,true);
+ const cost=(await worker.query('SELECT actual_fee::text FROM zee.escrow_commits WHERE order_id=$1',[reverse.id])).rows[0].actual_fee;assert.ok(BigInt(cost)>0n);
+ assert.equal(await base.client.readContract({address:registry.contracts.ZeeSwapSettlement.address,abi:settlementArtifact.abi,functionName:'escrowLiability'}),100000n);
+ await worker.query('SELECT zee.check_reverse_signing($1,$2,$3,$4)',[reverse.id,reverseJob.id,reverseOwner,reverseJob.fence]);
+ await admin.query("UPDATE zee.outbox_jobs SET lease_until=clock_timestamp()-interval '1 second' WHERE id=$1",[reverseJob.id]);
+ await assert.rejects(()=>worker.query('SELECT zee.check_reverse_signing($1,$2,$3,$4)',[reverse.id,reverseJob.id,reverseOwner,reverseJob.fence]),/stale lease/);
+ await seedFresh();
+ const response=await request('/v1/quotes','POST',{direction:'BASE_TO_ZCASH',inputAmount:'100000',recipient:'fixture:shielded',refundRecipient:recipient});
+ assert.equal(response.status,503);assert.equal((await response.json() as any).error,'BASE_ESCROW_NOT_READY');
+});
+test('reverse source reorg pauses dispatch and invalidates even a finalized commitment signing gate',async()=>{
+ await seedFresh();const nextOwner=randomUUID();
+ const job=(await worker.query('SELECT * FROM zee.claim_escrow_job($1)',[nextOwner])).rows[0];assert.equal(job.id,reverseJob.id);
+ await worker.query('SELECT zee.check_reverse_signing($1,$2,$3,$4)',[reverse.id,job.id,nextOwner,job.fence]);
+ const deposit=(await worker.query('SELECT * FROM zee.deposits WHERE order_id=$1',[reverse.id])).rows[0];
+ await admin.query("UPDATE zee.chain_observations SET block_hash=$1 WHERE network='base-sepolia' AND height=$2",['f'.repeat(64),deposit.block_height]);
+ const control=(await worker.query('SELECT * FROM zee.runtime_control')).rows[0];
+ assert.equal(control.dispatch_enabled,false);assert.equal(control.reconciliation_required,true);
+ await assert.rejects(()=>worker.query('SELECT zee.check_reverse_signing($1,$2,$3,$4)',[reverse.id,job.id,nextOwner,job.fence]),/dispatch paused/);
+ assert.equal((await worker.query('SELECT state FROM zee.obligations WHERE order_id=$1',[reverse.id])).rows[0].state,'HELD');
+ // Restore the synthetic canonical record but leave the fixture paused for operator reconciliation.
+ await admin.query("UPDATE zee.chain_observations SET block_hash=$1 WHERE network='base-sepolia' AND height=$2",[deposit.block_hash,deposit.block_height]);
 });

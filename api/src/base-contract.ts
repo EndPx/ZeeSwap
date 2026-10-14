@@ -8,6 +8,7 @@ export const settlementAbi = parseAbi([
  'function availableInventory() view returns (uint256)', 'function escrowLiability() view returns (uint256)',
  'function states(bytes32) view returns (uint8)', 'function hasRole(bytes32,address) view returns (bool)',
  'function payouts(bytes32) view returns (address recipient,uint256 amount,uint256 deadline)',
+ 'function escrows(bytes32) view returns (address payer,address refundRecipient,uint256 amount,uint256 cancellationAvailableAt)',
  'function reservePayout((bytes32 id,address token,address recipient,uint256 amount,uint256 nonce,uint256 deadline) q,bytes signature)',
  'function executePayout(bytes32 id)', 'function cancelSettlement(bytes32 id)',
  'function fund((bytes32 id,address token,address payer,address refundRecipient,uint256 amount,uint256 nonce,uint256 fundingCutoff,uint256 cancellationAvailableAt) q,bytes signature)',
@@ -27,7 +28,7 @@ export interface BaseRegistry { chainId:84532; rpcUrl:string; deployer:Address; 
  contracts:{MockUSDC:Deployment;ZeeSwapSettlement:Deployment} }
 export const loadBaseRegistry=():BaseRegistry=>JSON.parse(readFileSync(new URL('../../contracts/deployments/base-sepolia.json',import.meta.url),'utf8'));
 export const publicSettlementId=(id:string):Hex=>keccak256(toHex(id));
-export const authNonce=(id:Hex,kind:'Payout')=>BigInt(keccak256(toHex(`${kind}:${id}`))).toString();
+export const authNonce=(id:Hex,kind:'Payout'|'Funding')=>BigInt(keccak256(toHex(`${kind}:${id}`))).toString();
 export interface PayoutTerms {id:Hex;token:Address;recipient:Address;amount:string;nonce:string;deadline:string}
 export const jsonSafe=(value:unknown)=>JSON.stringify(value,(_,v)=>typeof v==='bigint'?v.toString():v);
 export const domain=(registry:BaseRegistry)=>({name:'ZeeSwapSettlement',version:'1',chainId:84532,verifyingContract:registry.contracts.ZeeSwapSettlement.address});

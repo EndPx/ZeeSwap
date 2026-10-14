@@ -20,6 +20,7 @@ The prototype uses TAZ and project-owned mockUSDC, with fixture pricing.
 | Foundry contracts and verified Base Sepolia deployment | [G3 contract evidence](evidence/g3-contracts.md) |
 | Forward backend and durable signer integration | [Anvil + Neon integration evidence](evidence/g3-base-integration.md); live connection checks without payment |
 | One real forward public-testnet swap | [G4 receipts and reconciliation](evidence/g4-live-forward.md): 0.001 shielded TAZ to 0.1 mockUSDC, finalized and SETTLED |
+| Reverse escrow/signing prerequisites | [Local reverse preflight](evidence/g4-reverse-preflight.md); no reverse public-testnet payout yet |
 | Public transaction lookup | [Explorer discrepancy and replacement link](evidence/explorer-verification.md) |
 
 Only source, migrations, lockfiles, tests, configuration examples and sanitized

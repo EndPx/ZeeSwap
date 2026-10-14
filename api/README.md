@@ -18,8 +18,10 @@ Project `raspy-truth-63998651`, database `neondb`:
 | `zeeswap-g3-settlement-tests` | `br-wispy-dawn-aorsbba5` | Dedicated Anvil + Neon settlement fixtures |
 | `zeeswap-g4-live-forward` | `br-crimson-river-aobpimyq` | One real forward public-testnet settlement; closed operator experiment |
 
-All five branches have ten checksummed migrations, 18 tables and two restricted
-status views under schema `zee`.
+The primary and two real-evidence branches have ten checksummed migrations,
+18 tables and two restricted status views under schema `zee`. The regression
+and Anvil settlement branches additionally have migration 0011 and its two
+reverse escrow tables; that migration has not been promoted to primary.
 The primary's initial state is reconciliation required, acceptance disabled and
 dispatch disabled. Assets are testnet TAZ, project-owned mockUSDC and Base Sepolia
 ETH. The verified mock address is registered on primary and intake-evidence
@@ -157,7 +159,9 @@ The database consumes **trusted observer attestations**. The local Zcash adapter
 now validates the receiver from SDK-decrypted canonical transaction data. Hosted
 lightwalletd remains trusted; a full-validator proof is not implemented.
 The forward Base adapter verifies recorded reservation/payment receipts and their
-events. Reverse source-event ingestion and Zcash payout execution remain open.
+events. The [reverse dependency checkpoint](../docs/reverse-integration.md) adds
+signed escrow terms, finalized funding observation and a fenced commitment gate.
+Reverse HTTP intake, a runtime Zcash signer and final settlement accounting remain open.
 Primary order intake remains closed.
 
 Legacy outbox jobs remain evaluation-only. New `base-settlement-v1` quotes use

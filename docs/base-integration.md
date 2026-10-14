@@ -5,6 +5,8 @@ It joins the existing quote API and Zcash observer to the deployed Base contract
 a restricted `cast` signer, durable signed attempts and finalized receipt accounting.
 The reverse HTTP route remains gated until a Zcash payout signer and its recovery
 flow are integrated. The Base contract alone does not make that route operational.
+The [reverse integration guide](reverse-integration.md) tracks escrow and
+commitment preparation separately from completed payment evidence.
 
 ## Flow and persistence
 
@@ -101,6 +103,11 @@ It refuses the primary and real-evidence branch. The suite deploys local contrac
 uses synthetic shielded inputs and loopback-only EVM transactions, preserves
 synthetic history, zeros unreserved fixture inventory and leaves the branch paused.
 It cannot be pointed at a public RPC through the test configuration.
+
+The reverse preflight extension intentionally retains a pending synthetic escrow
+and its reservations. A subsequent suite run fails before setup if previous
+reverse fixtures exist. See the [fixture lifecycle](evidence/g4-reverse-preflight.md#isolation-and-retained-fixtures)
+before re-running; no automatic reset or fake settlement clears those liabilities.
 
 Read [the evidence record](evidence/g3-base-integration.md) for the exact boundaries
 between the Anvil settlement proof and the live Base Sepolia connection checks.

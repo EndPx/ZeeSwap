@@ -2,13 +2,14 @@ import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
 import { atomic, fixtureOutput } from './amounts.ts';
 import { PrivateData, accessHash, newAccessToken } from './private-data.ts';
+import { publicSettlementId } from './base-contract.ts';
 
 type Queryable = Pick<pg.Pool,'query'>;
 export type Direction = 'ZCASH_TO_BASE'|'BASE_TO_ZCASH';
 export interface QuoteInput {
   direction: Direction; inputAmount: string; payoutFee: string; refundFee: string;
   recipient: string; refundRecipient: string; depositReceiver: string;
-  executionMode?: 'base-settlement-v1'; baseContract?: string;
+  executionMode?: 'base-settlement-v1'|'base-escrow-v1'; baseContract?: string; payer?: string;
 }
 export interface DepositInput {
   network: 'zcash-testnet'|'base-sepolia'; txid: string; index: number;
@@ -44,6 +45,10 @@ export class Repository {
     if (!input.recipient || !input.refundRecipient || !input.depositReceiver) throw new Error('Destinations required');
     if (atomic(input.payoutFee)<=0n || atomic(input.refundFee)<=0n) throw new Error('Fee reserves required');
     const id=randomUUID(), reference=randomUUID(), token=credential || newAccessToken(), settlementId=randomUUID();
+    if(input.executionMode==='base-escrow-v1'){
+      if(input.direction!=='BASE_TO_ZCASH'||!input.payer)throw Error('Reverse payer required');
+      input={...input,depositReceiver:`escrow:${publicSettlementId(settlementId)}`};
+    }
     const output=fixtureOutput(input.inputAmount,input.direction), forward=input.direction==='ZCASH_TO_BASE';
     const payload=this.privateData.seal({...input,outputAmount:output,reference,settlementId},`quote:${id}:v1`);
     await this.db.query(`WITH stamp AS MATERIALIZED (SELECT clock_timestamp() AS issued)
