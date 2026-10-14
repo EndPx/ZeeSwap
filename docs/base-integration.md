@@ -104,3 +104,12 @@ It cannot be pointed at a public RPC through the test configuration.
 
 Read [the evidence record](evidence/g3-base-integration.md) for the exact boundaries
 between the Anvil settlement proof and the live Base Sepolia connection checks.
+
+## Bounded public-testnet operator harness
+
+`api/scripts/live-forward.ts` manages one private forward experiment on its
+dedicated live branch. `workers/zcash-wallet/forward_send_once.py` supplies the
+bounded one-time source send and read-only fee-capital check. See
+[G4 preparation](evidence/g4-forward-preflight.md) for the sequence and recovery
+limits. Migration 0010 renews a live worker fence while signing/scanning proceeds;
+observer freshness is checked again before transaction persistence and broadcast.

@@ -6,6 +6,7 @@ import { PrivateData } from './private-data.ts';
 import { baseHead } from './observer.ts';
 import { BaseContract, publicSettlementId, authNonce, type PayoutTerms, type BasePhase, type ConfirmedBaseReceipt } from './base-contract.ts';
 import { validatePrepared, type BaseSigner, type PreparedBaseTransaction } from './base-signer.ts';
+import { withLeaseHeartbeat } from './lease-heartbeat.ts';
 
 const termsContext=(id:string)=>`base-terms:${id}:v1`;
 const signedContext=(id:string,phase:string)=>`base-signed:${id}:${phase}:v1`;
@@ -46,12 +47,14 @@ export async function reconcileBaseReceipts(pool:pg.Pool,keys:PrivateData,base:B
 }
 
 /** One fenced forward-settlement step. Its durable transaction is never replaced on retry. */
-export async function dispatchBaseOnce(pool:pg.Pool,keys:PrivateData,base:BaseContract,signer:BaseSigner){
+export async function dispatchBaseOnce(pool:pg.Pool,keys:PrivateData,base:BaseContract,signer:BaseSigner,refreshObservers?:()=>Promise<unknown>){
  await base.preflight();
  await reconcileBaseReceipts(pool,keys,base);
+ if(refreshObservers)await refreshObservers();
  const owner=randomUUID();
  const job=(await pool.query('SELECT * FROM zee.claim_base_job($1)',[owner])).rows[0];
  if(!job)return {status:'NO_ELIGIBLE_JOB'};
+ return withLeaseHeartbeat(()=>pool.query('SELECT zee.renew_base_lease($1,$2,$3)',[job.id,owner,job.fence]),async checkLease=>{
  const row=(await pool.query(`SELECT q.*,o.state,op.id AS operation_id FROM zee.operations op JOIN zee.quotes q ON q.id=op.order_id
   JOIN zee.orders o ON o.id=q.id WHERE op.id=$1`,[job.operation_id])).rows[0];
  if(!row||row.execution_mode!=='base-settlement-v1'||row.base_contract.toLowerCase()!==base.registry.contracts.ZeeSwapSettlement.address.toLowerCase())throw Error('BASE_QUOTE_BINDING_MISMATCH');
@@ -80,6 +83,8 @@ export async function dispatchBaseOnce(pool:pg.Pool,keys:PrivateData,base:BaseCo
   }
   signed=await signer.prepare(terms,phase);
   await validatePrepared(base.registry,terms,signature,phase,signed);
+  if(refreshObservers)await refreshObservers();
+  await checkLease();
   await pool.query('SELECT zee.store_base_attempt($1,$2,$3,$4,$5,$6,$7,$8)',[row.id,job.id,owner,job.fence,phase,
    keys.lookup('base-tx',signed.hash),keys.seal(signed,signedContext(row.id,phase)),signed.maxCost]);
  }
@@ -90,6 +95,8 @@ export async function dispatchBaseOnce(pool:pg.Pool,keys:PrivateData,base:BaseCo
  });
  if(!known){
   if(BigInt(terms.deadline)<=BigInt(Math.floor(Date.now()/1000)))throw Error('BASE_AUTHORIZATION_EXPIRED_RECONCILE');
+  if(refreshObservers)await refreshObservers();
+  await checkLease();
   await pool.query('SELECT zee.check_base_dispatch($1,$2,$3,$4)',[row.id,job.id,owner,job.fence]);
   if(await base.client.getTransactionCount({address:base.registry.operator,blockTag:'latest'})>signed.nonce)throw Error('BASE_NONCE_CONFLICT_RECONCILE');
   try{
@@ -99,4 +106,5 @@ export async function dispatchBaseOnce(pool:pg.Pool,keys:PrivateData,base:BaseCo
  }
  // Inclusion alone never closes an order. A later observer cycle checks finalized.
  return {status:'AWAITING_BASE_FINALITY',phase};
+ });
 }

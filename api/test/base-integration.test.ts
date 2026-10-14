@@ -110,7 +110,13 @@ test('invalid signer bytes are rejected before a persisted attempt or any broadc
  assert.equal((await worker.query('SELECT count(*) FROM zee.base_attempts WHERE order_id=$1',[order.id])).rows[0].count,'0');
  assert.equal(await base.client.getTransactionCount({address:operator.address}),nonce);
  const lease=(await worker.query('SELECT j.* FROM zee.outbox_jobs j JOIN zee.operations op ON op.id=j.operation_id WHERE op.order_id=$1',[order.id])).rows[0];
+ await worker.query('SELECT zee.renew_base_lease($1,$2,$3)',[lease.id,lease.lease_owner,lease.fence]);
+ await assert.rejects(()=>worker.query('SELECT zee.renew_base_lease($1,$2,$3)',[lease.id,randomUUID(),lease.fence]),/stale lease/);
+ await admin.query('UPDATE zee.runtime_control SET dispatch_enabled=false');
+ await assert.rejects(()=>worker.query('SELECT zee.renew_base_lease($1,$2,$3)',[lease.id,lease.lease_owner,lease.fence]),/dispatch paused/);
+ await seedFresh();
  await expireLease();
+ await assert.rejects(()=>worker.query('SELECT zee.renew_base_lease($1,$2,$3)',[lease.id,lease.lease_owner,lease.fence]),/stale lease/);
  await assert.rejects(()=>worker.query('SELECT zee.check_base_dispatch($1,$2,$3,$4)',[order.id,lease.id,lease.lease_owner,lease.fence]),/stale lease/);
 });
 test('an expired recorded authorization is retained without broadcasting new bytes',async()=>{

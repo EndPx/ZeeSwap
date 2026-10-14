@@ -24,7 +24,7 @@ function string(value:unknown){if(typeof value!=='string'||value.length>512||val
 
 export function createApi(options:Options){
  const {pool,keys,wallet}=options;const repo=new Repository(pool,keys);
- if(options.integrationOnly && !['ep-small-resonance-aom8dm9z-pooler.','ep-polished-hill-ao5ulo5g-pooler.','ep-broad-math-aoxcd482-pooler.'].some(prefix=>pool.options.host?.startsWith(prefix)))throw new Error('Integration mode requires a dedicated development database');
+ if(options.integrationOnly && !['ep-small-resonance-aom8dm9z-pooler.','ep-polished-hill-ao5ulo5g-pooler.','ep-broad-math-aoxcd482-pooler.','ep-winter-frog-ao0z5ayy-pooler.'].some(prefix=>pool.options.host?.startsWith(prefix)))throw new Error('Integration mode requires a dedicated development database');
  async function enabled(){
   if(!options.integrationOnly){
    const ready=(await pool.query("SELECT count(*) FROM zee.assets WHERE id IN ('TAZ','mockUSDC') AND live_enabled")).rows[0].count;
