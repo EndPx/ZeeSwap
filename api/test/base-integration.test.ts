@@ -2,6 +2,9 @@ import test,{before,after} from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { randomBytes,randomUUID } from 'node:crypto';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { setTimeout as delay } from 'node:timers/promises';
 import { createWalletClient,http,keccak256,parseEther,encodeFunctionData,type Address } from 'viem';
 import { generatePrivateKey,privateKeyToAccount } from 'viem/accounts';
 import { baseSepolia } from 'viem/chains';
@@ -54,6 +57,23 @@ async function seedFresh(){
 }
 async function expireLease(){await admin.query("UPDATE zee.outbox_jobs SET lease_until=clock_timestamp()-interval '1 second' WHERE status='LEASED'");await seedFresh();}
 async function mineFinality(){await base.client.request({method:'anvil_mine' as any,params:['0x40'] as any});}
+async function waitAnvilFinality(contract:BaseContract,transactionHash:Hex){
+ const deadline=Date.now()+10000;let last='receipt unavailable';
+ do{
+  const receipt=await contract.client.getTransactionReceipt({hash:transactionHash}).catch(error=>{
+   if(error.name==='TransactionReceiptNotFoundError')return null;throw error;
+  });
+  if(receipt){
+   assert.equal(receipt.status,'success');
+   const heads=await contract.heads(),canonical=await contract.client.getBlock({blockNumber:receipt.blockNumber});
+   assert.equal(canonical.hash,receipt.blockHash,'Anvil recovery receipt must stay canonical');
+   if(heads.finalized.number>=receipt.blockNumber)return;
+   last=`finalized ${heads.finalized.number}, receipt ${receipt.blockNumber}`;
+  }
+  await delay(200);
+ }while(Date.now()<deadline);
+ assert.fail(`Anvil finality wait timed out: ${last}`);
+}
 const request=(path:string,method='GET',body?:unknown,token=owner)=>fetch(origin+path,{method,
  headers:{authorization:`Bearer ${token}`,'content-type':'application/json','idempotency-key':randomUUID()},body:body===undefined?undefined:JSON.stringify(body)});
 
@@ -344,4 +364,98 @@ test('reverse SETTLE finality accounts exact principal, both chain fees, held pr
  assert.equal(proceeds,'100000');
  assert.equal((await worker.query('SELECT event_id,asset,sum(amount) FROM zee.ledger_entries GROUP BY event_id,asset HAVING sum(amount)<>0')).rowCount,0);
  assert.equal(await base.client.readContract({address:registry.contracts.ZeeSwapSettlement.address,abi:settlementArtifact.abi,functionName:'escrowLiability'}),0n);
+});
+
+test('killed PAY worker reconnects under reconciliation pause and settles the original transaction exactly once',{timeout:90000},async()=>{
+ await seedFresh();
+ const inventoryBefore=(await worker.query('SELECT asset,purpose,balance::text,reserved::text FROM zee.inventory_accounts')).rows;
+ const response=await request('/v1/quotes','POST',{direction:'ZCASH_TO_BASE',inputAmount:'100000',recipient,refundRecipient:'fixture:crash-refund'});
+ assert.equal(response.status,201,await response.clone().text());const crashOrder=await response.json() as any;
+ const acceptedResponse=await request(`/v1/orders/${crashOrder.id}/accept`,'POST',{});
+ assert.equal(acceptedResponse.status,200,await acceptedResponse.clone().text());const crashAccepted=await acceptedResponse.json() as any;
+ const height=sourceHeight+1;sourceHeight+=10;const time=new Date().toISOString(),hash='a'.repeat(64);
+ await ingestSnapshot(worker,r.keys,{schemaVersion:1,network:'zcash-testnet',consensusBranch:'77190ad9',observedAt:time,
+  scannedHeight:sourceHeight,tipHash:hash,blocks:[{height,hash,time},{height:sourceHeight,hash,time}],outputs:[{
+   txid:randomBytes(32).toString('hex'),index:0,pool:'ironwood',amount:'100000',receiver:crashAccepted.funding.receiver,
+   memo:crashAccepted.funding.memo,height,blockHash:hash,blockTime:time,shieldedSource:true}]});
+ assert.equal((await dispatchBaseOnce(worker,r.keys,base,signer)).phase,'RESERVE');
+ const reserveAttempt=(await worker.query("SELECT * FROM zee.base_attempts WHERE order_id=$1 AND phase='RESERVE'",[crashOrder.id])).rows[0];
+ assert.ok(reserveAttempt,'recovery fixture must dispatch its own RESERVE');
+ const reserveSigned=r.keys.open(reserveAttempt.signed_payload,`base-signed:${crashOrder.id}:RESERVE:v1`) as PreparedBaseTransaction;
+ await mineFinality();await waitAnvilFinality(base,reserveSigned.hash);
+ assert.equal((await reconcileBaseReceipts(worker,r.keys,base)).finalized,1);await expireLease();
+ const payload=(await worker.query('SELECT terms_payload FROM zee.base_bindings WHERE order_id=$1',[crashOrder.id])).rows[0].terms_payload;
+ const crashTerms=r.keys.open(payload,`base-terms:${crashOrder.id}:v1`) as PayoutTerms;
+ const prepared=await signer.prepare(crashTerms,'PAY'),signature=await signer.authorize(crashTerms);
+ const recipientBalance=()=>base.client.readContract({address:registry.contracts.MockUSDC.address,abi:tokenArtifact.abi,functionName:'balanceOf',args:[recipient]}) as Promise<bigint>;
+ const balanceBefore=await recipientBalance();
+ const child=spawn(process.execPath,['--import','tsx',fileURLToPath(new URL('./fixtures/base-dispatch-interruption.ts',import.meta.url))],
+  {stdio:['ignore','ignore','ignore','ipc'],windowsHide:true});
+ const exited=new Promise<void>(resolve=>{child.once('exit',()=>resolve());child.once('error',()=>resolve());});
+ try{
+  const broadcast=new Promise<Hex>((resolve,reject)=>{
+   const timer=setTimeout(()=>reject(Error('PAY_CHILD_BROADCAST_TIMEOUT')),45000);
+   child.once('error',()=>{clearTimeout(timer);reject(Error('PAY_CHILD_START_FAILED'));});
+   child.once('exit',()=>{clearTimeout(timer);reject(Error('PAY_CHILD_EXITED_BEFORE_BROADCAST'));});
+   child.once('message',(message:any)=>{clearTimeout(timer);message.event==='broadcast'?resolve(message.hash):reject(Error('PAY_CHILD_FAILED'));});
+  });
+  child.send({registry,settlementId:crashTerms.id,signature,prepared});
+  assert.equal(await broadcast,prepared.hash);
+  assert.equal(child.kill('SIGKILL'),true);await exited;
+  assert.notEqual(child.exitCode,0);
+ }finally{if(child.exitCode===null&&child.signalCode===null){child.kill('SIGKILL');await exited;}}
+ const attemptBefore=(await worker.query("SELECT * FROM zee.base_attempts WHERE order_id=$1 AND phase='PAY'",[crashOrder.id])).rows[0];
+ assert.equal(attemptBefore.confirmed,false);
+ assert.equal((r.keys.open(attemptBefore.signed_payload,`base-signed:${crashOrder.id}:PAY:v1`) as PreparedBaseTransaction).raw,prepared.raw);
+ assert.equal(await recipientBalance()-balanceBefore,100000n);
+ const stale=(await worker.query('SELECT j.* FROM zee.outbox_jobs j JOIN zee.operations op ON op.id=j.operation_id WHERE op.order_id=$1',[crashOrder.id])).rows[0];
+ assert.equal(stale.status,'LEASED');
+ await admin.query('SELECT zee.enter_reconciliation()');
+ // Fresh DB and RPC clients recover durable attempts without the killed worker's
+ // connection, memory, or signer. This exercises disconnect, not old-DB restore.
+ const recovered=connect(r.workerUrl,1),recoveredBase=new BaseContract(registry,true);
+ let signatures=0,broadcasts=0;
+ const unavailableSigner:BaseSigner={authorize:async()=>{signatures++;throw Error('SIGNER_UNAVAILABLE');},prepare:async()=>{signatures++;throw Error('SIGNER_UNAVAILABLE');}};
+ recoveredBase.client.sendRawTransaction=async()=>{broadcasts++;throw Error('UNEXPECTED_RECOVERY_BROADCAST');};
+ try{
+  const entriesBefore=(await recovered.query('SELECT count(*) FROM zee.ledger_entries WHERE order_id=$1',[crashOrder.id])).rows[0].count;
+  assert.equal((await dispatchBaseOnce(recovered,r.keys,recoveredBase,unavailableSigner)).status,'NO_ELIGIBLE_JOB');
+  assert.equal((await recovered.query('SELECT state FROM zee.orders WHERE id=$1',[crashOrder.id])).rows[0].state,'READY');
+  assert.equal((await recovered.query('SELECT state FROM zee.obligations WHERE order_id=$1',[crashOrder.id])).rows[0].state,'HELD');
+  assert.equal((await recovered.query('SELECT count(*) FROM zee.reservations WHERE order_id=$1 AND released_at IS NULL',[crashOrder.id])).rows[0].count,'3');
+  assert.equal((await recovered.query('SELECT count(*) FROM zee.ledger_entries WHERE order_id=$1',[crashOrder.id])).rows[0].count,entriesBefore);
+  await assert.rejects(()=>recovered.query('SELECT zee.check_base_dispatch($1,$2,$3,$4)',[crashOrder.id,stale.id,stale.lease_owner,stale.fence]),/dispatch paused/);
+  await mineFinality();await waitAnvilFinality(recoveredBase,prepared.hash);
+  assert.equal((await reconcileBaseReceipts(recovered,r.keys,recoveredBase)).finalized,1);
+  const attemptAfter=(await recovered.query("SELECT * FROM zee.base_attempts WHERE order_id=$1 AND phase='PAY'",[crashOrder.id])).rows[0];
+  assert.equal(attemptAfter.confirmed,true);assert.deepEqual(attemptAfter.tx_hash,attemptBefore.tx_hash);assert.deepEqual(attemptAfter.signed_payload,attemptBefore.signed_payload);
+  const entries=(await recovered.query('SELECT count(*) FROM zee.ledger_entries WHERE order_id=$1',[crashOrder.id])).rows[0].count;
+  assert.ok(BigInt(entries)>BigInt(entriesBefore));
+  for(let i=0;i<2;i++){
+   assert.equal((await reconcileBaseReceipts(recovered,r.keys,recoveredBase)).finalized,0);
+   assert.equal((await dispatchBaseOnce(recovered,r.keys,recoveredBase,unavailableSigner)).status,'NO_ELIGIBLE_JOB');
+  }
+  assert.equal(signatures,0);assert.equal(broadcasts,0);assert.equal(await recipientBalance()-balanceBefore,100000n);
+  assert.equal((await recovered.query('SELECT count(*) FROM zee.base_attempts WHERE order_id=$1',[crashOrder.id])).rows[0].count,'2');
+  assert.equal((await recovered.query('SELECT count(*) FROM zee.ledger_entries WHERE order_id=$1',[crashOrder.id])).rows[0].count,entries);
+  assert.equal((await recovered.query("SELECT sum(amount)::text AS n FROM zee.ledger_entries WHERE order_id=$1 AND asset='TAZ' AND bucket='operator:unreconciled'",[crashOrder.id])).rows[0].n,'100000');
+  assert.equal((await recovered.query('SELECT state FROM zee.orders WHERE id=$1',[crashOrder.id])).rows[0].state,'SETTLED');
+  assert.equal((await recovered.query('SELECT state FROM zee.obligations WHERE order_id=$1',[crashOrder.id])).rows[0].state,'DISCHARGED');
+  assert.equal((await recovered.query('SELECT count(*) FROM zee.reservations WHERE order_id=$1 AND released_at IS NULL',[crashOrder.id])).rows[0].count,'0');
+  assert.equal((await recovered.query('SELECT j.status FROM zee.outbox_jobs j JOIN zee.operations op ON op.id=j.operation_id WHERE op.order_id=$1',[crashOrder.id])).rows[0].status,'DONE');
+  assert.equal((await recovered.query('SELECT event_id,asset FROM zee.ledger_entries GROUP BY event_id,asset HAVING sum(amount)<>0')).rowCount,0);
+  const actualFee=BigInt((await recovered.query('SELECT sum(actual_fee)::text AS n FROM zee.base_attempts WHERE order_id=$1',[crashOrder.id])).rows[0].n);
+  assert.ok(actualFee>0n);
+  const inventoryAfter=(await recovered.query('SELECT asset,purpose,balance::text,reserved::text FROM zee.inventory_accounts')).rows;
+  assert.equal(inventoryAfter.length,inventoryBefore.length);
+  for(const account of inventoryAfter){
+   const prior=inventoryBefore.find(a=>a.asset===account.asset&&a.purpose===account.purpose)!;
+   const spent=account.asset==='mockUSDC'&&account.purpose==='principal'?100000n:account.asset==='baseETH'&&account.purpose==='fee'?actualFee:0n;
+   assert.equal(BigInt(prior.balance)-BigInt(account.balance),spent);assert.equal(account.reserved,prior.reserved);
+  }
+  const view=await (await request(`/v1/orders/${crashOrder.id}`)).json() as any;
+  assert.equal(view.status,'SETTLED');assert.equal(view.destination.transactionHash,prepared.hash);
+  const control=(await recovered.query('SELECT * FROM zee.runtime_control')).rows[0];
+  assert.equal(control.dispatch_enabled,false);assert.equal(control.accepting_orders,false);assert.equal(control.reconciliation_required,true);
+ }finally{await recovered.end();}
 });
