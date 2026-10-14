@@ -108,6 +108,18 @@ verification. Chain ID, finalized block reads, EIP-1898 canonical block-hash cod
 reads for both deployments and a pinned token-decimals call passed. Three added
 transport regression checks preserve exact JSON-RPC identity and TLS behavior.
 
+During the controlled run, the primary RPC's finalized pointer remained at
+48,102,499 while the [documented PublicNode Base Sepolia endpoint](https://base.publicnode.com/?sepolia)
+reported 48,102,888 and later 48,103,039. Both providers agreed on chain ID 84532,
+the canonical hash of block 48,102,888
+(`0x24f0a1dd4d0ef6bba72d94c9a82a757a9df50b0685d5242d03b880d0ed9e1cc8`),
+and the successful COMMIT receipt at 48,102,681. Both deployment code hashes and
+roles passed independent preflight. The operator selected PublicNode explicitly
+for this bounded run; it did not replace finalized with latest or sequencer
+inclusion. The private RPC override accepts only these two reviewed HTTPS
+endpoints, leaves the canonical deployment registry unchanged, and has an
+additional unit check (15 API unit tests passed at this checkpoint).
+
 The operator refreshes trusted canonical observers after lengthy SDK preparation
 or recovery and again before broadcast. This preserves the current runtime
 policy and lease while allowing the existing freshness gate to reject genuine

@@ -11,12 +11,13 @@ import { BaseContract,loadBaseRegistry } from '../src/base-contract.ts';
 import { validateSnapshot } from '../src/observer.ts';
 import { validateReverseCapital,validateCapitalOpening } from '../src/reverse-capital.ts';
 import { approvalDigest } from '../src/reverse-authority.ts';
+import {reverseBaseRegistry} from '../src/reverse-base-rpc.ts';
 const [step,path]=process.argv.slice(2);
 if(!['bootstrap','refresh'].includes(step)||!path||process.argv.length!==4)throw Error('Explicit bootstrap/refresh and fixed private config required');
 const config=JSON.parse(await readFile(path,'utf8'));
 process.env.ZEE_DB_CONFIG=resolve(config.databaseConfig);const target=requireDevelopment();
 if(target.branchId!=='br-small-sound-aozx7xa6')throw Error('Exact live reverse branch required');
-const pool=connect(target.adminUrl,1),base=new BaseContract(loadBaseRegistry());
+const pool=connect(target.adminUrl,1),base=new BaseContract(reverseBaseRegistry(loadBaseRegistry(),config.baseRpcUrl));
 async function durable(path:string,value:unknown){const temp=path+'.'+randomUUID()+'.tmp',file=await open(temp,'wx',0o600);
  try{await file.writeFile(JSON.stringify(value,null,2));await file.sync();}finally{await file.close();}await rename(temp,path);
  if(process.platform!=='win32'){const dir=await open(dirname(path),'r');try{await dir.sync();}finally{await dir.close();}}}

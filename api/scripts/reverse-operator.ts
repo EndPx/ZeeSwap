@@ -19,6 +19,7 @@ import { accessHash } from '../src/private-data.ts';
 import {approvalDigest} from '../src/reverse-authority.ts';
 import {refreshReverseObservers} from '../src/reverse-observer-refresh.ts';
 import {spawn} from 'node:child_process';
+import {reverseBaseRegistry} from '../src/reverse-base-rpc.ts';
 
 const [step,path]=process.argv.slice(2);
 const steps=['quote','funding','observe-funding','prepare-commit','broadcast-commit','observe-commit','approve-wallet','prepare-zcash','recover-zcash','broadcast-zcash','observe-zcash','prepare-settle','broadcast-settle','observe-settle'];
@@ -27,7 +28,7 @@ const config=JSON.parse(await readFile(path,'utf8'));
 process.env.ZEE_DB_CONFIG=resolve(config.databaseConfig);process.env.ZEE_RUNTIME_CONFIG=resolve(config.runtimeConfig);
 const target=requireDevelopment();
 if(target.branchId!=='br-small-sound-aozx7xa6')throw Error('Exact isolated live reverse operator branch required');
-const r=await runtime(true),worker=connect(r.workerUrl),api=connect(r.apiUrl),admin=connect(target.adminUrl),base=new BaseContract(loadBaseRegistry());
+const r=await runtime(true),worker=connect(r.workerUrl),api=connect(r.apiUrl),admin=connect(target.adminUrl),base=new BaseContract(reverseBaseRegistry(loadBaseRegistry(),config.baseRpcUrl));
 const baseSigner=new LocalReverseBaseSigner(config.baseSignerCommand,config.baseSignerArgs);
 const zcash=new LocalReverseWalletAdapter(config.zcashCommand,config.zcashArgs,config.approvedDigest);
 const statePath=resolve(config.stateFile);

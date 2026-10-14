@@ -16,6 +16,18 @@ import {recipientShieldedBalance} from '../src/reverse-recipient-balance.ts';
 import {refreshReverseObservers} from '../src/reverse-observer-refresh.ts';
 import type {BaseContract} from '../src/base-contract.ts';
 import type pg from 'pg';
+import {reverseBaseRegistry} from '../src/reverse-base-rpc.ts';
+import type {BaseRegistry} from '../src/base-contract.ts';
+
+test('private reverse RPC override accepts only the two verified HTTPS endpoints and preserves deployment identity',()=>{
+ const registry={chainId:84532,rpcUrl:'https://sepolia.base.org',contracts:{MockUSDC:{address:'fixture'},ZeeSwapSettlement:{address:'fixture'}}} as unknown as BaseRegistry;
+ assert.equal(reverseBaseRegistry(registry),registry);
+ const second=reverseBaseRegistry(registry,'https://base-sepolia-rpc.publicnode.com');
+ assert.equal(second.rpcUrl,'https://base-sepolia-rpc.publicnode.com');assert.equal(second.contracts,registry.contracts);assert.equal(second.chainId,84532);
+ assert.equal(registry.rpcUrl,'https://sepolia.base.org');
+ for(const invalid of ['http://base-sepolia-rpc.publicnode.com','https://base-sepolia-rpc.publicnode.com/','https://example.com',null,84532])
+  assert.throws(()=>reverseBaseRegistry(registry,invalid),/NOT_ALLOWLISTED/);
+});
 
 test('recipient final balance sums real confirmed SDK notes and rejects duplicate, unsafe and premature notes',()=>{
  const old={spend_status:'unspent',status:'confirmed at block height 900',value:500000,txid:'aa'.repeat(32),output_index:0};

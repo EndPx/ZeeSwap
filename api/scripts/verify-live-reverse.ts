@@ -15,6 +15,7 @@ import {approvalDigest} from '../src/reverse-authority.ts';
 import {recipientShieldedBalance} from '../src/reverse-recipient-balance.ts';
 import type {PreparedBaseTransaction} from '../src/base-signer.ts';
 import type {PreparedZcashTransaction} from '../src/reverse-settlement.ts';
+import {reverseBaseRegistry} from '../src/reverse-base-rpc.ts';
 const read=async(path:string)=>JSON.parse(await readFile(path,'utf8'));
 function check(value:unknown,code:string):asserts value{if(!value)throw Error(code);}
 function linuxSibling(configPath:string,path:string){
@@ -28,7 +29,7 @@ async function main(){
  const state=await read(resolve(config.stateFile)),data=await read(resolve(config.runtimeConfig));
  check([data.apiUrl,data.workerUrl].every(url=>new URL(url).hostname.replace('-pooler.','.')===new URL(target.adminUrl).hostname),'RUNTIME_BRANCH_MISMATCH');
  const keys=new PrivateData(Buffer.from(data.payloadKeyHex,'hex'),Buffer.from(data.lookupKeyHex,'hex'));
- const base=new BaseContract(loadBaseRegistry()),token=base.registry.contracts.MockUSDC.address,contract=base.registry.contracts.ZeeSwapSettlement.address;
+ const base=new BaseContract(reverseBaseRegistry(loadBaseRegistry(),config.baseRpcUrl)),token=base.registry.contracts.MockUSDC.address,contract=base.registry.contracts.ZeeSwapSettlement.address;
  const before=await read(resolve(config.verificationBaselineFile)),after=await read(resolve(config.recipientAfterFile));
  check(before.version===1&&before.chainId===84532&&before.baseBlockNumber==='48101970'&&before.payerMockUnits==='100000'
   &&before.contractInventoryMockUnits==='9900000'&&before.operatorETHWei==='994736099999518'&&before.recipientBalanceZatoshi==='500000'
