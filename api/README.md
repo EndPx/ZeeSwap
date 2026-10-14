@@ -17,11 +17,17 @@ Project `raspy-truth-63998651`, database `neondb`:
 | `zeeswap-g2-tests` | `br-muddy-waterfall-aoqd8o9b` | Isolated synthetic regression fixtures |
 | `zeeswap-g3-settlement-tests` | `br-wispy-dawn-aorsbba5` | Dedicated Anvil + Neon settlement fixtures |
 | `zeeswap-g4-live-forward` | `br-crimson-river-aobpimyq` | One real forward public-testnet settlement; closed operator experiment |
+| `zeeswap-g4-live-reverse` | `br-small-sound-aozx7xa6` | Isolated bounded reverse operator experiment |
 
-The primary and two real-evidence branches have ten checksummed migrations,
+The primary, G2 intake and forward-evidence branches have ten checksummed migrations,
 18 tables and two restricted status views under schema `zee`. The regression
 and Anvil settlement branches additionally have migration 0011 and its two
 reverse escrow tables; that migration has not been promoted to primary.
+
+The separate `zeeswap-g4-live-reverse` branch (`br-small-sound-aozx7xa6`) has
+migrations through 0012, 22 tables and two views. It started empty and paused.
+Settlement tests run in a new disposable database per invocation on the synthetic
+settlement branch; existing branch histories remain unchanged.
 The primary's initial state is reconciliation required, acceptance disabled and
 dispatch disabled. Assets are testnet TAZ, project-owned mockUSDC and Base Sepolia
 ETH. The verified mock address is registered on primary and intake-evidence

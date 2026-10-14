@@ -9,6 +9,7 @@ export function config(primary=false): { adminUrl: string; branchId: string; bra
 export function requireDevelopment() {
   const value = config();
   const targets:Record<string,{name:string;host:string}>={
+   'br-small-sound-aozx7xa6':{name:'zeeswap-g4-live-reverse',host:'ep-damp-thunder-aorajb6z.c-2.ap-southeast-1.aws.neon.tech'},
    'br-crimson-river-aobpimyq':{name:'zeeswap-g4-live-forward',host:'ep-winter-frog-ao0z5ayy.c-2.ap-southeast-1.aws.neon.tech'},
    'br-wispy-dawn-aorsbba5':{name:'zeeswap-g3-settlement-tests',host:'ep-broad-math-aoxcd482.c-2.ap-southeast-1.aws.neon.tech'},
    'br-solitary-flower-ao8ccjex':{name:'zeeswap-g2-database',host:'ep-small-resonance-aom8dm9z.c-2.ap-southeast-1.aws.neon.tech'},

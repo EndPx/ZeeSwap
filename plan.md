@@ -357,19 +357,22 @@ Evidence for each gate records commit, toolchain/config hashes without secret va
 
 ## 14. Open dependencies and change log
 
-Next bounded reverse task: expose and durably journal the pinned SDK's calculated
-transaction bytes and chosen notes using an isolated operator-capital wallet.
-Verify immutable recipient/value/privacy/fee/expiry before broadcast, reconcile
-the original transaction after restart, and connect independent recipient receipt
-verification. Only then integrate reverse HTTP intake and final escrow/accounting
-completion for a bounded public-testnet run. The escrow preflight checkpoint does
-not satisfy this signer or delivery gate; see `docs/reverse-integration.md`.
+Current reverse acceptance task: exercise the compiled prepared-raw SDK adapter,
+same-transaction recovery, concrete broadcast guard and independent recipient
+receipt path with one bounded public-testnet order. The operator harness and final
+escrow/accounting path are implemented and locally verified; the public HTTP
+route remains closed. The isolated capital wallet received 200,000 zatoshi and
+the reverse experiment is in progress. Report completion only after canonical
+recipient delivery and finalized Base acknowledgement reconcile; see
+`docs/evidence/g4-reverse-recovery.md` and `docs/reverse-integration.md`.
 
 Open dependencies are not completed work: end-user wallet UX, production operator provisioning/isolation, reverse source-event ingestion, reverse signer integration, full two-direction settlement, refund recovery, backup/signer-journal restoration and bridge backing proof. One forward public-testnet run with explicit inventory/gas funding passed; see `docs/evidence/g4-live-forward.md`. Primary intake remains closed; the dedicated experiment does not authorize a public or continuous service. Live price feeds are optional for this fixture-priced prototype.
 
 When closing one, replace its status with the date and evidence path. Do not delete the original failure evidence. An unresolved integration gate may change the SDK or host after comparison, but not the pair, two-direction requirement, privacy promise, or full product scope without a recorded decision.
 
 Current changes:
+
+- 2026-10-14: Replaced the raw export gap with a compiled pinned-SDK patch, fsynced signing/wallet/raw journals, original-byte recovery, inherited wallet locks, approved-capital isolation, independent raw decryption and canonical receipt collection. Connected the bounded reverse operator, fresh-fence broadcast guard and shared-nonce Base acknowledgement signer. Migration 0012 and exact final accounting passed local integration; only the new isolated live-reverse branch has twelve migrations. Settlement tests now use invocation-owned disposable databases, preserving historical fixtures and removing their temporary credentials afterward. Verification: 12 unit, 38 DB/HTTP, 14 repeated Anvil/Neon, 33 wallet Python and five Base signer tests. Capital bootstrap passed actual SDK/provider receipt checks. Live reverse settlement remains in progress; no public reverse endpoint is enabled. See docs/evidence/g4-reverse-recovery.md.
 
 - 2026-10-14: Added the bounded reverse prerequisite layer: accepted escrow authorization, exact canonical finalized funding observation, immutable COMMIT attempt/receipt, specialized worker/signing fences and a read-only wallet-side commitment gate. Reverse HTTP remains closed. Anvil + Neon passed 12 checks, DB/HTTP 38, unit 9 and Python 17; independent review corrected event-topic and negative-test issues. Migration 0011 is only on the two synthetic test branches; primary and real evidence remain at ten migrations. The test escrow stays pending with its liability/reservations; subsequent suite runs explicitly require a fresh isolated fixture. No reverse public-testnet send occurred. Next is the durable SDK raw-transaction adapter and independent receipt integration. See docs/evidence/g4-reverse-preflight.md.
 

@@ -16,9 +16,11 @@ import { createApi } from '../src/http-api.ts';
 import { Repository } from '../src/repository.ts';
 import { authorizeEscrow, fundingCall, fundingTypedData, observeEscrowFunding, storeEscrowCommit, observeEscrowCommit } from '../src/base-escrow.ts';
 import type { Hex } from 'viem';
+import { storeReversePayout,observeReversePayout,storeEscrowSettlement,observeEscrowSettlement,type PreparedZcashTransaction,type ReverseZcashVerifier,type VerifiedZcashReceipt } from '../src/reverse-settlement.ts';
 
 const settings=requireDevelopment();
 if(settings.branchId!=='br-wispy-dawn-aorsbba5')throw Error('Dedicated settlement fixture branch required');
+if(!/^zee_test_[0-9a-f]{32}$/.test(new URL(settings.adminUrl).pathname.slice(1)))throw Error('Fresh disposable settlement database required');
 const r=await runtime(true),admin=connect(settings.adminUrl),worker=connect(r.workerUrl),api=connect(r.apiUrl);
 const rpc='http://127.0.0.1:18745';
 const operator=privateKeyToAccount(generatePrivateKey());
@@ -56,8 +58,8 @@ const request=(path:string,method='GET',body?:unknown,token=owner)=>fetch(origin
  headers:{authorization:`Bearer ${token}`,'content-type':'application/json','idempotency-key':randomUUID()},body:body===undefined?undefined:JSON.stringify(body)});
 
 before(async()=>{
- // Reverse COMMIT fixtures intentionally retain customer liabilities. A reused
- // database must be reset by the operator; tests never fabricate settlement.
+ // Every invocation receives a new database. Retained historical liabilities
+ // stay untouched in neondb; no fixture reset or fake settlement is needed.
  if((await admin.query("SELECT count(*) FROM zee.quotes WHERE execution_mode='base-escrow-v1'")).rows[0].count!=='0')
   throw Error('pending reverse fixture requires a fresh/reset isolated settlement branch');
  fixtureStarted=true;
@@ -268,4 +270,78 @@ test('reverse source reorg pauses dispatch and invalidates even a finalized comm
  assert.equal((await worker.query('SELECT state FROM zee.obligations WHERE order_id=$1',[reverse.id])).rows[0].state,'HELD');
  // Restore the synthetic canonical record but leave the fixture paused for operator reconciliation.
  await admin.query("UPDATE zee.chain_observations SET block_hash=$1 WHERE network='base-sepolia' AND height=$2",[deposit.block_hash,deposit.block_height]);
+});
+
+// Synthetic destination evidence exercises the DB/runtime boundary only. Anvil
+// remains real contract execution; this does not assert a real shielded payout.
+let reverseLease:any,reverseLeaseOwner:string,settle:PreparedBaseTransaction;
+const preparedZcash:PreparedZcashTransaction={txid:'c'.repeat(64),rawTransaction:'aa',feeZatoshi:'10000',expiryHeight:'1000000',
+ operationId:'',amount:'100000',fee:'10000',recipient:'fixture:shielded-recipient',
+ selectedNotes:[{pool:'ironwood',txid:'d'.repeat(64),index:1,value:'110000'}],outputs:[{recipient:'fixture:shielded-recipient',amount:'100000',ownChange:false}]};
+let delivery:VerifiedZcashReceipt|null=null;
+const fixtureVerifier:ReverseZcashVerifier={
+ async verifyPrepared(p,t){assert.equal(p.txid,'c'.repeat(64));assert.equal(p.rawTransaction,'aa');assert.equal(t.recipient,'fixture:shielded-recipient');assert.equal(t.amountZatoshi,'100000');},
+ async receipt(){return delivery;}
+};
+test('reverse durable bytes reject mismatches and stale fences; delivery does not release reserves or source liability',async()=>{
+ preparedZcash.operationId=reverse.id;
+ await seedFresh();await expireLease();reverseLeaseOwner=randomUUID();
+ reverseLease=(await worker.query('SELECT * FROM zee.claim_escrow_job($1)',[reverseLeaseOwner])).rows[0];assert.equal(reverseLease.id,reverseJob.id);
+ await assert.rejects(()=>storeReversePayout(worker,r.keys,reverse.id,reverseLease.id,reverseLeaseOwner,reverseLease.fence,{...preparedZcash,outputs:[{recipient:'fixture:other',amount:'100000',ownChange:false}]},fixtureVerifier),/INVALID_PREPARED/);
+ await assert.rejects(()=>storeReversePayout(worker,r.keys,reverse.id,reverseLease.id,reverseLeaseOwner,reverseLease.fence,preparedZcash,{...fixtureVerifier,verifyPrepared:async()=>{throw Error('INDEPENDENT_RAW_VERIFICATION_FAILED');}}),/INDEPENDENT_RAW/);
+ assert.equal((await worker.query('SELECT count(*) FROM zee.reverse_payouts')).rows[0].count,'0');
+ await assert.rejects(()=>storeReversePayout(worker,r.keys,reverse.id,reverseLease.id,randomUUID(),reverseLease.fence,preparedZcash,fixtureVerifier),/stale lease/);
+ await storeReversePayout(worker,r.keys,reverse.id,reverseLease.id,reverseLeaseOwner,reverseLease.fence,preparedZcash,fixtureVerifier);
+ await storeReversePayout(worker,r.keys,reverse.id,reverseLease.id,reverseLeaseOwner,reverseLease.fence,preparedZcash,fixtureVerifier);
+ await assert.rejects(()=>admin.query('UPDATE zee.reverse_payouts SET fee=1 WHERE order_id=$1',[reverse.id]),/immutable signed reverse payout/);
+ await assert.rejects(()=>admin.query('UPDATE zee.reverse_payouts SET expiry_height=expiry_height+1 WHERE order_id=$1',[reverse.id]),/immutable signed reverse payout/);
+ await assert.rejects(()=>worker.query('SELECT zee.store_reverse_payout($1,$2,$3,$4,$5,$6,$7,$8)',[reverse.id,reverseLease.id,reverseLeaseOwner,reverseLease.fence,r.keys.lookup('zcash-tx','b'.repeat(64)),r.keys.seal(preparedZcash,'irrelevant'),'10000',1000000]),/conflicting signed/);
+ assert.equal((await worker.query('SELECT count(*) FROM zee.reverse_payouts')).rows[0].count,'1');
+ assert.equal((await observeReversePayout(worker,r.keys,reverse.id,fixtureVerifier)).status,'AWAITING_ZCASH_FINALITY');
+ const height=sourceHeight+1;sourceHeight+=10;
+ delivery={txid:preparedZcash.txid,blockHeight:height,blockHash:'e'.repeat(64),tipHeight:sourceHeight,tipHash:'a'.repeat(64),observedAt:new Date().toISOString(),
+ amountZatoshi:'100000',feeZatoshi:'10000',recipient:'fixture:shielded-recipient',shielded:true,pool:'ironwood'};
+ await assert.rejects(()=>observeReversePayout(worker,r.keys,reverse.id,{...fixtureVerifier,receipt:async()=>({...delivery!,amountZatoshi:'99999'})}),/INVALID_REVERSE_ZCASH_RECEIPT/);
+ await assert.rejects(()=>observeReversePayout(worker,r.keys,reverse.id,{...fixtureVerifier,receipt:async()=>({...delivery!,tipHeight:height+8})}),/INVALID_REVERSE_ZCASH_RECEIPT/);
+ await assert.rejects(()=>worker.query('SELECT zee.confirm_reverse_payout($1,$2,$3,$4,$5,$6)',[reverse.id,r.keys.lookup('zcash-tx',preparedZcash.txid),height,'e'.repeat(64),'10000',r.keys.seal(delivery,'receipt')]),/canonical finality/);
+ assert.equal((await observeReversePayout(worker,r.keys,reverse.id,fixtureVerifier)).status,'ZCASH_DELIVERY_FINALIZED');
+ await observeReversePayout(worker,r.keys,reverse.id,fixtureVerifier);
+ await assert.rejects(()=>worker.query('SELECT zee.confirm_reverse_payout($1,$2,$3,$4,$5,$6)',[reverse.id,r.keys.lookup('zcash-tx',preparedZcash.txid),height,'f'.repeat(64),'10000',r.keys.seal(delivery,'receipt')]),/receipt changed/);
+ await assert.rejects(()=>worker.query('SELECT zee.confirm_reverse_payout($1,$2,$3,$4,$5,$6)',[reverse.id,r.keys.lookup('zcash-tx',preparedZcash.txid),height,'e'.repeat(64),'9999',r.keys.seal(delivery,'receipt')]),/identity\/fee\/expiry mismatch/);
+ assert.equal((await worker.query('SELECT state FROM zee.orders WHERE id=$1',[reverse.id])).rows[0].state,'READY');
+ assert.equal((await worker.query('SELECT state FROM zee.obligations WHERE order_id=$1',[reverse.id])).rows[0].state,'HELD');
+ assert.equal((await worker.query('SELECT count(*) FROM zee.reservations WHERE order_id=$1 AND released_at IS NULL',[reverse.id])).rows[0].count,'3');
+ await assert.rejects(()=>api.query('UPDATE zee.reverse_payouts SET confirmed=true'),/permission denied/);
+});
+test('reverse SETTLE finality accounts exact principal, both chain fees, held proceeds and no duplicate ledger discharge',async()=>{
+ await seedFresh();
+ const before=(await worker.query('SELECT asset,purpose,balance::text FROM zee.inventory_accounts')).rows;
+ const nonce=await base.client.getTransactionCount({address:operator.address,blockTag:'pending'});
+ const raw=await operator.signTransaction({chainId:84532,type:'legacy',to:registry.contracts.ZeeSwapSettlement.address,
+ data:encodeFunctionData({abi:settlementArtifact.abi,functionName:'settleEscrow',args:[funding.terms.id]}),gas:450000n,gasPrice:1000000n,nonce,value:0n});
+ settle={raw,hash:keccak256(raw),nonce,maxCost:'10000000000000'};
+ await assert.rejects(()=>storeEscrowSettlement(worker,r.keys,base,reverse.id,reverseLease.id,reverseLeaseOwner,reverseLease.fence,{...settle,maxCost:'1'}),/SIGNED_SETTLE_MISMATCH/);
+ await storeEscrowSettlement(worker,r.keys,base,reverse.id,reverseLease.id,reverseLeaseOwner,reverseLease.fence,settle);
+ await storeEscrowSettlement(worker,r.keys,base,reverse.id,reverseLease.id,reverseLeaseOwner,reverseLease.fence,settle);
+ await base.client.sendRawTransaction({serializedTransaction:settle.raw});
+ assert.equal((await observeEscrowSettlement(worker,r.keys,base,reverse.id)).status,'AWAITING_BASE_FINALITY');
+ assert.equal((await worker.query('SELECT state FROM zee.orders WHERE id=$1',[reverse.id])).rows[0].state,'READY');
+ await mineFinality();await seedFresh();
+ assert.equal((await observeEscrowSettlement(worker,r.keys,base,reverse.id)).status,'SETTLED');
+ const entries=(await worker.query('SELECT count(*) FROM zee.ledger_entries WHERE order_id=$1',[reverse.id])).rows[0].count;
+ await observeEscrowSettlement(worker,r.keys,base,reverse.id);
+ assert.equal((await worker.query('SELECT count(*) FROM zee.ledger_entries WHERE order_id=$1',[reverse.id])).rows[0].count,entries);
+ assert.equal((await worker.query('SELECT state FROM zee.orders WHERE id=$1',[reverse.id])).rows[0].state,'SETTLED');
+ assert.equal((await worker.query('SELECT state FROM zee.obligations WHERE order_id=$1',[reverse.id])).rows[0].state,'DISCHARGED');
+ assert.equal((await worker.query('SELECT count(*) FROM zee.reservations WHERE order_id=$1 AND released_at IS NULL',[reverse.id])).rows[0].count,'0');
+ const baseFee=BigInt((await worker.query('SELECT actual_fee::text FROM zee.escrow_commits WHERE order_id=$1',[reverse.id])).rows[0].actual_fee)
+ +BigInt((await worker.query('SELECT actual_fee::text FROM zee.escrow_settlements WHERE order_id=$1',[reverse.id])).rows[0].actual_fee);
+ const after=(await worker.query('SELECT asset,purpose,balance::text,reserved::text FROM zee.inventory_accounts')).rows;
+ for(const account of after){const prior=before.find(a=>a.asset===account.asset&&a.purpose===account.purpose)!;
+  const expected=account.asset==='TAZ'?(account.purpose==='principal'?100000n:10000n):account.asset==='baseETH'&&account.purpose==='fee'?baseFee:0n;
+  assert.equal(BigInt(prior.balance)-BigInt(account.balance),expected);assert.equal(account.reserved,'0');}
+ const proceeds=(await worker.query("SELECT sum(amount)::text AS n FROM zee.ledger_entries WHERE order_id=$1 AND asset='mockUSDC' AND bucket='operator:unreconciled'",[reverse.id])).rows[0].n;
+ assert.equal(proceeds,'100000');
+ assert.equal((await worker.query('SELECT event_id,asset,sum(amount) FROM zee.ledger_entries GROUP BY event_id,asset HAVING sum(amount)<>0')).rowCount,0);
+ assert.equal(await base.client.readContract({address:registry.contracts.ZeeSwapSettlement.address,abi:settlementArtifact.abi,functionName:'escrowLiability'}),0n);
 });

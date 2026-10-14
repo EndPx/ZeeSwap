@@ -104,10 +104,12 @@ uses synthetic shielded inputs and loopback-only EVM transactions, preserves
 synthetic history, zeros unreserved fixture inventory and leaves the branch paused.
 It cannot be pointed at a public RPC through the test configuration.
 
-The reverse preflight extension intentionally retains a pending synthetic escrow
-and its reservations. A subsequent suite run fails before setup if previous
-reverse fixtures exist. See the [fixture lifecycle](evidence/g4-reverse-preflight.md#isolation-and-retained-fixtures)
-before re-running; no automatic reset or fake settlement clears those liabilities.
+The historical reverse preflight fixture retains its pending escrow and
+reservations. The runner now creates a separate disposable database for each
+suite invocation and removes only that invocation-owned database after testing.
+It never resets historical `neondb`. See the
+[repeatable fixture lifecycle](evidence/g4-reverse-recovery.md#repeatable-fixture-lifecycle)
+for role-bootstrap checksums and cleanup behavior.
 
 Read [the evidence record](evidence/g3-base-integration.md) for the exact boundaries
 between the Anvil settlement proof and the live Base Sepolia connection checks.

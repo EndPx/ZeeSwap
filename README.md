@@ -14,11 +14,15 @@ One real forward testnet swap is verified: **0.001 shielded TAZ → 0.1 mockUSDC
 - [Foundry contracts](contracts/README.md), [deployment registry](contracts/deployments/base-sepolia.json) and [G3 evidence](docs/evidence/g3-contracts.md): tested, deployed and source-verified mockUSDC and Base settlement.
 - [Forward backend integration](docs/base-integration.md) and [integration evidence](docs/evidence/g3-base-integration.md): private API, durable Base signer, finalized receipt observer and accounting tested through settlement on Anvil + Neon; live Base Sepolia connection checks passed without a payment.
 - [Forward public-testnet settlement](docs/evidence/g4-live-forward.md): source and destination receipts, exact recipient delta, fees, ledger reconciliation and remaining gates.
-- [Reverse integration](docs/reverse-integration.md): escrow authorization and finalized commitment checks; the reverse quote route remains closed pending durable Zcash signing and receipt integration.
+- [Reverse integration](docs/reverse-integration.md): escrow authorization and finalized commitment checks; the public reverse quote route remains closed while the guarded operator flow is validated.
+- [Durable reverse adapter and repeatable tests](docs/evidence/g4-reverse-recovery.md): compiled SDK raw export, same-transaction recovery, guarded broadcast and independent receipt checks; local verification is distinguished from public-testnet payment evidence.
 
 ## Verify locally
 
 With Node 24 and pnpm 10.21.0, these checks require no wallet or database credentials:
+
+Run the Python wallet suite on Linux/WSL; the signer recovery tests exercise Linux
+file locking and directory fsync.
 
 ```sh
 pnpm install --frozen-lockfile

@@ -29,6 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         && sapling == 0 && orchard == 0 && ironwood == 10_000;
     println!("{}", serde_json::to_string_pretty(&serde_json::json!({
         "txid": tx.txid().to_string(), "version": format!("{:?}", tx.version()),
+        "expiry_height": u32::from(tx.expiry_height()),
         "branch": format!("{:?}", tx.consensus_branch_id()),
         "transparent_inputs": transparent_inputs, "transparent_outputs": transparent_outputs,
         "sapling_value_balance_zatoshis": sapling,

@@ -196,6 +196,8 @@ def main():
         return value['result']
     proof = verify_commitment(request, json.loads(args.registry.read_text()), rpc,
                               lambda code: command(config['hashCommand'] + [code]))
+    proof['approvedDigest'] = args.approved_digest
+    proof['orderId'] = request['orderId']
     print(json.dumps(proof))
 
 

@@ -38,12 +38,14 @@ Anvil/Neon and Python test results and the retained-fixture limitation.
 Passing the commitment checks is not evidence that a Zcash payment was signed,
 broadcast or received.
 
-The pinned SDK exposes separate calculation and transmission operations, but the
-current CLI calculation response does not provide the raw transaction needed by
-our recovery journal. The wallet integration must persist and recover that exact
-transaction across process and database restarts before the route is enabled.
-See the [wallet module](../workers/zcash-wallet/README.md) for the inspected SDK
-boundary and subsequent implementation requirements.
+The pinned SDK now has a reproducible prepared-transaction export patch and a
+durable operator adapter. It preserves signed bytes before broadcast, recovers
+the original transaction, authenticates internal change and verifies recipient
+delivery independently. The concrete operator sequence includes a fresh database
+broadcast guard and a separate Base acknowledgement signer. See the
+[recovery checkpoint](evidence/g4-reverse-recovery.md) and
+[wallet module](../workers/zcash-wallet/README.md). Compiled code and synthetic
+recovery tests remain distinct from funded public-testnet execution.
 
 The deployed contract has no abort/refund transition from `PAYOUT_COMMITTED`.
 A failed or ambiguous Zcash payout after commitment therefore remains an

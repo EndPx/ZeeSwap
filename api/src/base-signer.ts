@@ -8,11 +8,11 @@ export interface BaseSigner {
  prepare(terms:PayoutTerms,phase:BasePhase):Promise<PreparedBaseTransaction>;
 }
 export class LocalBaseSigner implements BaseSigner {
- constructor(private readonly command:string,private readonly args:string[]){}
- private invoke(request:unknown):Promise<any>{return new Promise((resolve,reject)=>{
+ constructor(private readonly command:string,private readonly args:string[],private readonly timeoutMs=120000){}
+ protected invoke(request:unknown):Promise<any>{return new Promise((resolve,reject)=>{
   const child=spawn(this.command,this.args,{stdio:['pipe','pipe','pipe'],windowsHide:true});let output='',error='',done=false;
   const fail=()=>{if(!done){done=true;reject(Error('BASE_SIGNER_UNAVAILABLE'));}};
-  const timer=setTimeout(()=>{child.kill();fail();},120000);
+  const timer=setTimeout(()=>{child.kill();fail();},this.timeoutMs);
   child.on('error',fail);child.stdin.on('error',fail);
   child.stdout.on('data',chunk=>{output+=chunk;if(output.length>32768){child.kill();fail();}});
   child.stderr.on('data',chunk=>{error+=chunk;if(error.length>8192){child.kill();fail();}});
@@ -21,6 +21,11 @@ export class LocalBaseSigner implements BaseSigner {
  });}
  async authorize(terms:PayoutTerms){return (await this.invoke({command:'authorize',terms,phase:'RESERVE'})).signature as Hex;}
  prepare(terms:PayoutTerms,phase:BasePhase){return this.invoke({command:'prepare',terms,phase});}
+}
+export class LocalReverseBaseSigner extends LocalBaseSigner {
+ constructor(command:string,args:string[]){super(command,args,360000);}
+ async authorizeFunding(terms:import('./base-escrow.ts').FundingTerms){return (await this.invoke({command:'authorize',terms,phase:'FUNDING'})).signature as Hex;}
+ prepareEscrow(terms:import('./base-escrow.ts').FundingTerms,phase:'COMMIT'|'SETTLE'):Promise<PreparedBaseTransaction>{return this.invoke({command:'prepare',terms,phase});}
 }
 export async function validatePrepared(registry:BaseRegistry,terms:PayoutTerms,signature:Hex,phase:BasePhase,prepared:PreparedBaseTransaction){
  if(getAddress(await recoverTypedDataAddress({...payoutTypedData(registry,terms),signature}))!==getAddress(registry.operator))throw Error('INVALID_BASE_SIGNATURE');

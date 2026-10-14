@@ -1,5 +1,114 @@
 # G1: Zcash testnet feasibility
 
+## Bounded reverse raw transaction adapter
+
+`prepared_raw.py` is a private Linux operator pipe for one isolated reverse
+experiment. It uses the actual pinned wallet SDK to propose/sign, persist,
+recover and submit exactly one Ironwood transaction. It does not enable the
+public reverse route or turn the CLI into a continuous settlement service.
+
+Reproduce the export integration on the same pinned checkout, preserving the
+existing waitsync patch:
+
+```sh
+python3 workers/zcash-wallet/patch_prepared_sdk.py "$G1_ROOT/tools/zingolib"
+CARGO_TARGET_DIR="$G1_ROOT/tools/zcash-devtool/target" \
+CARGO_PROFILE_DEV_DEBUG=0 CARGO_INCREMENTAL=0 \
+cargo +stable build --locked --manifest-path "$G1_ROOT/tools/zingolib/Cargo.toml" \
+  -p zingo-cli --no-default-features --features nakednet-test-mode -j 4
+cargo +stable build --locked --manifest-path workers/zcash-wallet/verify/Cargo.toml
+python3 -m unittest discover -s workers/zcash-wallet -p 'test_*.py'
+```
+
+The patch adds `calculate ADDRESS ATOMIC_AMOUNT` and `calculate --recover`.
+Calculation signs without transmission, stops the asynchronous saver, explicitly
+flushes the wallet, and fsyncs the wallet file and parent directory with propagated
+errors before exporting. Recovery exports already calculated transactions and
+never creates another proposal. The export contains actual serialized bytes,
+SDK txid/expiry/fee, nullifier-linked input note IDs and OVK-decrypted outputs.
+`ownChange` is true only for an output also decrypted with the wallet's internal
+incoming key. Its response is private and must not be printed in public logs.
+
+Provision a mode-0700 Linux private runtime directory with mode-0600 files. The
+config fields are `cliCommand`, `readCommand`, `verifyCommand`,
+`preflightCommand`, `beforeBroadcastGuardCommand`, `approvedRequest`,
+`approvedDigest`, `journalPath`, `walletDir`, `lockPath`, `protoDir`,
+`capitalUfvkSha256`, `approvedCapitalNotes` and `recipientUfvkFile`. Command
+fields are operator-owned argument arrays; never accept them from API callers.
+The private approved request follows `reverse_preflight.py` version 1. The
+capital wallet must be separate `reverse-capital`, have a separately approved
+UFVK digest, and contain only ten-confirmation Ironwood notes individually
+approved as operator capital by `(pool,txid,index,value)`. Existing operator-b
+notes, including held customer deposits, cannot qualify. `recipientUfvkFile`
+contains the independent recipient's plain UFVK, never a spend key.
+
+The stdin protocol accepts exactly one field:
+
+```json
+{"command":"prepare"}
+```
+
+Run `python3 workers/zcash-wallet/prepared_raw.py --config PRIVATE_CONFIG`.
+Commands are `prepare`, `recover`, `broadcast`, and `receipt`. Prepare/recover
+return private `{txid,rawTransaction,feeZatoshi,expiryHeight,selectedNotes,
+outputs,operationId,amount,fee,recipient}`. `expiryHeight` and all amounts are
+canonical integer strings. The receipt returns canonical mined block/tip
+identities and times, the independent recipient's decrypted amount, immutable
+`orderId` and `approvedDigest`, and at least
+ten confirmations; receipt verification does not depend on the Base order still
+being committed.
+
+Prepare independently checks finalized Base commitment, genuinely synchronizes
+the isolated wallet, and fsyncs an exclusive signing intent before calculation.
+An existing intent always refuses a new calculation. A crash before durable SDK
+save requires manual reconciliation; recovery cannot invent absent bytes. A crash
+after durable SDK save can recover only one already calculated transaction and
+verify it against the original capital list. Interrupted atomic journal updates
+leave their `.tmp` files private and require reconciliation before another write.
+
+Every verification reparses the raw transaction and independently decrypts its
+recipient ciphertext. Broadcast additionally reexports the actual SDK transaction,
+checks byte/input/output equality, refreshes the Base commitment and expiry window,
+and requires a local durable job/fence guard. The guard receives
+`{operationId,approvedDigest,txid,rawSha256}` over stdin and must return
+`{authorized:true,txid,rawSha256}` only after independently checking the sealed
+business transaction and current worker authority. This command is not a substitute
+for the database fence implementation. Submission is journaled as ambiguous before
+the gRPC call. A response-loss retry may submit only identical bytes; an acknowledged
+submission refuses another broadcast. Recovery remains possible after expiry.
+
+The Python fault-injection tests are synthetic state/durability checks, not signed
+transaction or live settlement evidence. A successful compiled SDK empty-wallet
+recovery proves the export command works; it does not prove funded preparation,
+delivery, Base settlement, or final accounting.
+
+`reverse_capital_snapshot.py` separately captures the private opening-capital
+artifact consumed by the explicit database bootstrap. It verifies the pinned
+capital UFVK, genuinely synchronizes the isolated wallet under its inherited
+writer lock, and admits exactly one operator-approved 200,000-zatoshi Ironwood
+note after ten confirmations. It independently fetches the canonical full
+transaction, checks compact-block membership, decrypts the incoming ciphertext
+with the capital UFVK, and rechecks all referenced block hashes before writing.
+The actual note identity/value must match the configured capital whitelist;
+unknown or spent notes refuse opening-capital reconciliation.
+
+```sh
+python3 workers/zcash-wallet/reverse_capital_snapshot.py \
+  --config PRIVATE_PREPARED_CONFIG --output PRIVATE_CAPITAL_PROOF \
+  --funding-txid INDEPENDENTLY_APPROVED_FUNDING_TXID
+python3 workers/zcash-wallet/reverse_capital_snapshot.py \
+  --config PRIVATE_PREPARED_CONFIG --output PRIVATE_CAPITAL_PROOF --refresh
+```
+
+`--refresh` reads canonical chain blocks without wallet synchronization or any
+balance assertion. It emits only `{snapshot}`, with no received outputs, and
+preserves previous referenced block heights. Additional private receipt heights
+can be supplied with `--check-height`. It cannot claim that opening capital
+remains unspent after payout. Both forms write private artifacts and print only
+sanitized status/height and, for opening capture, balance/confirmation counts.
+These artifacts have a 60-second freshness requirement in the existing observer
+validator. Capital receipt evidence is not reverse payout or settlement evidence.
+
 This directory contains tools for the five-step **testnet** wallet experiment:
 initialize separate wallets, receive a payment with a memo, decode it with a
 viewing-only scanner, pay a separate recipient, then restart and rescan.
@@ -243,8 +352,10 @@ pipe, `hashCommand` for local `cast keccak`, and a TLS `rpcUrl`. `hashCommand` i
 trusted command prefix such as `["/home/albary/.foundry/bin/cast", "keccak"]` when
 running natively in the existing WSL environment. Configuration and approved
 requests belong outside Git. The command takes `--config`, `--approved-request`,
-`--approved-digest` and `--registry`; successful stdout contains only gate status,
-finalized height and the unresolved blocker, with no receiver, memo or order ID.
+`--approved-digest` and `--registry`; successful private stdout contains gate
+status, finalized height, the approved digest and private order ID. These last
+two identities bind the raw adapter to the request actually checked by preflight.
+Do not publish this private pipe response.
 
 The gate independently reads Base chain ID, fresh latest/finalized heads,
 canonical successful commit receipt, exact `commitPayout(bytes32)` transaction,
@@ -261,13 +372,13 @@ not a Zcash proof or permission to spend after this process exits.
 results. Tests prove rejection of incorrect amount, receiver, pool, transaction
 identity, duplicate recipient note, transparent output and insufficient
 confirmations. The function does not fetch raw bytes, authenticate caller data,
-or prove block inclusion/canonicality itself. A future adapter must independently
+or prove block inclusion/canonicality itself. The raw adapter described above independently
 fetch the raw transaction and canonical compact block, match inclusion and mined
 height, run the existing Rust raw parser, and decrypt using the independent
 recipient UFVK before using this function. Raw data, viewing keys and notes stay
-private. There is no live reverse receipt acceptance in this slice.
+private. Compilation and local fault tests do not establish live reverse receipt acceptance.
 
-Pinned SDK feasibility was inspected without wallet changes at zingolib commit
+The earlier preflight slice inspected pinned SDK feasibility without wallet changes at zingolib commit
 `0243894aee9b615c091cf27499c58cdfe325d05f` under the existing WSL G1 tools directory:
 
 - `zingolib/src/lightclient/send.rs`: `calculate_stored_proposal` signs without
@@ -278,19 +389,22 @@ Pinned SDK feasibility was inspected without wallet changes at zingolib commit
   signed raw export boundary. Existing `quicksend` remains unsuitable for the
   required external prepared-raw journal.
 
-The next adapter task must use a dedicated capital wallet/account whose notes
-cannot include customer-held or unreconciled source proceeds. It must establish
+The raw adapter now implements the requirements identified by that earlier slice.
+It uses a dedicated capital wallet/account whose approved notes
+cannot include customer-held or unreconciled source proceeds. Its protections establish
 one exclusive wallet/journal writer lock, fsync immutable intent before SDK
 signing, extract the exact calculated transaction bytes and chosen note set,
 verify recipient/value/privacy/fee/expiry from those bytes, and durably persist
-raw bytes plus txid before broadcast. Atomic journal replacement requires file
-and directory fsync. Recovery after a crash or timeout must reconcile that exact
-transaction; it cannot call another SDK send. Before broadcast, independently
-reread finalized Base commitment and immutable order authority. No new wallet,
-funding, note selection, signed transaction or spend has been performed here.
+raw bytes plus txid before broadcast. Atomic journal replacement uses file
+and directory fsync. Recovery after a crash or timeout reconciles that exact
+transaction; it cannot call another SDK send. Before broadcast it independently
+rereads finalized Base commitment, immutable order authority and the durable job
+guard. The actual compiled SDK was exercised with an isolated empty test wallet's
+recovery export; no funded preparation or spend is proved by this local check.
 
-Verification: `python -m unittest discover -s workers/zcash-wallet -p 'test_*.py'`
-passed 17 tests (nine new reverse tests and eight existing tests). EVM selectors
+Verification: `python3 -m unittest discover -s workers/zcash-wallet -p 'test_*.py'`
+passed 33 tests on Linux (including thirteen durable-adapter checks and three
+capital proof checks). EVM selectors
 and the event topic were independently derived with installed Foundry `cast sig`
 and `cast keccak` against the Solidity function/event names, rather than inferred
 from the fixture. Reverse test RPC responses are synthetic and do not constitute
