@@ -88,7 +88,7 @@ up successfully. No reset or deletion of historical evidence was needed.
 - The real patched SDK and Rust parser compiled successfully. An actual empty
   isolated wallet returned valid `calculate --recover` JSON with no transactions.
   This alone is not a funded signing test.
-- Wallet Python tests passed **33/33**, including directory-fsync failure,
+- Wallet Python tests subsequently passed **36/36**, including directory-fsync failure,
   inherited locking, interrupted intent/recovery, exact amount/change/fee totals,
   response-loss same-byte retry and cross-order receipt rejection.
 - Reverse Base signer adversarial tests passed **5/5**.
@@ -100,6 +100,13 @@ up successfully. No reset or deletion of historical evidence was needed.
   API unit tests subsequently passed **14/14**, including capital, opening-ledger
   retry, approval/broadcast-authority negatives, recipient-note balance parsing
   and observer-refresh policy isolation.
+
+An actual Ubuntu Python RPC probe found HTTP 403 with urllib's default user
+agent. Explicit client identification as `ZeeSwap-Testnet-Preflight/1.0` resolved
+the transport issue on the same official endpoint with normal HTTPS certificate
+verification. Chain ID, finalized block reads, EIP-1898 canonical block-hash code
+reads for both deployments and a pinned token-decimals call passed. Three added
+transport regression checks preserve exact JSON-RPC identity and TLS behavior.
 
 The operator refreshes trusted canonical observers after lengthy SDK preparation
 or recovery and again before broadcast. This preserves the current runtime

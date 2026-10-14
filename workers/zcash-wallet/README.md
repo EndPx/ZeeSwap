@@ -350,7 +350,12 @@ input caps and at most 10,000-zatoshi fee; it supplies no market pricing.
 The private config contains `readCommand` for the existing SDK address-validation
 pipe, `hashCommand` for local `cast keccak`, and a TLS `rpcUrl`. `hashCommand` is a
 trusted command prefix such as `["/home/albary/.foundry/bin/cast", "keccak"]` when
-running natively in the existing WSL environment. Configuration and approved
+running natively in the existing WSL environment. The HTTPS RPC request identifies
+itself as `ZeeSwap-Testnet-Preflight/1.0`; the public endpoint refused Python's
+default user agent with HTTP 403 during the actual read-only probe. Certificate
+verification remains Python's standard verified TLS, without a custom insecure
+context. Both chain-ID and finalized-block reads passed with the identified client.
+Configuration and approved
 requests belong outside Git. The command takes `--config`, `--approved-request`,
 `--approved-digest` and `--registry`; successful private stdout contains gate
 status, finalized height, the approved digest and private order ID. These last
@@ -403,8 +408,8 @@ guard. The actual compiled SDK was exercised with an isolated empty test wallet'
 recovery export; no funded preparation or spend is proved by this local check.
 
 Verification: `python3 -m unittest discover -s workers/zcash-wallet -p 'test_*.py'`
-passed 33 tests on Linux (including thirteen durable-adapter checks and three
-capital proof checks). EVM selectors
+passed 36 tests on Linux (including thirteen durable-adapter checks, three
+capital proof checks and three RPC transport checks). EVM selectors
 and the event topic were independently derived with installed Foundry `cast sig`
 and `cast keccak` against the Solidity function/event names, rather than inferred
 from the fixture. Reverse test RPC responses are synthetic and do not constitute

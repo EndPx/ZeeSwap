@@ -16,6 +16,21 @@ from urllib.request import Request, urlopen
 
 
 COMMITTED = '0xd7c0fc25b1f6094e6782eab5070e2f634d348aa17cfa87a35f58ee201d2fea2f'
+RPC_USER_AGENT = 'ZeeSwap-Testnet-Preflight/1.0'
+
+
+def rpc_call(url, method, params):
+    """Use verified HTTPS and identify the client to the public RPC service."""
+    if not url.startswith('https:'):
+        raise ValueError('TLS Base RPC required')
+    body = json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': method, 'params': params}).encode()
+    request = Request(url, data=body, headers={'Content-Type': 'application/json', 'User-Agent': RPC_USER_AGENT})
+    with urlopen(request, timeout=30) as response:
+        value = json.load(response)
+    if (not isinstance(value, dict) or value.get('error') or type(value.get('id')) is not int
+            or value['id'] != 1 or value.get('jsonrpc') != '2.0' or 'result' not in value):
+        raise ValueError('Base RPC proof unavailable')
+    return value['result']
 
 
 def exact_keys(value, keys):
@@ -188,12 +203,7 @@ def main():
     if not config['rpcUrl'].startswith('https://'):
         raise ValueError('TLS Base RPC required')
     def rpc(method, params):
-        body = json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': method, 'params': params}).encode()
-        with urlopen(Request(config['rpcUrl'], data=body, headers={'Content-Type': 'application/json'}), timeout=30) as response:
-            value = json.load(response)
-        if value.get('error') or value.get('id') != 1 or value.get('jsonrpc') != '2.0':
-            raise ValueError('Base RPC proof unavailable')
-        return value['result']
+        return rpc_call(config['rpcUrl'], method, params)
     proof = verify_commitment(request, json.loads(args.registry.read_text()), rpc,
                               lambda code: command(config['hashCommand'] + [code]))
     proof['approvedDigest'] = args.approved_digest
