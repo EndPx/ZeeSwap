@@ -1,13 +1,14 @@
 # G5 funded refund experiments and first-run incident
 
-Date: 2026-10-15 (Asia/Jakarta). Latest verification: 17:12 WIB.
+Date: 2026-10-15 (Asia/Jakarta). Latest verification: after confirmed shielded refund and allocation release.
 Recovery implementation revisions: `db0b5b4` and `17ba4cd`.
 
-The reverse Base principal refund is finalized and reconciled. The late shielded
-source has a finalized permanent Base cancellation, but its Zcash refund is
-blocked before broadcast by a zero-change-output validation defect. Its full
-customer liability remains open. Neither experiment counts as a completed swap;
-the twenty-swap soak remains **0/20**.
+Both source refunds are finalized and reconciled. The late shielded source was
+returned using its original SDK transaction after the zero-change validator fix.
+Its full principal is independently received, its liability is discharged, and
+the first run capital allocation was explicitly released with balanced entries.
+Neither experiment counts as a completed swap; the twenty-swap soak remains
+**0/20** at this checkpoint.
 
 ## Late shielded source
 
@@ -63,7 +64,7 @@ contract, exact cancellation calldata, event and permanent terminal state.
 A finalized cancellation permits the refund path; it does not prove a Zcash
 recipient has received funds.
 
-### Zcash refund blocked before broadcast
+### Initial zero-change failure and original-byte recovery
 
 The pinned SDK calculated and durably saved the original refund. Independent
 Python validation parsed its signed bytes, selected notes and recipient
@@ -77,25 +78,43 @@ ciphertext. Its exact amounts are:
 | SDK own-change output | 0 |
 | Network fee | 10000 |
 
-The TypeScript validator currently requires every output amount to be positive,
-including own change. It rejects this authenticated zero own-change output with
+The previous TypeScript validator required every output amount to be positive,
+including own change. It rejected this authenticated zero own-change output with
 INVALID_PREPARED_ZCASH_PAYOUT. The coordinator reproduced the rejection using
 the actual private prepared transaction. An original-byte recovery attempt
 reproduced the same rejection; it did not calculate a replacement transaction.
 
-The SDK journal remains PREPARED. No Zcash refund payload was stored in the
+At that initial failure the SDK journal remained PREPARED. No refund payload was stored in the
 application database and no refund broadcast was attempted. At the checkpoint,
 the original txid lookup returned NOT_FOUND; this is not cancellation or expiry
 proof. Signed bytes, expiry, approval and wallet state are retained privately.
-The required fix must allow canonical zero only for authenticated own change,
-preserve positive recipient amounts, exact conservation and output indices,
-and recover the original transaction. It must not filter outputs or recalculate
-payment merely to bypass the validator. Expiry must be rechecked before any send.
+The correction in `0544144` allows canonical zero only for authenticated own change,
+preserves positive recipient amounts, exact conservation and output indices,
+and permitted recovery of the original transaction. Outputs were retained and
+no replacement payment was calculated. Fresh canonical cancellation, expiry and
+original raw-byte checks passed before broadcast.
 
-The application still shows REFUND_REQUIRED, one open obligation, three held
-reservations, zero ordinary Base payout attempts and zero reverse payouts.
-The ledger is balanced. Its capital remains allocated until the full shielded
-principal refund is independently confirmed and the allocation is closed.
+The original shielded refund then succeeded:
+
+| Field | Verified value |
+| --- | --- |
+| Shielded refund | `8ffeefcfd17dc9c43a0accabe800d3f9291e249aed582c85a71baaabdc0ea71b` |
+| Included height | `4504483` |
+| Canonical block hash | `00001c11f9a2e6882be9f6e660955464033defa9cfbac73d1e7405c686fac7be` |
+| Independent receipt checkpoint | Height `4504498`, 16 confirmations |
+| Full recipient principal | `100000` zatoshi |
+| Separate operator network fee | `10000` zatoshi |
+| Sender-wallet balance before / after | `8465000` / `8565000` zatoshi |
+| Application state | REFUNDED |
+
+The receipt checked original signed bytes, canonical membership and incoming
+recipient decryption. The full balance increase is exactly `100000` zatoshi.
+The first run then had zero open liabilities and reservations. Four original
+inventory accounts were released to zero through eight balanced capital
+withdrawal entries; no ledger history was deleted. Intake and dispatch stayed
+disabled, reconciliation was enabled and the original incident manifest stayed
+frozen. This prevents simultaneous allocation of the same reverse capital to
+the first run and its retry.
 
 ## Funded reverse refund passed
 
@@ -153,12 +172,12 @@ All disposable settlement databases were removed; the historical neondb remained
 
 Both experiments end with acceptance and dispatch disabled. The fresh retry
 branch still has zero orders and zero inventory accounts, with reconciliation
-required. The first run remains frozen. Its physical capital cannot be assigned
-to the retry while its customer liability remains open. Primary and completed
+required. The first run remains frozen with its refund liability discharged and capital
+allocation released. Fresh retry capitalization requires its own independent
+physical proof and baseline. Primary and completed
 G4 experiments were not activated by this work.
 
-The shielded refund, funded SDK process-kill test and twenty alternating swaps
-remain incomplete. Batch-runner work is also incomplete: physical capture still
+The funded SDK process-kill test and twenty alternating swaps remain incomplete. Batch-runner work is also incomplete: physical capture still
 needs the additional fee-wallet proof, dedicated batch/targeted-claim/nonce tests,
 and the separately bounded user-source actor. Those edits remain unpublished
 and the runner has not been started. Coding remains assigned to Sol 6.1 as the
