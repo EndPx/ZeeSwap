@@ -102,15 +102,13 @@ export function validateG5PhysicalBase(opening:{inventory:string;operatorGas:str
  if(expectedGas<0n||atomic(physical.inventory)!==expectedInventory||atomic(physical.available)!==expectedInventory||atomic(physical.tokenBalance)!==expectedInventory
   ||physical.escrowLiability!=='0'||atomic(physical.gas)!==expectedGas)throw Error('G5_UNEXPLAINED_PHYSICAL_BASE_DELTA');
 }
-export function validateG5WalletBalances(proof:any,state:G5State,forwardNotes:{pool:string;txid:string;index:number;value:string}[],reverseCount:number){
+export function validateG5WalletPartitionCommon(proof:any,state:G5State,forwardNotes:{pool:string;txid:string;index:number;value:string}[]){
  const fresh=(p:any)=>{const age=Date.now()-Date.parse(p?.observedAt);if(!Number.isFinite(age)||age< -5000||age>300000||!Number.isSafeInteger(p.scannedHeight)||!/^[0-9a-f]{64}$/.test(p.tipHash))throw Error('G5_STALE_PHYSICAL_WALLET_PROOF');};
  if(proof?.version!==1||proof.runId!==state.runId||!Array.isArray(proof.reverse)||proof.reverse.length!==10||!Array.isArray(proof.deposit?.notes))throw Error('G5_PHYSICAL_WALLET_PROOF_REQUIRED');
  const identity=(n:any)=>JSON.stringify([n.pool,n.txid,n.index,n.value]);
  for(let i=0;i<10;i++){
   const p=proof.reverse[i],allocated=(state.openingCapital as any[])?.find(n=>n.sequence===(i+1)*2);fresh(p);
   if(p.sequence!==(i+1)*2||!allocated||p.ufvkSha256!==allocated.ufvkSha256||!Array.isArray(p.notes))throw Error('G5_PHYSICAL_WALLET_IDENTITY');
-  const expected=i<reverseCount?[]:[{pool:allocated.pool,txid:allocated.txid,index:allocated.index,value:allocated.amount}];
-  if(p.spendableZatoshi!==(i<reverseCount?'0':'110000')||p.notes.length!==expected.length||p.notes.some((n:any)=>!expected.some(e=>identity(n)===identity(e))))throw Error('G5_UNEXPLAINED_REVERSE_WALLET_DELTA');
  }
  fresh(proof.deposit);const actual=proof.deposit.notes.map(identity).sort(),expected=forwardNotes.map(identity).sort();
  if(proof.deposit.ufvkSha256!==(state.openingCapital as any[])?.[0]?.depositUfvkSha256||new Set(actual).size!==actual.length
@@ -120,4 +118,14 @@ export function validateG5WalletBalances(proof:any,state:G5State,forwardNotes:{p
   if(!fee||p.ufvkSha256!==fee.ufvkSha256||p.spendableZatoshi!=='30000'||p.notes?.length!==1
    ||identity(p.notes[0])!==identity({pool:fee.pool,txid:fee.txid,index:fee.index,value:fee.amount}))throw Error('G5_UNEXPLAINED_EXTRA_FEE_CAPITAL');
  }
+}
+
+/** Ordinary validation has no pending SDK-capital exception. */
+export function validateG5ReverseWalletCapital(p:any,allocated:any,spent:boolean){
+ const expected=spent?[]:[{pool:allocated.pool,txid:allocated.txid,index:allocated.index,value:allocated.amount}],identity=(n:any)=>JSON.stringify([n.pool,n.txid,n.index,n.value]);
+ if(p.pendingSdkFault!==undefined||p.pendingLockedCapitalZatoshi!==undefined||p.pendingCalculatedTransactions!=null&&p.pendingCalculatedTransactions!==0||p.spendableZatoshi!==(spent?'0':'110000')||p.notes.length!==expected.length||p.notes.some((n:any)=>!expected.some(e=>identity(n)===identity(e))))throw Error('G5_UNEXPLAINED_REVERSE_WALLET_DELTA');
+}
+export function validateG5WalletBalances(proof:any,state:G5State,forwardNotes:{pool:string;txid:string;index:number;value:string}[],reverseCount:number){
+ validateG5WalletPartitionCommon(proof,state,forwardNotes);
+ for(let i=0;i<10;i++)validateG5ReverseWalletCapital(proof.reverse[i],(state.openingCapital as any[]).find(n=>n.sequence===(i+1)*2),i<reverseCount);
 }

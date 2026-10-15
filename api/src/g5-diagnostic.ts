@@ -1,3 +1,4 @@
+import {physicalCaptureDiagnostic} from './g5-physical-diagnostic.ts';
 import {walletScannerDiagnostic} from './wallet-scanner-protocol.ts';
 /** Error messages from RPC/SQL/SDK commands can contain secrets. Persist only
  * static uppercase codes and source locations, never arbitrary message text.
@@ -11,9 +12,10 @@ export function g5Diagnostic(error:unknown,step:string,phase:string){
  }).slice(0,12):[];
  const observerFrontier=observerFrontierDiagnostic(value?.diagnostic);
  const scanner=walletScannerDiagnostic(value?.scannerDiagnostic);
+ const physicalCapture=physicalCaptureDiagnostic(value?.physicalCaptureDiagnostic);
  return {version:1,observedAt:new Date().toISOString(),step,phase,code,exceptionClass,
   ...(typeof value?.code==='string'&&/^[A-Z0-9]{5}$/.test(value.code)?{sqlState:value.code}:{}),frames,
-  ...(observerFrontier?{observerFrontier}:{}),...(scanner?{scanner}:{})};
+  ...(observerFrontier?{observerFrontier}:{}),...(scanner?{scanner}:{}),...(physicalCapture?{physicalCapture}:{})};
 }
 
 /** Keep only public observer headers from known internal producers. Arbitrary

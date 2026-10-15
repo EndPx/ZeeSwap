@@ -202,7 +202,7 @@ remained pending. This is a commitment receipt, not a shielded delivery or
 fourth settlement.
 The observed initialization boundary does not identify a deeper host failure.
 
-Four-active scheduling remains disabled through the planned R4 SDK fault.
+Four-active scheduling stayed disabled through the R4 SDK fault until the verified recovery and explicit release described below.
 The preparation-priority helper is now wired into the durable controller state.
 A known preparation OBSERVER_WAIT pins that order ahead of admission and other
 preparations, through an existing lease's NO_ELIGIBLE_JOB wait, SQL import and
@@ -226,3 +226,23 @@ production regression; all passed. Six child-diagnostic checks and API
 typecheck also passed after the matching closed private-transport code list
 was added. Neither this local concurrency proof nor a pending COMMIT receipt
 completes the funded SDK interruption/recovery, 20-order soak or four barriers.
+
+The separately executed fourth-slot SDK interruption and strict original-byte
+recovery subsequently passed. Ordinary recover-zcash then imported the exact
+original bytes; root's independent SQL proof at 18:06:40 UTC found one
+unconfirmed R4 row matching the original marker transaction identity/raw digest
+and protected HMAC, with amount 100000 and fee 10000. Only afterwards did root
+explicitly release the PREPARE_ZCASH hold, MAX_ACTIVE_FOUR and
+ADMISSION_THROUGH gates. The driver resumed at 18:07:30 UTC with four active
+orders permitted and admission through 20. Main incident/reconciliation were
+clear at epoch 8, and the first three receipt flags stayed true. The existing
+SDK journal still selects recover-zcash, preserving the original calculation.
+This continuation does not establish R4 broadcast, delivery, settlement or any
+five-order barrier; progress remains three settled orders and zero barriers.
+
+At 18:17:45 UTC, the same normal driver observed the fifth forward source READY
+and acknowledged the original R4 broadcast with AWAITING_ZCASH_FINALITY.
+Controller health and the three settled receipt flags remained intact. This
+adds original-transaction broadcast evidence after the interruption/recovery;
+it does not establish ten Zcash confirmations, verified delivery, Base SETTLE,
+a fourth settlement or a batch barrier.

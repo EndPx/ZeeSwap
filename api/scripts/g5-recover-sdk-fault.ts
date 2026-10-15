@@ -8,9 +8,10 @@ import {isDeepStrictEqual} from 'node:util';
 import {spawn} from 'node:child_process';
 import {getAddress,parseAbi,encodeFunctionData,parseTransaction,keccak256,recoverTransactionAddress,type TransactionSerialized} from 'viem';
 import {g5Context,read,durable,privateLocalPath} from './g5-context.ts';
+import {captureG5SdkFaultBooks,requireG5SdkFaultMigrations} from '../src/g5-sdk-fault-books.ts';
 import {captureG5WalletPartition} from './g5-physical-capture.ts';
-import {requireG5SdkFaultRecovery,validateG5SdkFaultPrepared,validateG5SdkFaultAccounts,validateG5SdkFaultPhysical,requireG5SdkFaultRetiredLease} from '../src/g5-sdk-fault.ts';
-import {validateG5OpeningLedger,validateG5WalletBalances,requireG5CommandConfig,g5PathIdentity} from '../src/g5-run.ts';
+import {requireG5SdkFaultRecovery,validateG5SdkFaultPrepared,validateG5SdkFaultWalletBalances,validateG5SdkFaultAccounts,validateG5SdkFaultPhysical,requireG5SdkFaultRetiredLease} from '../src/g5-sdk-fault.ts';
+import {validateG5OpeningLedger,requireG5CommandConfig,g5PathIdentity} from '../src/g5-run.ts';
 import {validateSnapshot} from '../src/observer.ts';
 import {escrowTerms,finalizedReceipt,escrowState,escrowEvents,fundingCall} from '../src/base-escrow.ts';
 import {settlementAbi} from '../src/base-contract.ts';
@@ -43,20 +44,10 @@ try{
   ||!isDeepStrictEqual(note,{pool:allocation.pool,txid:allocation.txid,index:allocation.index,value:allocation.amount}))throw Error('G5_SDK_FAULT_CAPITAL_BINDING');
  const control=(await c.admin.query('SELECT * FROM zee.runtime_control')).rows[0];
  if(control.accepting_orders||control.dispatch_enabled||!control.reconciliation_required)throw Error('G5_SDK_FAULT_PAUSED_INCIDENT_REQUIRED');
+ const migrationPins=await requireG5SdkFaultMigrations(c.admin);
  const ids=c.state.orders.map(o=>o.orderId!),r4=ids[3];
  async function databaseProof(db:Pick<typeof c.admin,'query'>=c.admin){
-  const orders=(await db.query('SELECT id,state,primary_deposit FROM zee.orders ORDER BY id')).rows;
-  const quotes=(await db.query('SELECT id,direction,input_amount,output_amount,payout_fee,refund_fee FROM zee.quotes ORDER BY id')).rows;
-  const deposits=(await db.query('SELECT * FROM zee.deposits ORDER BY id')).rows;
-  const obligations=(await db.query('SELECT * FROM zee.obligations ORDER BY id')).rows;
-  const reservations=(await db.query('SELECT * FROM zee.reservations ORDER BY order_id,asset,purpose')).rows;
-  const operations=(await db.query('SELECT * FROM zee.operations ORDER BY id')).rows;
-  const jobs=(await db.query('SELECT * FROM zee.outbox_jobs ORDER BY id')).rows;
-  const payouts=(await db.query('SELECT * FROM zee.reverse_payouts ORDER BY order_id')).rows;
-  const settlements=(await db.query('SELECT * FROM zee.escrow_settlements ORDER BY order_id')).rows;
-  const commits=(await db.query('SELECT * FROM zee.escrow_commits ORDER BY order_id')).rows;
-  const attempts=(await db.query('SELECT * FROM zee.base_attempts ORDER BY order_id,phase')).rows;
-  const accounts=(await db.query('SELECT asset,purpose,balance::text,reserved::text FROM zee.inventory_accounts ORDER BY asset,purpose')).rows;
+  const {orders,quotes,deposits,obligations,reservations,operations,jobs,payouts,settlements,commits,attempts,accounts}=await captureG5SdkFaultBooks(db);
   if(orders.length!==4||quotes.length!==4||orders.some(o=>!ids.includes(o.id)||o.state!==(o.id===r4?'READY':'SETTLED'))
    ||quotes.some(q=>!ids.includes(q.id)||q.direction!==c.state.orders.find(o=>o.orderId===q.id)?.direction||q.input_amount!=='100000'||q.output_amount!=='100000'
     ||q.payout_fee!==(q.direction==='ZCASH_TO_BASE'?c.config.baseFeeBudget:'10000')||q.refund_fee!==(q.direction==='ZCASH_TO_BASE'?'10000':c.config.baseFeeBudget)))throw Error('G5_SDK_FAULT_EXACT_FOUR_ORDERS_REQUIRED');
@@ -165,7 +156,7 @@ try{
    ||!d.receiver_hash.equals(c.r.keys.lookup('receiver',o.receiver)))throw Error('G5_SDK_FAULT_FRESH_SOURCE_PROCEEDS_REQUIRED');
   return {pool:o.pool,txid:o.txid,index:o.index,value:o.amount};});
  if(forwardNotes.length!==2)throw Error('G5_SDK_FAULT_TWO_FORWARD_SOURCES_REQUIRED');
- const wallets=await read(c.config.balanceProofFile);validateG5WalletBalances(wallets,c.state,forwardNotes,1);
+ const wallets=await read(c.config.balanceProofFile);validateG5SdkFaultWalletBalances(wallets,c.state,forwardNotes,c.config,reverse,marker,faultProof,terms,note,c.r.keys.open(books.payouts[0].signed_payload,`reverse-payout:${ids[1]}:v1`) as any);
  if(wallets.reverse.some((w:any)=>![2,4].includes(w.sequence)&&w.pendingCalculatedTransactions!==0))throw Error('G5_SDK_FAULT_UNKNOWN_OTHER_CALCULATION');
  const heads=await c.base.heads(),address=c.base.registry.contracts.ZeeSwapSettlement.address,token=c.base.registry.contracts.MockUSDC.address;
  const values=await Promise.all([c.base.client.readContract({address,abi:settlementAbi,functionName:'inventory',blockNumber:heads.finalized.number}),c.base.client.readContract({address,abi:settlementAbi,functionName:'availableInventory',blockNumber:heads.finalized.number}),
@@ -174,7 +165,7 @@ try{
  if((await c.base.client.getBlock({blockNumber:heads.finalized.number})).hash!==heads.finalized.hash)throw Error('BASE_REORG');
  if(!isDeepStrictEqual(await read(markerPath),marker)||stable(await databaseProof())!==booksIdentity)throw Error('G5_SDK_FAULT_PROOF_STATE_CHANGED');
  const finalWalletProof=await proveOriginal();
- if(finalWalletProof.notFound!==true||!isDeepStrictEqual(finalWalletProof.marker,marker)||!isDeepStrictEqual(finalWalletProof.prepared,faultProof.prepared))throw Error('G5_SDK_FAULT_ORIGINAL_WALLET_CHANGED');
+ if(finalWalletProof.version!==1||finalWalletProof.status!==faultProof.status||finalWalletProof.notFound!==true||!isDeepStrictEqual(finalWalletProof.pins,faultProof.pins)||!isDeepStrictEqual(finalWalletProof.marker,marker)||!isDeepStrictEqual(finalWalletProof.prepared,faultProof.prepared))throw Error('G5_SDK_FAULT_ORIGINAL_WALLET_CHANGED');
  const finalNonces=await Promise.all([c.base.client.getTransactionCount({address:c.base.registry.operator,blockTag:'latest'}),c.base.client.getTransactionCount({address:c.base.registry.operator,blockTag:'pending'}),
   c.base.client.getTransactionCount({address:getAddress(config.payer),blockTag:'latest'}),c.base.client.getTransactionCount({address:getAddress(config.payer),blockTag:'pending'})]);
  if(!isDeepStrictEqual(finalNonces,nonces))throw Error('G5_SDK_FAULT_NONCE_CHANGED_DURING_PROOF');
@@ -186,6 +177,7 @@ try{
  await transaction(c.admin,async db=>{
   const now=(await db.query('SELECT * FROM zee.runtime_control FOR UPDATE')).rows[0];
   if(String(now.epoch)!==String(control.epoch)||now.accepting_orders||now.dispatch_enabled||!now.reconciliation_required)throw Error('G5_SDK_FAULT_EPOCH_CHANGED');
+  if(!isDeepStrictEqual(await requireG5SdkFaultMigrations(db),migrationPins))throw Error('G5_SDK_FAULT_MIGRATION_BYTES_CHANGED');
   if(stable(await databaseProof(db))!==booksIdentity)throw Error('G5_SDK_FAULT_BOOKS_CHANGED_AT_CAS');
   const orders=(await db.query('SELECT id,state,primary_deposit FROM zee.orders ORDER BY id')).rows;
   if(!isDeepStrictEqual(orders,books.orders)||(await db.query('SELECT count(*) AS n FROM zee.reverse_payouts WHERE order_id=$1',[r4])).rows[0].n!=='0'

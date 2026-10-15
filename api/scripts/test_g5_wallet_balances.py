@@ -6,9 +6,48 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+import io
+from contextlib import redirect_stderr
+from unittest.mock import patch
 _spec = importlib.util.spec_from_file_location('g5_balances', Path(__file__).with_name('g5-wallet-balances.py'))
 _module = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_module)
+
+
+class PhysicalDiagnostics(unittest.TestCase):
+    def test_closed_packet_never_exposes_raw_exception_or_private_path(self):
+        error = ValueError('UPPERCASE_SECRET_TOKEN https://key:secret@provider private-memo')
+        packet = _module.diagnostic_packet(error, 'ZERO_CHANGE_PROOF', 4)
+        self.assertEqual(packet, {'version': 1, 'status': 'G5_PHYSICAL_CAPTURE_DIAGNOSTIC',
+                                 'phase': 'ZERO_CHANGE_PROOF', 'code': 'CAPTURE_REFUSED', 'wallet': 4})
+        self.assertNotIn('secret', json.dumps(packet))
+        self.assertNotIn('wallet', _module.diagnostic_packet(error, 'PRIVATE_SECRET', 'private-wallet'))
+        self.assertEqual(_module.diagnostic_packet(error, 'PRIVATE_SECRET', 4)['phase'], 'MAIN_CONFIG')
+
+    def test_failed_config_capture_emits_fixed_wallet_and_no_path(self):
+        output = io.StringIO()
+        with redirect_stderr(output):
+            with self.assertRaises(FileNotFoundError):
+                _module.capture({'config': '/never-exists/PRIVATE_SECRET_CONFIG', 'sequence': 4})
+        packet = json.loads(output.getvalue())
+        self.assertEqual(packet['phase'], 'CONFIG_READ')
+        self.assertEqual(packet['wallet'], 4)
+        self.assertEqual(packet['code'], 'FILE_MISSING')
+        self.assertNotIn('PRIVATE_SECRET', output.getvalue())
+
+    def test_primary_failure_is_emitted_before_cleanup_failure(self):
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / 'view.lock'
+            with redirect_stderr(output), patch.object(Path, 'unlink', side_effect=PermissionError('SECRET')):
+                with self.assertRaises(PermissionError):
+                    with _module.wallet_lock(path, True):
+                        _module._capture_phase.set('SDK_NOTES')
+                        raise ValueError('PRIVATE_PRIMARY')
+            packets = [json.loads(line) for line in output.getvalue().splitlines()]
+            self.assertEqual([p['phase'] for p in packets], ['SDK_NOTES', 'LOCK_RELEASE'])
+            self.assertNotIn('PRIVATE_PRIMARY', output.getvalue())
+            self.assertNotIn('SECRET', output.getvalue())
 
 
 class WalletExclusion(unittest.TestCase):
@@ -32,6 +71,109 @@ class WalletExclusion(unittest.TestCase):
                  'value': 0, 'spend_status': 'unspent', 'status': 'confirmed at block height 91'}]}}
         sdk = lambda p: {'network': 'zcash-testnet', 'shielded': True, 'receiver': p['address']}
         return notes, journal, export, structure, sdk, config, request
+
+    def pending_fixture(self):
+        notes, journal, export, structure, sdk, config, request = self.zero_fixture()
+        journal['state'] = 'PREPARED'
+        prepared = journal['prepared']
+        zero = notes['ironwood_notes']['note_summaries'][0]
+        zero['status'] = 'calculated at block height 95'
+        parent = config['approvedCapitalNotes'][0]
+        notes['ironwood_notes']['note_summaries'].append({'txid': parent['txid'], 'output_index': parent['index'],
+             'scope': 'external', 'value': 110000, 'status': 'confirmed at block height 91',
+             'spend_status': 'calculated spent in ' + prepared['txid']})
+        raw_sha = hashlib.sha256(bytes.fromhex(prepared['rawTransaction'])).hexdigest()
+        marker = {'version': 1, 'boundary': 'SDK_DURABLE_BEFORE_ADAPTER_PREPARED', 'orderId': request['orderId'],
+                  'approvedDigest': config['approvedDigest'], 'txid': prepared['txid'], 'rawSha256': raw_sha}
+        decoded = {'notes': [{'txid': prepared['txid'], 'pool': 'ironwood', 'index': 1, 'amount': '0',
+                              'receiver': 'internal-change', 'ownChange': True, 'shieldedSource': True}]}
+        provider = {'network': 'zcash-testnet', 'consensusBranch': '77190ad9', 'originalNotFound': True,
+                    'tipHeight': 100, 'parentTxid': parent['txid'], 'parentHeight': 91,
+                    'parentBlockHash': 'c' * 64, 'parentBlockTxids': [parent['txid']]}
+        return notes, 100, journal, marker, export, structure, decoded, config, request, provider, sdk
+
+    def test_pending_original_input_is_locked_with_zero_spendable_and_exact_calculated_zero(self):
+        args = self.pending_fixture()
+        before = copy.deepcopy(args[:-1])
+        filtered, zeros, pending = _module.authenticated_pending_sdk_capital(*args)
+        self.assertEqual(_module.selected_capital(filtered, 100), [])
+        self.assertEqual(pending['selectedNote']['value'], '110000')
+        self.assertEqual(pending['calculatedHeight'], 95)
+        self.assertEqual(pending['expiryHeight'], '150')
+        self.assertIs(pending['originalNotFound'], True)
+        self.assertEqual(zeros[0]['index'], 1)
+        self.assertEqual(args[:-1], before)
+        with self.assertRaises(ValueError):
+            _module.authenticated_zero_change(args[0], 100, args[2], args[4], args[5], args[10], args[7], args[8])
+
+    def test_pending_safe_expiry_uses_actual_provider_tip_not_lagging_scan(self):
+        args = list(self.pending_fixture())
+        args[2]['prepared']['expiryHeight'] = '125'
+        args[4]['transactions'][0]['expiryHeight'] = '125'
+        args[5]['expiry_height'] = 125
+        args[9]['tipHeight'] = 106
+        with self.assertRaises(ValueError):
+            _module.authenticated_pending_sdk_capital(*args)
+
+    def test_pending_marker_export_journal_and_independent_raw_binding_fail_closed(self):
+        for kind in ('marker-boundary', 'marker-order', 'marker-digest', 'marker-tx', 'marker-raw', 'state',
+                     'journal-request', 'journal-capital', 'export-empty', 'export-extra', 'export-raw', 'rust-tx', 'rust-structure', 'expiry'):
+            args = list(self.pending_fixture())
+            if kind == 'marker-boundary': args[3]['boundary'] = 'OTHER'
+            if kind == 'marker-order': args[3]['orderId'] = 'other'
+            if kind == 'marker-digest': args[3]['approvedDigest'] = 'f' * 64
+            if kind == 'marker-tx': args[3]['txid'] = 'f' * 64
+            if kind == 'marker-raw': args[3]['rawSha256'] = 'f' * 64
+            if kind == 'state': args[2]['state'] = 'DELIVERY_CONFIRMED'
+            if kind == 'journal-request': args[2]['request'] = {}
+            if kind == 'journal-capital': args[2]['capitalNotes'] = []
+            if kind == 'export-empty': args[4]['transactions'] = []
+            if kind == 'export-extra': args[4]['transactions'] *= 2
+            if kind == 'export-raw': args[4]['transactions'][0]['rawTransaction'] = 'ff'
+            if kind == 'rust-tx': args[5]['txid'] = 'f' * 64
+            if kind == 'rust-structure': args[5]['ironwood_only_with_10000_zatoshi_fee'] = False
+            if kind == 'expiry': args[4]['transactions'][0]['expiryHeight'] = '110'
+            with self.subTest(kind=kind), self.assertRaises((ValueError, KeyError)):
+                _module.authenticated_pending_sdk_capital(*args)
+
+    def test_pending_actual_note_shapes_and_spender_must_be_exact_no_fabricated_cash(self):
+        for kind in ('zero-confirmed', 'zero-unknown', 'zero-height', 'zero-external', 'zero-index', 'zero-value',
+                     'parent-unspent', 'parent-other-spender', 'parent-height', 'parent-value', 'parent-index', 'missing-parent', 'extra-note'):
+            args = list(self.pending_fixture()); rows = args[0]['ironwood_notes']['note_summaries']; zero, parent = rows
+            if kind == 'zero-confirmed': zero['status'] = 'confirmed at block height 95'
+            if kind == 'zero-unknown': zero['status'] = 'unconfirmed'
+            if kind == 'zero-height': zero['status'] = 'calculated at block height 101'
+            if kind == 'zero-external': zero['scope'] = 'external'
+            if kind == 'zero-index': zero['output_index'] = 3
+            if kind == 'zero-value': zero['value'] = 1
+            if kind == 'parent-unspent': parent['spend_status'] = 'unspent'
+            if kind == 'parent-other-spender': parent['spend_status'] = 'calculated spent in ' + 'f' * 64
+            if kind == 'parent-height': parent['status'] = 'confirmed at block height 92'
+            if kind == 'parent-value': parent['value'] = 109999
+            if kind == 'parent-index': parent['output_index'] = True
+            if kind == 'missing-parent': rows.pop()
+            if kind == 'extra-note': rows.append(copy.deepcopy(parent))
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                _module.authenticated_pending_sdk_capital(*args)
+
+    def test_pending_capital_incoming_key_zero_ciphertext_and_canonical_parent_notfound_are_required(self):
+        for kind in ('decoded-tx', 'decoded-index', 'decoded-pool', 'decoded-value', 'decoded-receiver', 'decoded-internal', 'decoded-empty',
+                     'known-original', 'wrong-network', 'stale-provider', 'parent-not-canonical', 'parent-unconfirmed'):
+            args = list(self.pending_fixture()); note = args[6]['notes'][0]; proof = args[9]
+            if kind == 'decoded-tx': note['txid'] = 'f' * 64
+            if kind == 'decoded-index': note['index'] = 2
+            if kind == 'decoded-pool': note['pool'] = 'orchard'
+            if kind == 'decoded-value': note['amount'] = '1'
+            if kind == 'decoded-receiver': note['receiver'] = 'other'
+            if kind == 'decoded-internal': note['ownChange'] = False
+            if kind == 'decoded-empty': args[6]['notes'] = []
+            if kind == 'known-original': proof['originalNotFound'] = False
+            if kind == 'wrong-network': proof['network'] = 'mainnet'
+            if kind == 'stale-provider': proof['tipHeight'] = 107
+            if kind == 'parent-not-canonical': proof['parentBlockTxids'] = []
+            if kind == 'parent-unconfirmed': proof['parentHeight'] = 92
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                _module.authenticated_pending_sdk_capital(*args)
 
     def test_zero_change_excluded_only_after_original_sdk_export_and_raw_identity_authentication(self):
         notes, journal, export, structure, sdk, config, request = self.zero_fixture()

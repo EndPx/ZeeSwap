@@ -1,3 +1,4 @@
+import {parsePhysicalCaptureDiagnostics} from '../src/g5-physical-diagnostic.ts';
 import {spawn} from 'node:child_process';
 import {read} from './g5-context.ts';
 import {g5PathIdentity,requireG5CommandConfig} from '../src/g5-run.ts';
@@ -18,10 +19,17 @@ export async function captureG5WalletPartition(c:any){
  }
  if(c.state.batchSize&&g5PathIdentity(capture.feeCapital?.config)!==g5PathIdentity(c.config.extraFeeWalletConfig))throw Error('G5_PHYSICAL_FEE_CAPTURE_CONFIG_BINDING');
 
+ await runG5PhysicalCaptureProcess(c.config.balanceProofCommand,c.config.balanceProofArgs);
+}
+
+/** Fixed physical-capture child boundary; retained diagnostics are sanitized
+ * before the error leaves this function. No raw stderr is attached. */
+export async function runG5PhysicalCaptureProcess(command:string,args:string[]){
  await new Promise<void>((resolve,reject)=>{
-  const child=spawn(c.config.balanceProofCommand,c.config.balanceProofArgs,{stdio:['ignore','pipe','pipe'],windowsHide:true});let size=0;
-  const timer=setTimeout(()=>{child.kill();reject(Error('G5_PHYSICAL_CAPTURE_TIMEOUT'));},300000);
-  child.on('error',()=>{clearTimeout(timer);reject(Error('G5_PHYSICAL_CAPTURE_FAILED'));});child.stdout.on('data',b=>{size+=b.length;if(size>32768)child.kill();});child.stderr.on('data',()=>{});
-  child.on('close',code=>{clearTimeout(timer);if(code===0&&size<=32768)resolve();else reject(Error('G5_PHYSICAL_CAPTURE_FAILED'));});
+  const child=spawn(command,args,{stdio:['ignore','pipe','pipe'],windowsHide:true});let size=0,stderr='';
+  const failure=(code:string)=>Object.assign(Error(code),{physicalCaptureDiagnostic:parsePhysicalCaptureDiagnostics(stderr)});
+  const timer=setTimeout(()=>{child.kill();reject(failure('G5_PHYSICAL_CAPTURE_TIMEOUT'));},300000);
+  child.on('error',()=>{clearTimeout(timer);reject(failure('G5_PHYSICAL_CAPTURE_FAILED'));});child.stdout.on('data',b=>{size+=b.length;if(size>32768)child.kill();});child.stderr.on('data',b=>{if(stderr.length<32768)stderr=(stderr+b.toString()).slice(0,32768);});
+  child.on('close',code=>{clearTimeout(timer);if(code===0&&size<=32768)resolve();else reject(failure('G5_PHYSICAL_CAPTURE_FAILED'));});
  });
 }

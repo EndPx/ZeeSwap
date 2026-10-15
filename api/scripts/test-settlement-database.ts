@@ -6,7 +6,7 @@ import { connect,transaction } from '../src/db.ts';
 import { requireDevelopment } from './config.ts';
 
 /** One run owns one empty database; historical fixture neondb is never reset. */
-export async function disposableSettlement(){
+export async function disposableSettlement(options?:{throughMigration:14}){
  const sourcePath=fileURLToPath(new URL('../../.deploy-local/neon-settlement-tests.json',import.meta.url));
  const source=JSON.parse(await readFile(sourcePath,'utf8'));
  const previous=process.env.ZEE_DB_CONFIG;process.env.ZEE_DB_CONFIG=sourcePath;
@@ -53,7 +53,7 @@ export async function disposableSettlement(){
   try{await transaction(db,async c=>{
    await c.query('CREATE TABLE public.zeeswap_migrations (name text PRIMARY KEY,sha256 text NOT NULL,executed_sha256 text NOT NULL,applied_at timestamptz NOT NULL DEFAULT clock_timestamp())');
    const migrations=new URL('../migrations/',import.meta.url);
-   for(const file of (await readdir(migrations)).filter(n=>n.endsWith('.sql')).sort()){
+   for(const file of (await readdir(migrations)).filter(n=>n.endsWith('.sql')&&(!options||Number(n.slice(0,4))<=options.throughMigration)).sort()){
     const sql=await readFile(new URL(file,migrations),'utf8');
     // PostgreSQL roles are cluster-wide and already exist on the dedicated
     // branch. Keep immutable migration files and their hashes unchanged.
