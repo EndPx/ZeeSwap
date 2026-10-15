@@ -22,6 +22,7 @@ One real testnet swap is verified in each direction: **0.001 shielded TAZ → 0.
 - [Bounded soak runner and funded capital](docs/evidence/g5-soak-runner.md): reviewed twenty-order manifest, ten independently verified capital wallets and idempotent opening ledger; public-testnet soak not yet completed.
 - [Reverse snapshot recovery](docs/evidence/g5-reverse-snapshot-restore.md): actual PostgreSQL rollback and original journal reconstruction on Anvil with a synthetic Zcash verifier; funded SDK crash rehearsal remains pending.
 - [Source refund boundaries](docs/evidence/g5-source-refunds.md): permanent cancellation and uncommitted escrow deadline gates, durable source refunds and full-principal accounting verified locally; live refund receipts remain pending.
+- [Actual funded refund experiments](docs/evidence/g5-live-refund-experiments.md) and [retry preparation](docs/evidence/g5-retry-preparation.md): first-run LATE liability preserved, reverse source finalized, fresh user wallets funded; twenty-swap progress remains 0/20.
 
 ## Verify locally
 
