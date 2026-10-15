@@ -24,6 +24,7 @@ The prototype uses TAZ and project-owned mockUSDC, with fixture pricing.
 | Durable reverse execution and recovery | [SDK adapter and repeatable tests](evidence/g4-reverse-recovery.md); distinguish synthetic destination proofs from live receipts |
 | One real reverse public-testnet swap | [G4 reverse receipts and reconciliation](evidence/g4-live-reverse.md): 0.1 mockUSDC to 0.001 shielded TAZ, confirmed recipient delta and finalized Base acknowledgement |
 | Forward worker process interruption | [G5 local recovery evidence](evidence/g5-worker-interruption.md): killed after Anvil PAY broadcast; fresh connections reconcile one original payment and exact accounting. This is not a public-testnet soak or old-snapshot restore |
+| Forward old database snapshot restore | [G5 snapshot/journal recovery](evidence/g5-snapshot-restore.md): actual PostgreSQL rollback, atomic pause and canonical original PAY reconstruction; fixture signer, no live keystore or reverse wallet restore claimed |
 | Public transaction lookup | [Explorer discrepancy and replacement link](evidence/explorer-verification.md) |
 
 Only source, migrations, lockfiles, tests, configuration examples and sanitized
