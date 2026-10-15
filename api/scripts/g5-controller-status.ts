@@ -1,5 +1,6 @@
 /** Read-only controller admission snapshot. Holds the core lock only while
  * reading, and releases it before any child operator is invoked. */
+import {g5RunDatabasePartition} from '../src/g5-quote-attempts.ts';
 import {g5Context} from './g5-context.ts';
 import {g5ControllerNonceReadiness,type G5ControllerRaw} from '../src/g5-controller-nonce.ts';
 const [path]=process.argv.slice(2);if(!path||process.argv.length!==3)throw Error('G5_CONTROLLER_STATUS_CONFIG_REQUIRED');
@@ -7,7 +8,7 @@ const c=await g5Context(path);
 try{
  const control=(await c.admin.query('SELECT accepting_orders,dispatch_enabled,reconciliation_required FROM zee.runtime_control')).rows[0];
  if(control.accepting_orders||control.dispatch_enabled)throw Error('G5_CONTROLLER_PAUSED_CORE_REQUIRED');
- const rows=(await c.admin.query('SELECT id,state FROM zee.orders')).rows;
+ const rows=(await g5RunDatabasePartition(c.admin,c.state,c.r.keys,c.config.stateFile)).orders;
  if(rows.some(r=>!c.state.orders.some(o=>o.orderId===r.id)))throw Error('G5_CONTROLLER_UNKNOWN_CORE_ORDER');
  const pending=(await c.admin.query(`SELECT order_id,phase,signed_payload,'forward' AS kind FROM zee.base_attempts WHERE NOT confirmed
   UNION ALL SELECT order_id,'COMMIT',signed_payload,'commit' FROM zee.escrow_commits WHERE NOT confirmed

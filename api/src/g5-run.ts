@@ -1,5 +1,6 @@
 import {createHash} from 'node:crypto';
 import {atomic} from './amounts.ts';
+import {requireG5ArchivedAttemptState} from './g5-quote-attempts.ts';
 
 export const G5_TARGET={projectId:'raspy-truth-63998651',branchId:'br-weathered-bird-aoaodegw',branchName:'zeeswap-g5-live-soak',host:'ep-long-heart-ao6fqh1e.c-2.ap-southeast-1.aws.neon.tech'} as const;
 export const G5_RETRY_TARGET={projectId:'raspy-truth-63998651',branchId:'br-twilight-heart-ao6cx6pg',branchName:'zeeswap-g5-soak-retry',host:'ep-aged-shadow-aojcoa3q.c-2.ap-southeast-1.aws.neon.tech'} as const;
@@ -17,7 +18,7 @@ export function requireG5CommandConfig(args:unknown,path:string){
  const i=args.indexOf('--config');if(g5PathIdentity(args[i+1])!==g5PathIdentity(path))throw Error('G5_ADAPTER_CONFIG_BINDING_MISMATCH');
 }
 export interface G5Order {sequence:number;direction:'ZCASH_TO_BASE'|'BASE_TO_ZCASH';orderId?:string;owner:string;receiver?:string;verified?:boolean;[key:string]:unknown}
-export interface G5State {version:1;runId:string;binding:string;openingEventId:string;orders:G5Order[];closed?:boolean;policyInitialized?:boolean;incident?:boolean;batchSize?:5;barriers?:number[];extraFeeCapital?:any;openingCapital?:unknown;openingPhysical?:{blockNumber:string;blockHash:string;inventory:string;operatorGas:string}}
+export interface G5State {archivedAttempts?:any[];version:1;runId:string;binding:string;openingEventId:string;orders:G5Order[];closed?:boolean;policyInitialized?:boolean;incident?:boolean;batchSize?:5;barriers?:number[];extraFeeCapital?:any;openingCapital?:unknown;openingPhysical?:{blockNumber:string;blockHash:string;inventory:string;operatorGas:string}}
 export function g5Direction(sequence:number){if(!Number.isSafeInteger(sequence)||sequence<1||sequence>20)throw Error('G5_SEQUENCE_REQUIRED');return sequence%2?'ZCASH_TO_BASE':'BASE_TO_ZCASH';}
 export function requireG5Target(value:any,urls:string[]=[]){
  const target=value?.branchId===G5_RETRY_TARGET.branchId?G5_RETRY_TARGET:G5_TARGET;
@@ -38,6 +39,7 @@ export function g5Binding(config:any){
  return createHash('sha256').update(JSON.stringify(config)).digest('hex');
 }
 export function validateG5State(state:G5State,config:any){
+ requireG5ArchivedAttemptState(state);
  if(state.version!==1||state.runId!==config.runId||state.binding!==g5Binding(config)||!state.openingEventId||!Array.isArray(state.orders)||state.orders.length>20)throw Error('G5_MANIFEST_BINDING_MISMATCH');
  if(state.batchSize!==config.batchSize)throw Error('G5_BATCH_PROFILE_MISMATCH');
  const barriers=state.barriers??[];if(barriers.some((n,i)=>n!==(i+1)*5)||barriers.length>4||(!state.batchSize&&barriers.length)||barriers.length*5>state.orders.length)throw Error('G5_BATCH_BARRIER_SEQUENCE');

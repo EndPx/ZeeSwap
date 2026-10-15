@@ -12,6 +12,8 @@ import {read,durable,privateLocalPath} from './g5-context.ts';
 import {g5Binding,G5_RETRY_TARGET,validateG5State,g5PathIdentity} from '../src/g5-run.ts';
 import {initialG5LiveState,validateG5LiveState,runG5LiveBounded,syncAndFundG5Source,type G5LiveStage,type G5LiveSnapshot,type G5LiveState} from '../src/g5-live-controller.ts';
 import {resolveG5ReferencedPrivatePath} from '../src/g5-private-path.ts';
+import {sourcePrefundWait} from '../src/g5-source-protocol.ts';
+import {g5FundingArtifact,g5SourceFundingArgv} from '../src/g5-quote-attempts.ts';
 import {g5ChildDiagnostic} from '../src/g5-child-diagnostic.ts';
 type Command={command:string;args:string[]};
 const [mode,path,arg]=process.argv.slice(2);
@@ -83,8 +85,12 @@ async function payer(sequence:number,stage:G5LiveStage){
 async function execute(sequence:number,stage:G5LiveStage|'BARRIER'|'CLOSE'){
  activeAction={sequence,stage};
  const actor=cfg.sourceActors.find((o:any)=>o.sequence===sequence);
- if(stage==='SYNC')return command(actor.sync);
- if(stage==='SOURCE_FUND')return syncAndFundG5Source({sync:()=>command(actor.sync),fund:()=>command(actor.fund)});
+ if(stage==='SYNC'){const result=await command(actor.sync);if(result.status==='SOURCE_PREFUND_WAIT'&&!sourcePrefundWait(result,sequence))throw Error('G5_LIVE_INVALID_SOURCE_SYNC_WAIT');return result;}
+ if(stage==='SOURCE_FUND'){
+  const state=await read(manifest.stateFile);validateG5State(state,manifest);const artifact=g5FundingArtifact(manifest.stateFile,state,sequence),original=manifest.stateFile+'.funding-'+sequence+'.json';let fund=actor.fund;
+  if(artifact!==original){const index=fund.args.indexOf('--funding'),old=fund.args[index+1];if(index<0||g5PathIdentity(old)!==g5PathIdentity(original))throw Error('G5_SOURCE_FIXED_FUNDING_ARGV_REQUIRED');const current=old.slice(0,-5)+'-attempt-2.json';if(g5PathIdentity(current)!==g5PathIdentity(artifact))throw Error('G5_SOURCE_ATTEMPT_FUNDING_PATH_REQUIRED');fund={...fund,args:g5SourceFundingArgv(fund.args,old,current)};}
+  return syncAndFundG5Source({sync:()=>command(actor.sync),fund:()=>command(fund)},sequence);
+ }
  if(stage==='START')return core('start',sequence);
  if(stage==='VERIFY')return core('verify',sequence);
  if(stage==='BARRIER')return core('barrier',sequence);

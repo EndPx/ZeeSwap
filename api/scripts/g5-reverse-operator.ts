@@ -22,7 +22,6 @@ import { LocalReverseWalletAdapter } from '../src/reverse-wallet-adapter.ts';
 import { withLeaseHeartbeat } from '../src/lease-heartbeat.ts';
 import { accessHash } from '../src/private-data.ts';
 import {approvalDigest} from '../src/reverse-authority.ts';
-import {refreshReverseObserversFromWallet} from '../src/reverse-observer-refresh.ts';
 import {reverseBaseRegistry} from '../src/reverse-base-rpc.ts';
 import {requireG5NonceReady} from '../src/g5-nonce.ts';
 import {g5ApproveAfterFreshCommit} from '../src/g5-approval.ts';
@@ -70,7 +69,7 @@ async function durable(path:string,value:unknown){
 }
 const save=async()=>{await durable(statePath,state);if(state.orderId)await g5slot.bind(state.orderId);};
 async function refreshObservers(){
- await refreshReverseObserversFromWallet(worker,base,r.wallet);
+ await g5slot.refreshObservers(worker,base,r.wallet);
 }
 async function leased(run:(job:any,owner:string,check:()=>Promise<void>)=>Promise<unknown>){
  let owner=state.currentLease?.owner,job:any;

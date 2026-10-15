@@ -3,6 +3,7 @@
  * effect; original wallet/raw journal reconciliation is an operator action. */
 import {createHash} from 'node:crypto';
 import {nextG5PreparePriority,selectG5PreparePriority,requireG5PreparePriorityShape,type G5PreparePriority} from './g5-prepare-priority.ts';
+import {sourcePrefundWait} from './g5-source-protocol.ts';
 export const G5_LIVE_STAGES = ['SYNC','START','SOURCE_FUND','REVERSE_QUOTE','FUNDING_CALL','PAYER_APPROVAL','PAYER_PREPARE','PAYER_BROADCAST','OBSERVE_SOURCE','DISPATCH','PREPARE_COMMIT','BROADCAST_COMMIT','OBSERVE_COMMIT','APPROVE_WALLET','PREPARE_ZCASH','BROADCAST_ZCASH','OBSERVE_ZCASH','PREPARE_SETTLE','BROADCAST_SETTLE','OBSERVE_SETTLE','VERIFY','DONE'] as const;
 export type G5LiveStage=typeof G5_LIVE_STAGES[number];
 export interface G5LiveSlot {sequence:number;stage:G5LiveStage;}
@@ -12,7 +13,7 @@ export interface G5LiveResult {status:string;}
 const next:Partial<Record<G5LiveStage,G5LiveStage>>={SYNC:'START',START:'SOURCE_FUND',SOURCE_FUND:'OBSERVE_SOURCE',REVERSE_QUOTE:'FUNDING_CALL',FUNDING_CALL:'PAYER_APPROVAL',PAYER_APPROVAL:'PAYER_PREPARE',PAYER_PREPARE:'PAYER_BROADCAST',PAYER_BROADCAST:'OBSERVE_SOURCE',PREPARE_COMMIT:'BROADCAST_COMMIT',BROADCAST_COMMIT:'OBSERVE_COMMIT',OBSERVE_COMMIT:'APPROVE_WALLET',APPROVE_WALLET:'PREPARE_ZCASH',PREPARE_ZCASH:'BROADCAST_ZCASH',BROADCAST_ZCASH:'OBSERVE_ZCASH',OBSERVE_ZCASH:'PREPARE_SETTLE',PREPARE_SETTLE:'BROADCAST_SETTLE',BROADCAST_SETTLE:'OBSERVE_SETTLE',OBSERVE_SETTLE:'VERIFY',VERIFY:'DONE'};
 const done:Partial<Record<G5LiveStage,string[]>>={SYNC:['SYNCED'],START:['AWAITING_SEPARATE_ONCE_ONLY_SOURCE_FUNDING','G5_REVERSE_SLOT_READY'],SOURCE_FUND:['BROADCAST'],REVERSE_QUOTE:['AWAITING_FUNDS'],FUNDING_CALL:['FUNDING_CALL_SAVED_FOR_SEPARATE_PAYER'],PAYER_APPROVAL:['PAYER_APPROVAL_SAVED'],PAYER_PREPARE:['PREPARED'],PAYER_BROADCAST:['ORIGINAL_PAYER_BROADCAST_KNOWN'],PREPARE_COMMIT:['COMMIT_SIGNED_DURABLY'],BROADCAST_COMMIT:['AWAITING_BASE_FINALITY','COMMIT_FINALIZED','ALREADY_FINALIZED'],OBSERVE_COMMIT:['COMMIT_FINALIZED'],APPROVE_WALLET:['IMMUTABLE_PRIVATE_WALLET_APPROVAL_SAVED'],PREPARE_ZCASH:['ZCASH_SIGNED_DURABLY'],BROADCAST_ZCASH:['AWAITING_ZCASH_FINALITY','ZCASH_ALREADY_FINALIZED'],OBSERVE_ZCASH:['ZCASH_DELIVERY_FINALIZED'],PREPARE_SETTLE:['SETTLE_SIGNED_DURABLY'],BROADCAST_SETTLE:['AWAITING_BASE_FINALITY','SETTLED','ALREADY_FINALIZED'],OBSERVE_SETTLE:['SETTLED'],VERIFY:['G5_ORDER_RECEIPTS_VERIFIED']};
 const waits=new Set(['OBSERVER_WAIT','AWAITING_BASE_FINALITY','AWAITING_ZCASH_FINALITY','AWAITING_FUNDS','AWAITING_CONFIRMATIONS','CONFIRMING','NO_ELIGIBLE_JOB','READY','RESERVATION_FINALIZED']);
-const outcomeStatuses=new Set([...Object.values(done).flat(),...waits,'SETTLED','G5_BATCH_VERIFIED','G5_CLOSED','ALREADY_FINALIZED','REFUND_REQUIRED','REVIEW_REQUIRED','EXPIRED_UNFUNDED','REORGED','REFUNDED']);
+const outcomeStatuses=new Set([...Object.values(done).flat(),...waits,'SETTLED','G5_BATCH_VERIFIED','G5_CLOSED','ALREADY_FINALIZED','REFUND_REQUIRED','REVIEW_REQUIRED','EXPIRED_UNFUNDED','SOURCE_PREFUND_WAIT','REORGED','REFUNDED']);
 export function g5LiveOutcome(sequence:number,stage:string,status:unknown){
  return typeof status==='string'&&outcomeStatuses.has(status)?{sequence,stage,status}:{sequence,stage,status:'UNKNOWN_STATUS',unknownStatusHash:createHash('sha256').update(typeof status==='string'?status:'NON_STRING_STATUS').digest('hex')};
 }
@@ -26,6 +27,7 @@ export function validateG5LiveState(s:G5LiveState,runId:string,binding:string){
  if(s.inflight||s.incident)throw Error('G5_LIVE_ORIGINAL_EFFECT_RECONCILIATION_REQUIRED');
 }
 export function advanceG5LiveSlot(slot:G5LiveSlot,result:G5LiveResult):G5LiveSlot{
+ if(result.status==='SOURCE_PREFUND_WAIT'&&['SYNC','SOURCE_FUND'].includes(slot.stage)&&sourcePrefundWait(result,slot.sequence))return slot;
  if(result.status==='OBSERVER_WAIT'&&slot.stage==='START'&&slot.sequence%2)return {...slot,stage:'SYNC'};
  if(result.status==='OBSERVER_WAIT'&&slot.stage!=='SOURCE_FUND'&&!slot.stage.startsWith('PAYER_'))return slot;
  if(slot.stage==='OBSERVE_SOURCE'){
@@ -43,9 +45,10 @@ export function advanceG5LiveSlot(slot:G5LiveSlot,result:G5LiveResult):G5LiveSlo
  * read-only snapshot immediately before its once-only fund command; that actor
  * still enforces the original cutoff and eight-block margin before sending.
  */
-export async function syncAndFundG5Source(io:{sync():Promise<G5LiveResult>;fund():Promise<G5LiveResult>}){
- const synced=await io.sync();if(synced.status!=='SYNCED')throw Error('G5_LIVE_FRESH_SOURCE_SYNC_REQUIRED');
- return io.fund();
+export async function syncAndFundG5Source(io:{sync():Promise<G5LiveResult>;fund():Promise<G5LiveResult>},sequence?:number){
+ const synced=await io.sync();if(synced.status==='SOURCE_PREFUND_WAIT'&&sequence!==undefined&&sourcePrefundWait(synced,sequence))return synced;
+ if(synced.status!=='SYNCED')throw Error('G5_LIVE_FRESH_SOURCE_SYNC_REQUIRED');
+ const funded=await io.fund();if(funded.status==='SOURCE_PREFUND_WAIT')throw Error('G5_LIVE_FUND_CANNOT_WAIT');return funded;
 }
 export async function runG5LiveBounded(state:G5LiveState,options:{maxSteps:number;maxMilliseconds:number;holds?:string[];maxActive?:number;admissionThrough?:number},io:{now():number;snapshot():Promise<G5LiveSnapshot>;save(s:G5LiveState):Promise<void>;execute(sequence:number,stage:G5LiveStage|'BARRIER'|'CLOSE'):Promise<G5LiveResult>;progress?(p:{sequence:number;stage:string;status:string}):void;}){
  if(!Number.isSafeInteger(options.maxSteps)||options.maxSteps<1||options.maxSteps>200||!Number.isSafeInteger(options.maxMilliseconds)||options.maxMilliseconds<1||options.maxMilliseconds>60000)throw Error('G5_LIVE_BOUNDED_LIMIT_REQUIRED');

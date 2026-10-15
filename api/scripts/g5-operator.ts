@@ -9,6 +9,8 @@ import {loadG5CompletedBaseDescriptor} from './g5-completed-base-descriptor.ts';
 import {access,open,unlink,readdir,readFile} from 'node:fs/promises';
 import {requireG5F3ScannerRecovery,requireG5F3RecoveryBooks,captureG5F3RecoveryBooks,saveG5F3RecoveryLocals,requireG5F3Migrations,requireG5F3Nonces,requireG5F3CanonicalGlobalRaw} from '../src/g5-f3-scanner-recovery.ts';
 import {g5Binding} from '../src/g5-run.ts';
+import {g5RunDatabasePartition,g5FundingArtifact} from '../src/g5-quote-attempts.ts';
+import {refreshG5ArchivedSource} from '../src/g5-archive-observer.ts';
 import {requireG5UnfundedR4QuoteRecovery,requireG5UnfundedR4NoEffects,saveG5UnfundedR4QuoteLocal} from '../src/g5-r4-quote-recovery.ts';
 import {resolveG5ReferencedPrivatePath as siblingPath} from '../src/g5-private-path.ts';
 import {requireG5R4FundingWaitRecovery,requireG5R4PrecommitStartupRecovery,requireG5R4FundingWaitNonces,requireG5R4HeldReadyBooks,requireG5R4FundingWaitLedger,g5R4OriginalOperatorRows,G5_R4_ORIGINAL_FUND} from '../src/g5-r4-funding-wait-recovery.ts';
@@ -42,6 +44,7 @@ async function requireAbsent(path:string){
  throw Error('G5_PRIOR_SIGNING_OR_FUNDING_ARTIFACT_REQUIRES_RECONCILIATION');
 }
 async function refresh(){
+ if(c.state.archivedAttempts)return refreshG5ArchivedSource(c.worker,c.r.keys,c.base,c.r.wallet,c.state,c.config.stateFile);
  const references=(await c.worker.query("SELECT DISTINCT block_height::text FROM zee.deposits WHERE network='zcash-testnet' UNION SELECT block_height::text FROM zee.reverse_payouts WHERE confirmed")).rows;
  const snapshot=await c.r.wallet.snapshot(await observerCheckHeights(c.worker,references.map(r=>Number(r.block_height))));
  await refreshReverseObservers(c.worker,c.base,snapshot);
@@ -49,12 +52,12 @@ async function refresh(){
 }
 async function assertRunDatabase(){
  const known=new Set(c.state.orders.flatMap(o=>o.orderId?[o.orderId]:[]));
- const quotes=(await c.admin.query('SELECT id,access_hash,direction,input_amount,output_amount FROM zee.quotes')).rows;
+ const partition=await g5RunDatabasePartition(c.admin,c.state,c.r.keys,c.config.stateFile),quotes=partition.quotes;
  for(const q of quotes){
   const slot=c.state.orders.find(o=>o.orderId===q.id||(!o.orderId&&accessHash(o.owner).equals(q.access_hash)));
   if(!slot||q.direction!==slot.direction||q.input_amount!=='100000'||q.output_amount!=='100000')throw Error('G5_UNMANIFESTED_QUOTE');
  }
- const rows=(await c.admin.query('SELECT id,state FROM zee.orders')).rows;
+ const rows=partition.orders;
  if(rows.filter(o=>o.state!=='SETTLED').length>(c.state.batchSize??1)||rows.some(o=>!known.has(o.id)))throw Error('G5_OUTSTANDING_ORDER_LIMIT');
  const exceptions=(await c.admin.query("SELECT count(*) AS n FROM zee.obligations WHERE order_id IS NULL AND state<>'DISCHARGED'")).rows[0].n;
  if(exceptions!=='0')throw Error('G5_UNMATCHED_FUNDS_RECONCILE');
@@ -106,7 +109,7 @@ async function boundary(allowEmptyOpening=false,allowCompletedRecovery=false){
  });
  if(forwardNotes.length!==forwards||deposits.length!==forwards)throw Error('G5_CANONICAL_SOURCE_COUNT_MISMATCH');
  phase='boundary-wallet-accounting';validateG5WalletBalances(await read(c.config.balanceProofFile),c.state,forwardNotes,reverse);
- return {settled:orders.length,forward:forwards,reverse,actualBaseFeesWei:fees,ledgerBalanced:true,unexplainedDeficits:0};
+ return {settled:orders.length,forward:forwards,reverse,actualBaseFeesWei:fees,ledgerBalanced:true,unexplainedDeficits:0,expiredUnfundedAttempts:c.state.archivedAttempts?.length??0,acceptedOrderCount:orders.length+(c.state.archivedAttempts?.length??0)};
 }
 async function verifyReceipts(slot:typeof c.state.orders[number]){
    if(!slot.orderId)throw Error('G5_ACTIVE_ORDER_REQUIRED');
@@ -439,7 +442,7 @@ try{
    if(q.inputAmount!=='100000'||q.outputAmount!=='100000'||q.recipient!==getAddress(c.config.forward.recipient)||q.refundRecipient!==refundRecipient||q.depositReceiver!==slot.receiver||q.payoutFee!==c.config.baseFeeBudget||q.refundFee!=='10000'||q.executionMode!=='base-settlement-v1')throw Error('G5_IMMUTABLE_QUOTE_MISMATCH');
    await c.admin.query('UPDATE zee.runtime_control SET accepting_orders=true');await repository.accept(slot.orderId!,slot.owner);
    const cutoff=(await c.admin.query('SELECT funding_cutoff_height FROM zee.orders WHERE id=$1',[slot.orderId])).rows[0].funding_cutoff_height;
-   await durable(c.config.stateFile+'.funding-'+sequence+'.json',{orderId:slot.orderId,receiver:slot.receiver,memo:JSON.stringify({v:1,ref:q.reference}),amountZatoshi:'100000',maxFeeZatoshi:'10000',cutoffHeight:String(cutoff)});
+   await durable(g5FundingArtifact(c.config.stateFile,c.state,sequence),{orderId:slot.orderId,receiver:slot.receiver,memo:JSON.stringify({v:1,ref:q.reference}),amountZatoshi:'100000',maxFeeZatoshi:'10000',cutoffHeight:String(cutoff)});
    result={status:'AWAITING_SEPARATE_ONCE_ONLY_SOURCE_FUNDING',sequence};
   }
  }else{

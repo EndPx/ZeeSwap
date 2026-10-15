@@ -1,6 +1,48 @@
 # G5 bounded live actor controller
 
-Status at 2026-10-15 16:18:04 UTC: the controller has operated the third forward
+Current status after root's 2026-10-15 20:04:12.582 UTC independent check:
+**5/20 verified settled and 1/4 physical/ledger barriers passed**. The first-five
+summary is three forward/two reverse, 17905260001754 wei actual Base fees,
+balanced ledger and zero unexplained deficits. R4's original funded SDK
+interruption reached delivery, finalized SETTLE and ordinary verification.
+
+The subsequent UNKNOWN_OR_INCIDENT stop at sequence 7 SOURCE_FUND retained its
+original UNKNOWN diagnostic. Actual no-send source/SDK and protected-book proofs
+then passed. The reviewed bounded expiry command returned
+G5_SOURCE7_EXPIRED_NO_EFFECT_SUCCESSOR_READY at 20:03:04 UTC. Root independently
+confirmed seven accepted attempts including one retained EXPIRED_UNFUNDED
+predecessor, six current accepted orders, and all three old reservations
+released. Five orders are SETTLED; R6 remains SQL AWAITING_FUNDS with its original
+canonical-final FUND preserved. The first six main/controller records remain
+deeply equal to the audit, and both barrier lists remain `[5]`.
+
+The intent is COMPLETE, controller incident false and inflight absent; successor
+7 attempt 2 is at SYNC and still UNACCEPTED. No new quote, payment or driver
+resume occurred. Controls remain intake false, dispatch false, reconciliation
+false at epoch 8. A normal status check passed the archive guard, with no pending
+operator raw and 232094739998246 wei available Base fee capital.
+
+The driver remains held for reviewed publication after the post-ingestion
+archive guard and actual healthy watcher passed. A late old-receiver output discovered during refresh
+must retain its real liability and invalidate the archive before prepared work
+can be stored or broadcast. Runs without an archive must retain their previous
+reverse publication behavior. See [source-7 evidence](g5-source7-unfunded-recovery.md).
+
+Final reporting must distinguish twenty funded executions from twenty-one
+accepted attempts including the retained unfunded predecessor. Primary service
+controls remain disabled; fifteen settlements, barriers 10/15/20, close and
+wider G5 failure acceptance remain open. The history below records what was
+known at each earlier checkpoint.
+
+The actual healthy archived-source watcher subsequently passed at
+20:12:08.082 UTC: scan4505915, three existing outputs, no old deposit/obligation,
+old order EXPIRED_UNFUNDED, reconciliation false at epoch8 and five settlements
+with barriers[5] unchanged. eligibleOperations3 is an idempotent existing-source
+operation count, not new operations/jobs/settlements. No successor quote, funding
+or driver resume occurred. The repair/expiry/watcher group awaits reviewed
+publication before normal financial continuation.
+
+Historical checkpoint at 2026-10-15 16:18:04 UTC: the controller had operated the third forward
 order, whose original PAY is finalized and reconciled through a separately
 reviewed [bounded scanner-failure recovery](g5-f3-scanner-recovery.md). The retry
 has three SQL SETTLED and ordinarily receipt-verified orders. The first three
@@ -246,3 +288,36 @@ Controller health and the three settled receipt flags remained intact. This
 adds original-transaction broadcast evidence after the interruption/recovery;
 it does not establish ten Zcash confirmations, verified delivery, Base SETTLE,
 a fourth settlement or a batch barrier.
+
+The original R4 SETTLE subsequently finalized and returned SETTLED at
+18:50:23 UTC. At 18:54:42 UTC, normal VERIFY returned
+G5_ORDER_RECEIPTS_VERIFIED and slot 4 became DONE, with controller incident
+false. Progress at that checkpoint was **four verified settlements out of twenty**, with zero
+barriers. The driver was active at F5 DISPATCH; its RESERVE nonce 12 was
+final and original PAY nonce 14 is included while finality remains its own
+gate. Admission beyond sequence 5 still required the full first physical/ledger
+barrier. R4's funded SDK fault path now has actual economic closure; the
+remaining sixteen settlements and four barriers were then open.
+
+The first full batch barrier subsequently passed: the driver logged
+G5_BATCH_VERIFIED for sequence 5 at 19:15:16 UTC. Root's file-state check at
+19:16:54 UTC found all first five receipt flags and barrier-verification flags
+true, first five controller slots DONE, both barrier lists `[5]` and controller
+incident false. The exact recorded summary was settled 5, forward 3, reverse 2,
+actualBaseFeesWei 17905260001754, ledgerBalanced true and unexplainedDeficits 0.
+
+Progress at the first-barrier checkpoint was **5/20 verified settled and 1/4 complete physical/ledger
+barriers**. The maxActive-4 driver had entered the second batch, with
+sequence 6 FUNDING_CALL inflight at that observation. This recorded its then-current
+stage, not a new funding or settlement receipt. Orders 6–20 and barriers 10,
+15 and 20 remain open. The latest published milestone remains
+97cc9d03c546151f64f2ec3fbffbd4c673b210b8; these later observations await the next
+grouped publication.
+
+At 19:20:18 UTC that driver stopped with UNKNOWN_OR_INCIDENT at sequence 7 SOURCE_FUND.
+The current status above preserves the first-five milestone and distinguishes
+the pending archived-attempt design from an actual recovery. No old receiver,
+funding cutoff, intent, source liability or original transaction may be ignored
+to resume. The shared archive classifier passed review for exact extra-row, ledger,
+retained-artifact and late-deposit rejection. Its code/tests remain distinct
+from the still-pending actual testnet recovery result.

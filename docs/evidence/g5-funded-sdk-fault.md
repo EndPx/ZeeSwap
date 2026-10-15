@@ -5,10 +5,11 @@ Updated: 2026-10-16 (Asia/Jakarta); actual execution times below are 2026-10-15 
 Status: **actual funded adapter interruption and bounded original-byte recovery
 passed**. The strict recovery passed at 18:05:06 UTC at epoch 8 without broadcast
 or SQL payout import. The subsequent ordinary recover-zcash import passed,
-and root proved one exact original SQL payout row. The normal driver
-subsequently acknowledged the original R4 broadcast and is awaiting Zcash
-finality. Verified delivery and settlement are not yet claimed. G5 remains open
-at three settled orders and zero barriers.
+and root proved one exact original SQL payout row. The normal driver then
+broadcast the original transaction, verified its delivery, finalized Base
+SETTLE and passed ordinary receipt verification. The funded interruption's
+economic recovery is complete for R4. G5 remains open; the first full batch has
+now passed with five verified settled orders and one barrier.
 
 ## Exact experiment boundary
 
@@ -214,3 +215,40 @@ The controller remained healthy, with three settled orders and zero barriers.
 This acknowledgement does not establish ten Zcash confirmations, independent
 recipient delivery verification, Base SETTLE or a fourth settlement. The driver
 remains active under the reviewed four-active policy while those gates wait.
+
+## Actual R4 settlement and ordinary verification
+
+Root observed the original R4 Base SETTLE finalized and the order SETTLED at
+18:50:23 UTC, after settlement nonce 13 in block 48160408 became final. The
+normal controller then passed G5_ORDER_RECEIPTS_VERIFIED at 18:54:42 UTC and
+retained slot 4 as DONE with controller incident false. This closes the funded
+SDK interruption through original-byte recovery, exact SQL import, original
+broadcast, independent delivery and ordinary terminal verification. No second
+calculation or replacement payment was used.
+
+At the subsequent F5 observation, its original RESERVE nonce 12 in block
+48160096 is final, and its PAY nonce 14 was canonically successful in block
+48160895 while finality was still pending at root's earlier check. The latest
+reported controller state then had sequence 5 DISPATCH inflight, four verified
+settlements and no batch barrier. Admission to sequence 6 then remained behind the
+five-order barrier. Neither this recovery milestone nor four settlements
+completes the twenty-order soak or wider source-reorg/loss acceptance.
+
+The preceding nineteen-file SDK recovery milestone is published as
+`97cc9d03c546151f64f2ec3fbffbd4c673b210b8`; root verified the remote SHA at
+18:21 UTC. These later delivery/settlement observations are local evidence
+updates for the next grouped milestone.
+
+The first batch barrier later passed with G5_BATCH_VERIFIED at 19:15:16 UTC;
+root confirmed both barrier lists `[5]`, all first five DONE/receipt flags and
+controller health at 19:16:54 UTC. Its exact aggregate was five settled
+(three forward/two reverse), 17905260001754 wei actual Base fees, balanced
+ledger and zero unexplained deficits. Progress is now 5/20 verified settled
+and 1/4 barriers. The second batch subsequently stopped with UNKNOWN_OR_INCIDENT
+at sequence 7 SOURCE_FUND at 19:20:18 UTC, with only the controller latch set and the main
+run/first barrier preserved. Strict handling of its accepted but unfunded quote
+passed its bounded expiry/archive at 20:03:04 UTC, independently checked at
+20:04:12.582 UTC. No successor quote or funding is claimed, and the driver
+remains held for reviewed publication after the post-ingestion archive guard and actual healthy watcher passed. That
+separate [source-7 lifecycle](g5-source7-unfunded-recovery.md) does not undo R4's
+verified original-transaction recovery or complete the remaining G5 gates.
