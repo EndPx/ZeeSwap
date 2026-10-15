@@ -6,7 +6,7 @@ import {randomBytes} from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {getAddress,parseAbi} from 'viem';
 import {g5Context,read,durable} from './g5-context.ts';
-import {g5Direction,requireG5Next,validateG5Accounts,validateG5OpeningLedger,validateG5PhysicalBase,validateG5WalletBalances,g5PathIdentity,requireG5CommandConfig} from '../src/g5-run.ts';
+import {g5Direction,requireG5Next,requireG5Operational,requireG5RoundtripCheckpoint,validateG5Accounts,validateG5OpeningLedger,validateG5PhysicalBase,validateG5WalletBalances,g5PathIdentity,requireG5CommandConfig} from '../src/g5-run.ts';
 import {Repository} from '../src/repository.ts';
 import {accessHash} from '../src/private-data.ts';
 import {scanOnce,validateSnapshot} from '../src/observer.ts';
@@ -16,8 +16,9 @@ import {LocalBaseSigner} from '../src/base-signer.ts';
 import {escrowTerms,escrowState,finalizedReceipt,escrowEvents} from '../src/base-escrow.ts';
 import {LocalReverseWalletAdapter} from '../src/reverse-wallet-adapter.ts';
 import {reversePayoutTerms} from '../src/reverse-settlement.ts';
+import {requireG5NonceReady} from '../src/g5-nonce.ts';
 const [step,path,rawSequence]=process.argv.slice(2),sequence=Number(rawSequence);
-if(!['start','observe','dispatch','verify','status','close'].includes(step)||!path||process.argv.length>5)throw Error('G5_EXPLICIT_STEP_CONFIG_SEQUENCE_REQUIRED');
+if(!['start','observe','dispatch','verify','barrier','roundtrip-checkpoint','status','close'].includes(step)||!path||process.argv.length>5)throw Error('G5_EXPLICIT_STEP_CONFIG_SEQUENCE_REQUIRED');
 const c=await g5Context(path),repository=new Repository(c.api,c.r.keys);
 async function refresh(){
  const references=(await c.worker.query("SELECT DISTINCT block_height::text FROM zee.deposits WHERE network='zcash-testnet' UNION SELECT block_height::text FROM zee.reverse_payouts WHERE confirmed")).rows;
@@ -33,13 +34,13 @@ async function assertRunDatabase(){
   if(!slot||q.direction!==slot.direction||q.input_amount!=='100000'||q.output_amount!=='100000')throw Error('G5_UNMANIFESTED_QUOTE');
  }
  const rows=(await c.admin.query('SELECT id,state FROM zee.orders')).rows;
- if(rows.filter(o=>o.state!=='SETTLED').length>1||rows.some(o=>!known.has(o.id)))throw Error('G5_ONE_OUTSTANDING_ORDER');
+ if(rows.filter(o=>o.state!=='SETTLED').length>(c.state.batchSize??1)||rows.some(o=>!known.has(o.id)))throw Error('G5_OUTSTANDING_ORDER_LIMIT');
  const exceptions=(await c.admin.query("SELECT count(*) AS n FROM zee.obligations WHERE order_id IS NULL AND state<>'DISCHARGED'")).rows[0].n;
  if(exceptions!=='0')throw Error('G5_UNMATCHED_FUNDS_RECONCILE');
  const unbalanced=(await c.admin.query('SELECT event_id,asset FROM zee.ledger_entries GROUP BY event_id,asset HAVING sum(amount)<>0')).rows;
  if(unbalanced.length)throw Error('G5_UNBALANCED_LEDGER');
  const opening=(await c.admin.query('SELECT event_id,asset,bucket,amount::text FROM zee.ledger_entries WHERE event_id=$1',[c.state.openingEventId])).rows;
- validateG5OpeningLedger(opening,c.state.openingEventId);
+ validateG5OpeningLedger(opening,c.state.openingEventId,c.config.branchId);
  return rows;
 }
 async function boundary(allowEmptyOpening=false){
@@ -52,7 +53,7 @@ async function boundary(allowEmptyOpening=false){
  const fees=(await c.admin.query(`SELECT COALESCE(sum(actual_fee),0)::text AS n FROM (
  SELECT actual_fee FROM zee.base_attempts WHERE confirmed UNION ALL SELECT actual_fee FROM zee.escrow_commits WHERE confirmed UNION ALL SELECT actual_fee FROM zee.escrow_settlements WHERE confirmed) AS x`)).rows[0].n;
  const accounts=(await c.admin.query('SELECT asset,purpose,balance::text,reserved::text FROM zee.inventory_accounts')).rows;
- validateG5Accounts(accounts,forwards,reverse,fees);
+ validateG5Accounts(accounts,forwards,reverse,fees,c.config.branchId);
  if((await c.admin.query('SELECT count(*) AS n FROM zee.reservations WHERE released_at IS NULL')).rows[0].n!=='0'
   ||(await c.admin.query("SELECT count(*) AS n FROM zee.obligations WHERE state<>'DISCHARGED'")).rows[0].n!=='0')throw Error('G5_BOUNDARY_OBLIGATIONS_REMAIN');
  const proceeds=(await c.admin.query("SELECT asset,sum(amount)::text AS n FROM zee.ledger_entries WHERE bucket='operator:unreconciled' GROUP BY asset")).rows;
@@ -81,6 +82,7 @@ async function boundary(allowEmptyOpening=false){
   const operator=await read(c.config.reverseOrders[i].configFile);requireG5CommandConfig(operator.zcashArgs,operator.zcashPrivateConfig);
   if(capture.reverse[i].sequence!==c.config.reverseOrders[i].sequence||g5PathIdentity(capture.reverse[i].config)!==g5PathIdentity(operator.zcashPrivateConfig))throw Error('G5_PHYSICAL_CAPTURE_CONFIG_BINDING');
  }
+ if(c.state.batchSize&&g5PathIdentity(capture.feeCapital?.config)!==g5PathIdentity(c.config.extraFeeWalletConfig))throw Error('G5_PHYSICAL_FEE_CAPTURE_CONFIG_BINDING');
  await new Promise<void>((resolve,reject)=>{
   const child=spawn(c.config.balanceProofCommand,c.config.balanceProofArgs,{stdio:['ignore','pipe','pipe'],windowsHide:true});let size=0;
   const timer=setTimeout(()=>{child.kill();reject(Error('G5_PHYSICAL_CAPTURE_TIMEOUT'));},300000);
@@ -99,62 +101,8 @@ async function boundary(allowEmptyOpening=false){
  validateG5WalletBalances(await read(c.config.balanceProofFile),c.state,forwardNotes,reverse);
  return {settled:orders.length,forward:forwards,reverse,actualBaseFeesWei:fees,ledgerBalanced:true,unexplainedDeficits:0};
 }
-try{
- await c.base.preflight();await c.admin.query('UPDATE zee.runtime_control SET accepting_orders=false,dispatch_enabled=false');
- let result:unknown;
- if(step==='status'){
-  await assertRunDatabase();result={status:'G5_PAUSED',slots:c.state.orders.length,verified:c.state.orders.filter(o=>o.verified).length};
- }else if(step==='close'){
-  const summary=await boundary();if(summary.settled!==20||c.state.orders.some(o=>!o.verified))throw Error('G5_TWENTY_VERIFIED_ORDERS_REQUIRED');
-  c.state.closed=true;await c.save();result={status:'G5_CLOSED',...summary};
- }else if(step==='start'){
-  const existing=requireG5Next(c.state,sequence);
-  if(!existing){
-   await boundary(sequence===1&&c.state.orders.length===0);c.state.orders.push({sequence,direction:g5Direction(sequence),owner:randomBytes(32).toString('base64url')});await c.save();
-  }
-  const slot=c.state.orders.at(-1)!;
-  const policy=(await c.admin.query('SELECT reconciliation_required FROM zee.runtime_control')).rows[0];
-  const initial=(await c.admin.query(`SELECT (SELECT count(*) FROM zee.quotes)+(SELECT count(*) FROM zee.orders)
-   +(SELECT count(*) FROM zee.base_attempts)+(SELECT count(*) FROM zee.escrow_commits)+(SELECT count(*) FROM zee.reverse_payouts)
-   +(SELECT count(*) FROM zee.escrow_settlements)+(SELECT count(*) FROM zee.operations)+(SELECT count(*) FROM zee.deposits) AS n`)).rows[0].n;
-  if(policy.reconciliation_required){
-   if(c.state.policyInitialized||c.state.incident||sequence!==1||c.state.orders.length!==1||slot.orderId||initial!=='0')throw Error('G5_EXPLICIT_RECONCILIATION_REQUIRED');
-   // Only this empty first admission can initialize policy after the exact
-   // opening allocation and full physical partition passed boundary().
-   await boundary(true);c.state.policyInitialized=true;await c.save();
-   await c.admin.query('UPDATE zee.runtime_control SET reconciliation_required=false');
-  }
-  if(slot.direction==='BASE_TO_ZCASH')result={status:'G5_REVERSE_SLOT_READY',sequence};
-  else{
-   await refresh();await assertRunDatabase();
-   if(!slot.receiver){slot.receiver=await c.r.wallet.allocate();await c.save();}
-   const quotes=(await c.api.query('SELECT id FROM zee.quotes WHERE access_hash=$1',[accessHash(slot.owner)])).rows;
-   if(quotes.length>1||(slot.orderId&&quotes[0]?.id!==slot.orderId))throw Error('G5_PRIVATE_QUOTE_RECOVERY_CONFLICT');
-   if(!quotes.length){
-    await c.admin.query('UPDATE zee.runtime_control SET accepting_orders=true');
-    const q=await repository.issueQuote({direction:slot.direction,inputAmount:'100000',recipient:getAddress(c.config.forward.recipient),refundRecipient:await c.r.wallet.validate(c.config.forward.refundRecipient),
-     depositReceiver:slot.receiver,payoutFee:c.config.baseFeeBudget,refundFee:'10000',executionMode:'base-settlement-v1',baseContract:c.base.registry.contracts.ZeeSwapSettlement.address},slot.owner);
-    slot.orderId=q.id;await c.save();
-   }else{slot.orderId=quotes[0].id;await c.save();}
-   const q=await repository.privateQuote(slot.orderId!,slot.owner) as any;
-   if(q.inputAmount!=='100000'||q.outputAmount!=='100000'||q.recipient!==getAddress(c.config.forward.recipient)||q.refundRecipient!==c.config.forward.refundRecipient||q.depositReceiver!==slot.receiver||q.payoutFee!==c.config.baseFeeBudget||q.refundFee!=='10000'||q.executionMode!=='base-settlement-v1')throw Error('G5_IMMUTABLE_QUOTE_MISMATCH');
-   await c.admin.query('UPDATE zee.runtime_control SET accepting_orders=true');await repository.accept(slot.orderId!,slot.owner);
-   await durable(c.config.stateFile+'.funding-'+sequence+'.json',{orderId:slot.orderId,receiver:slot.receiver,memo:JSON.stringify({v:1,ref:q.reference}),amountZatoshi:'100000',maxFeeZatoshi:'10000'});
-   result={status:'AWAITING_SEPARATE_ONCE_ONLY_SOURCE_FUNDING',sequence};
-  }
- }else{
-  const already=step==='verify'?c.state.orders.find(o=>o.sequence===sequence&&o.verified):undefined;
-  const slot=already??requireG5Next(c.state,sequence);if(!slot?.orderId)throw Error('G5_ACTIVE_ORDER_REQUIRED');
-  if(step==='observe'||step==='dispatch'){
-   if(slot.direction!=='ZCASH_TO_BASE')throw Error('G5_NAMED_REVERSE_OPERATOR_STEP_REQUIRED');
-   await refresh();await assertRunDatabase();await reconcileBaseReceipts(c.worker,c.r.keys,c.base);
-   const control=(await c.admin.query('SELECT reconciliation_required FROM zee.runtime_control')).rows[0];if(control.reconciliation_required)throw Error('G5_EXPLICIT_RECONCILIATION_REQUIRED');
-   if(step==='dispatch'){
-    const signer=await read(c.config.baseSignerClientPath);await c.admin.query('UPDATE zee.runtime_control SET dispatch_enabled=true');
-    result=await dispatchBaseOnce(c.worker,c.r.keys,c.base,new LocalBaseSigner(signer.command,signer.args),refresh);
-   }else result={status:(await c.admin.query('SELECT state FROM zee.orders WHERE id=$1',[slot.orderId])).rows[0].state};
-  }else if(step==='verify'){
-   await refresh();await reconcileBaseReceipts(c.worker,c.r.keys,c.base);
+async function verifyReceipts(slot:typeof c.state.orders[number]){
+   if(!slot.orderId)throw Error('G5_ACTIVE_ORDER_REQUIRED');
    const row=(await c.admin.query('SELECT state FROM zee.orders WHERE id=$1',[slot.orderId])).rows[0];if(row?.state!=='SETTLED')throw Error('G5_FINAL_SETTLEMENT_REQUIRED');
    const counts=(await c.admin.query(`SELECT (SELECT count(*) FROM zee.deposits WHERE order_id=$1) AS deposits,
     (SELECT count(*) FROM zee.operations WHERE order_id=$1 AND state='CONFIRMED') AS operations,
@@ -167,7 +115,7 @@ try{
     if(attempts.length!==2)throw Error('G5_EXACT_FORWARD_ATTEMPTS_REQUIRED');
     for(const a of attempts){const signed=c.r.keys.open(a.signed_payload,`base-signed:${slot.orderId}:${a.phase}:v1`) as any;if(!a.confirmed||!await c.base.receipt(signed.hash,a.phase,terms))throw Error('G5_FINAL_FORWARD_RECEIPT_MISSING');}
    }else{
-    const config=await read(c.config.reverseOrders.find((o:any)=>o.sequence===sequence).configFile),privateState=await read(config.stateFile);
+    const config=await read(c.config.reverseOrders.find((o:any)=>o.sequence===slot.sequence).configFile),privateState=await read(config.stateFile);
     if(privateState.orderId!==slot.orderId||privateState.owner!==slot.owner)throw Error('G5_REVERSE_STATE_BINDING');
     const terms=await escrowTerms(c.worker,c.r.keys,c.base,slot.orderId);if(await escrowState(c.base,terms,(await c.base.heads()).finalized.number)!==6)throw Error('G5_FINAL_ESCROW_REQUIRED');
     const source=await finalizedReceipt(c.base,config.fundingTransactionHash);
@@ -183,11 +131,97 @@ try{
     await wallet.verifyPrepared(prepared,termsZ);const delivery=await wallet.receipt(prepared,termsZ);
     if(!a.confirmed||!delivery||delivery.tipHeight-delivery.blockHeight+1<10||delivery.amountZatoshi!=='100000')throw Error('G5_FINAL_SHIELDED_RECEIPT_REQUIRED');
    }
-   const summary=await boundary();slot.verified=true;slot.verification=summary;await c.save();result={status:'G5_ORDER_VERIFIED',sequence,...summary};
+}
+
+try{
+ if(step!=='status')requireG5Operational(c.state);
+ await c.base.preflight();await c.admin.query('UPDATE zee.runtime_control SET accepting_orders=false,dispatch_enabled=false');
+ let result:unknown;
+ if(step==='status'){
+  const rows=await assertRunDatabase();result={status:'G5_PAUSED',incident:!!c.state.incident,slots:c.state.orders.length,verified:c.state.orders.filter(o=>o.verified).length,
+   barriers:c.state.barriers??[],orders:c.state.orders.map(o=>({sequence:o.sequence,direction:o.direction,state:rows.find(r=>r.id===o.orderId)?.state??'UNACCEPTED',receiptVerified:!!o.receiptVerified,verified:!!o.verified}))};
+ }else if(step==='close'){
+  const summary=await boundary();if(summary.settled!==20||c.state.orders.some(o=>!o.verified))throw Error('G5_TWENTY_VERIFIED_ORDERS_REQUIRED');
+  c.state.closed=true;await c.save();result={status:'G5_CLOSED',...summary};
+ }else if(step==='barrier'){
+  if(!c.state.batchSize||sequence!==(c.state.barriers?.length??0)*5+5||c.state.orders.length!==sequence)throw Error('G5_NEXT_FIVE_ORDER_BARRIER_REQUIRED');
+  const batch=c.state.orders.slice(sequence-5,sequence);
+  if(batch.some(o=>!o.orderId||!o.receiptVerified))throw Error('G5_EACH_RECEIPT_VERIFICATION_REQUIRED');
+  await refresh();await reconcileBaseReceipts(c.worker,c.r.keys,c.base);for(const slot of batch)await verifyReceipts(slot);
+  const summary=await boundary();for(const slot of batch){slot.verified=true;slot.verification=summary;}
+  (c.state.barriers??=[]).push(sequence);await c.save();result={status:'G5_BATCH_VERIFIED',throughSequence:sequence,...summary};
+ }else if(step==='roundtrip-checkpoint'){
+  if(sequence!==2)throw Error('G5_FIRST_ROUNDTRIP_ONLY');requireG5RoundtripCheckpoint(c.state);
+  await refresh();await reconcileBaseReceipts(c.worker,c.r.keys,c.base);for(const slot of c.state.orders)await verifyReceipts(slot);
+  const reverse=await read(c.config.reverseOrders[0].configFile),payout=await reversePayoutTerms(c.worker,c.r.keys,c.state.orders[1].orderId!);
+  const source=await repository.privateQuote(c.state.orders[0].orderId!,c.state.orders[0].owner) as any;
+  if(reverse.recipient!==c.config.forwardOrders[0].refundRecipient||payout.recipient!==reverse.recipient||source.refundRecipient!==reverse.recipient)throw Error('G5_ROUNDTRIP_SAME_USER_RECEIVER_REQUIRED');
+  const summary=await boundary();if(summary.settled!==2||summary.forward!==1||summary.reverse!==1)throw Error('G5_EXACT_ROUNDTRIP_SETTLEMENT_REQUIRED');
+  // Deliberately leaves all five-order admission barriers and verified flags
+  // unchanged. This is one two-direction milestone within the twenty-order run.
+  await durable(c.config.stateFile+'.roundtrip-checkpoint.json',{version:1,runId:c.state.runId,throughSequence:2,...summary,g5Complete:false,batchBarrierAdvanced:false});
+  result={status:'G5_ROUNDTRIP_CHECKPOINT',...summary,g5Complete:false,batchBarrierAdvanced:false};
+ }else if(step==='start'){
+  const existing=requireG5Next(c.state,sequence);
+  let openingBoundary=false;
+  if(!existing){
+   if(!c.state.batchSize||sequence===1){await boundary(sequence===1&&c.state.orders.length===0);openingBoundary=true;}else await assertRunDatabase();
+   c.state.orders.push({sequence,direction:g5Direction(sequence),owner:randomBytes(32).toString('base64url')});await c.save();
+  }
+  const slot=c.state.orders.find(o=>o.sequence===sequence)!;
+  const policy=(await c.admin.query('SELECT reconciliation_required FROM zee.runtime_control')).rows[0];
+  const initial=(await c.admin.query(`SELECT (SELECT count(*) FROM zee.quotes)+(SELECT count(*) FROM zee.orders)
+   +(SELECT count(*) FROM zee.base_attempts)+(SELECT count(*) FROM zee.escrow_commits)+(SELECT count(*) FROM zee.reverse_payouts)
+   +(SELECT count(*) FROM zee.escrow_settlements)+(SELECT count(*) FROM zee.operations)+(SELECT count(*) FROM zee.deposits) AS n`)).rows[0].n;
+  if(policy.reconciliation_required){
+   if(c.state.policyInitialized||c.state.incident||sequence!==1||c.state.orders.length!==1||slot.orderId||initial!=='0')throw Error('G5_EXPLICIT_RECONCILIATION_REQUIRED');
+   // Only this empty first admission can initialize policy after the exact
+   // opening allocation and full physical partition passed boundary().
+   if(!openingBoundary)await boundary(true);c.state.policyInitialized=true;await c.save();
+   await c.admin.query('UPDATE zee.runtime_control SET reconciliation_required=false');
+  }
+  if(slot.direction==='BASE_TO_ZCASH')result={status:'G5_REVERSE_SLOT_READY',sequence};
+  else{
+   await refresh();await assertRunDatabase();
+   const refundRecipient=c.state.batchSize?c.config.forwardOrders.find((o:any)=>o.sequence===sequence).refundRecipient:c.config.forward.refundRecipient;
+   if(!slot.receiver){slot.receiver=await c.r.wallet.allocate();await c.save();}
+   const quotes=(await c.api.query('SELECT id FROM zee.quotes WHERE access_hash=$1',[accessHash(slot.owner)])).rows;
+   if(quotes.length>1||(slot.orderId&&quotes[0]?.id!==slot.orderId))throw Error('G5_PRIVATE_QUOTE_RECOVERY_CONFLICT');
+   if(!quotes.length){
+    await c.admin.query('UPDATE zee.runtime_control SET accepting_orders=true');
+    const q=await repository.issueQuote({direction:slot.direction,inputAmount:'100000',recipient:getAddress(c.config.forward.recipient),refundRecipient:await c.r.wallet.validate(refundRecipient),
+     depositReceiver:slot.receiver,payoutFee:c.config.baseFeeBudget,refundFee:'10000',executionMode:'base-settlement-v1',baseContract:c.base.registry.contracts.ZeeSwapSettlement.address},slot.owner);
+    slot.orderId=q.id;await c.save();
+   }else{slot.orderId=quotes[0].id;await c.save();}
+   const q=await repository.privateQuote(slot.orderId!,slot.owner) as any;
+   if(q.inputAmount!=='100000'||q.outputAmount!=='100000'||q.recipient!==getAddress(c.config.forward.recipient)||q.refundRecipient!==refundRecipient||q.depositReceiver!==slot.receiver||q.payoutFee!==c.config.baseFeeBudget||q.refundFee!=='10000'||q.executionMode!=='base-settlement-v1')throw Error('G5_IMMUTABLE_QUOTE_MISMATCH');
+   await c.admin.query('UPDATE zee.runtime_control SET accepting_orders=true');await repository.accept(slot.orderId!,slot.owner);
+   const cutoff=(await c.admin.query('SELECT funding_cutoff_height FROM zee.orders WHERE id=$1',[slot.orderId])).rows[0].funding_cutoff_height;
+   await durable(c.config.stateFile+'.funding-'+sequence+'.json',{orderId:slot.orderId,receiver:slot.receiver,memo:JSON.stringify({v:1,ref:q.reference}),amountZatoshi:'100000',maxFeeZatoshi:'10000',cutoffHeight:String(cutoff)});
+   result={status:'AWAITING_SEPARATE_ONCE_ONLY_SOURCE_FUNDING',sequence};
+  }
+ }else{
+  const already=step==='verify'?c.state.orders.find(o=>o.sequence===sequence&&o.verified):undefined;
+  const slot=already??requireG5Next(c.state,sequence);if(!slot?.orderId)throw Error('G5_ACTIVE_ORDER_REQUIRED');
+  if(step==='observe'||step==='dispatch'){
+   if(slot.direction!=='ZCASH_TO_BASE')throw Error('G5_NAMED_REVERSE_OPERATOR_STEP_REQUIRED');
+   await refresh();await assertRunDatabase();await reconcileBaseReceipts(c.worker,c.r.keys,c.base);
+   const control=(await c.admin.query('SELECT reconciliation_required FROM zee.runtime_control')).rows[0];if(control.reconciliation_required)throw Error('G5_EXPLICIT_RECONCILIATION_REQUIRED');
+   if(step==='dispatch'){
+    const signer=await read(c.config.baseSignerClientPath),local=new LocalBaseSigner(signer.command,signer.args);await c.admin.query('UPDATE zee.runtime_control SET dispatch_enabled=true');
+    result=await dispatchBaseOnce(c.worker,c.r.keys,c.base,{authorize:q=>local.authorize(q),prepare:async(q,phase)=>{await requireG5NonceReady(c.worker,c.r.keys,c.base,slot.orderId!,phase);return local.prepare(q,phase);}},refresh,slot.orderId);
+   }else result={status:(await c.admin.query('SELECT state FROM zee.orders WHERE id=$1',[slot.orderId])).rows[0].state};
+  }else if(step==='verify'){
+   await refresh();await reconcileBaseReceipts(c.worker,c.r.keys,c.base);
+   await verifyReceipts(slot);
+   if(c.state.batchSize){
+    await assertRunDatabase();if((await c.admin.query('SELECT reconciliation_required FROM zee.runtime_control')).rows[0].reconciliation_required)throw Error('G5_EXPLICIT_RECONCILIATION_REQUIRED');
+    slot.receiptVerified=true;await c.save();result={status:'G5_ORDER_RECEIPTS_VERIFIED',sequence,barrierRequired:true};
+   }else{const summary=await boundary();slot.verified=true;slot.verification=summary;await c.save();result={status:'G5_ORDER_VERIFIED',sequence,...summary};}
   }
  }
  console.log(JSON.stringify(result));
 }catch{
- c.state.incident=true;await c.save().catch(()=>{});
- await c.admin.query('SELECT zee.enter_reconciliation()').catch(()=>{});console.error('G5_OPERATOR_STOPPED_RECONCILE_ORIGINAL_ATTEMPTS');process.exitCode=1;
+ if(!c.state.incident){c.state.incident=true;await c.save().catch(()=>{});await c.admin.query('SELECT zee.enter_reconciliation()').catch(()=>{});}
+ console.error('G5_OPERATOR_STOPPED_RECONCILE_ORIGINAL_ATTEMPTS');process.exitCode=1;
 }finally{await c.close();}

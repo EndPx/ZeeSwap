@@ -47,12 +47,12 @@ export async function reconcileBaseReceipts(pool:pg.Pool,keys:PrivateData,base:B
 }
 
 /** One fenced forward-settlement step. Its durable transaction is never replaced on retry. */
-export async function dispatchBaseOnce(pool:pg.Pool,keys:PrivateData,base:BaseContract,signer:BaseSigner,refreshObservers?:()=>Promise<unknown>){
+export async function dispatchBaseOnce(pool:pg.Pool,keys:PrivateData,base:BaseContract,signer:BaseSigner,refreshObservers?:()=>Promise<unknown>,orderId?:string){
  await base.preflight();
  await reconcileBaseReceipts(pool,keys,base);
  if(refreshObservers)await refreshObservers();
  const owner=randomUUID();
- const job=(await pool.query('SELECT * FROM zee.claim_base_job($1)',[owner])).rows[0];
+ const job=(await pool.query(orderId?'SELECT * FROM zee.claim_base_job_for_order($1,$2)':'SELECT * FROM zee.claim_base_job($1)',orderId?[owner,orderId]:[owner])).rows[0];
  if(!job)return {status:'NO_ELIGIBLE_JOB'};
  return withLeaseHeartbeat(()=>pool.query('SELECT zee.renew_base_lease($1,$2,$3)',[job.id,owner,job.fence]),async checkLease=>{
  const row=(await pool.query(`SELECT q.*,o.state,op.id AS operation_id FROM zee.operations op JOIN zee.quotes q ON q.id=op.order_id

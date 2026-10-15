@@ -22,6 +22,7 @@ import {approvalDigest} from '../src/reverse-authority.ts';
 import {refreshReverseObservers} from '../src/reverse-observer-refresh.ts';
 import {spawn} from 'node:child_process';
 import {reverseBaseRegistry} from '../src/reverse-base-rpc.ts';
+import {requireG5NonceReady} from '../src/g5-nonce.ts';
 
 const [step,path]=process.argv.slice(2);
 const steps=['quote','funding','observe-funding','prepare-commit','broadcast-commit','observe-commit','approve-wallet','prepare-zcash','recover-zcash','broadcast-zcash','observe-zcash','prepare-settle','broadcast-settle','observe-settle'];
@@ -65,7 +66,7 @@ async function leased(run:(job:any,owner:string,check:()=>Promise<void>)=>Promis
   job=(await worker.query('SELECT * FROM zee.outbox_jobs WHERE id=$1 AND lease_owner=$2 AND fence=$3 AND status=\'LEASED\' AND lease_until>clock_timestamp()',
    [state.currentLease.jobId,owner,state.currentLease.fence])).rows[0];
  }
- if(!job){owner=randomUUID();job=(await worker.query('SELECT * FROM zee.claim_escrow_job($1)',[owner])).rows[0];}
+ if(!job){owner=randomUUID();job=(await worker.query('SELECT * FROM zee.claim_escrow_job_for_order($1,$2)',[owner,state.orderId])).rows[0];}
  if(!job)throw Error('NO_ELIGIBLE_REVERSE_JOB_RECONCILE');
  const op=(await worker.query('SELECT order_id FROM zee.operations WHERE id=$1',[job.operation_id])).rows[0];
  if(op?.order_id!==state.orderId)throw Error('UNEXPECTED_REVERSE_JOB');
@@ -133,6 +134,7 @@ try{
    result=await leased(async(job,owner,check)=>{
     if(phase==='SETTLE')await requireFreshReverseDelivery(()=>observeReversePayout(worker,r.keys,state.orderId,zcash),
      ()=>worker.query('SELECT zee.check_reverse_delivery($1)',[state.orderId]));
+    await requireG5NonceReady(worker,r.keys,base,state.orderId,phase);
     const terms=await escrowTerms(worker,r.keys,base,state.orderId),signed=await baseSigner.prepareEscrow(terms,phase);await check();
     await refreshObservers();await check();
     if(phase==='COMMIT')await storeEscrowCommit(worker,r.keys,base,state.orderId,job.id,owner,job.fence,signed);
@@ -193,7 +195,7 @@ try{
 }catch(error){
  state.lastFailure={step,time:new Date().toISOString(),name:(error as any)?.name??'Error',message:String((error as any)?.message??'unknown').slice(0,4000)};
  await save().catch(()=>{});
- await admin.query('SELECT zee.enter_reconciliation()').catch(()=>{});
+ await g5slot.incident().catch(()=>{});
  console.error('REVERSE_OPERATOR_STEP_FAILED: reconcile the private state, original transaction and signer journal');process.exitCode=1;
 }finally{
  // Every named operator step ends paused. The operator explicitly re-enables

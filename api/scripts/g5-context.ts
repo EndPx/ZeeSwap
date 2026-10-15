@@ -23,8 +23,9 @@ export async function g5Context(path:string,create=false){
  const config=await read(path),binding=g5Binding(config);
  process.env.ZEE_DB_CONFIG=resolve(config.databaseConfig);process.env.ZEE_RUNTIME_CONFIG=resolve(config.runtimeConfig);process.env.ZEE_WALLET_CONFIG=resolve(config.walletConfig);
  const target=requireG5Target(dbConfig()),r=await runtime(true);requireG5Target(target,[r.apiUrl,r.workerUrl]);
+ if(target.branchId!==config.branchId)throw Error('G5_MANIFEST_DATABASE_TARGET_MISMATCH');
  let state:G5State;try{state=await read(config.stateFile);}catch(e){if(!create||(e as any).code!=='ENOENT')throw e;
-  state={version:1,runId:config.runId,binding,openingEventId:randomUUID(),orders:[]};await durable(config.stateFile,state,true);}
+  state={version:1,runId:config.runId,binding,openingEventId:randomUUID(),orders:[],...(config.batchSize?{batchSize:config.batchSize,barriers:[]}:{} )};await durable(config.stateFile,state,true);}
  validateG5State(state,config);
  // A stale lock requires operator reconciliation after a process interruption;
  // never silently remove it or race another signer/operator invocation.
