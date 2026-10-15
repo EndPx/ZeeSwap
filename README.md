@@ -3,7 +3,7 @@
 
 ZeeSwap is building bidirectional swaps, constrained intents and a backed-token bridge between shielded Zcash and Base. The first swap pair is ZEC / USDC; the prototype uses TAZ on Zcash testnet and a project-owned mockUSDC on Base Sepolia. The mock and settlement contracts are deployed and source-verified.
 
-One real testnet swap is verified in each direction: **0.001 shielded TAZ → 0.1 mockUSDC** and **0.1 mockUSDC → 0.001 shielded TAZ**. Both ran through bounded local operator harnesses, with exact recipient receipts, settled private orders and balanced accounting. The full product remains under construction.
+Real testnet swaps are verified in both directions: **0.001 shielded TAZ → 0.1 mockUSDC** and **0.1 mockUSDC → 0.001 shielded TAZ**. After the initial G4 experiments, the first same-user circle also passed: both orders SETTLED, original receipts verified, exact final user balances and a reconciled twelve-wallet checkpoint. These use bounded operator harnesses and fixture pricing. The full product remains under construction.
 
 - [Implementation plan](plan.md): scope, decisions and acceptance gates.
 - [Zcash wallet tooling](workers/zcash-wallet/README.md) and [live G1 evidence](docs/evidence/g1-feasibility.md).
@@ -21,8 +21,9 @@ One real testnet swap is verified in each direction: **0.001 shielded TAZ → 0.
 - [Old database snapshot recovery](docs/evidence/g5-snapshot-restore.md): actual PostgreSQL dump/restore, atomic paused startup and reconstruction from the independent original signing journal; five local fault/recovery cases passed.
 - [Bounded soak runner and funded capital](docs/evidence/g5-soak-runner.md): reviewed twenty-order manifest, ten independently verified capital wallets and idempotent opening ledger; public-testnet soak not yet completed.
 - [Reverse snapshot recovery](docs/evidence/g5-reverse-snapshot-restore.md): actual PostgreSQL rollback and original journal reconstruction on Anvil with a synthetic Zcash verifier; funded SDK crash rehearsal remains pending.
-- [Source refund boundaries](docs/evidence/g5-source-refunds.md): permanent cancellation and uncommitted escrow deadline gates, durable source refunds and full-principal accounting verified locally; live refund receipts remain pending.
-- [Actual funded refund experiments](docs/evidence/g5-live-refund-experiments.md) and [retry preparation](docs/evidence/g5-retry-preparation.md): first-run LATE liability preserved, reverse source finalized, fresh user wallets funded; twenty-swap progress remains 0/20.
+- [Source refund boundaries](docs/evidence/g5-source-refunds.md): permanent cancellation and uncommitted escrow deadline gates, durable source refunds and full-principal accounting; live receipts are recorded separately below.
+- [Actual funded refund experiments](docs/evidence/g5-live-refund-experiments.md) and [retry preparation](docs/evidence/g5-retry-preparation.md): both full-principal refunds are finalized, the historical run remains frozen and its capital allocation was released.
+- [First same-user roundtrip](docs/evidence/g5-first-roundtrip.md): shielded TAZ to mockUSDC and back to the original wallet; two SETTLED orders, finalized original receipts, zero open obligations/reservations, balanced books and twelve-wallet reconciliation. The retry has 2/20 settlements; its four batch barriers and remaining recovery tests stay open.
 
 ## Verify locally
 
@@ -44,4 +45,4 @@ python -m unittest discover -s workers/zcash-wallet -p 'test_*.py'
 
 The operator can decrypt payments addressed to its shielded receiver and holds settlement inventory. This prototype uses a custodial operator model. Base transfers are public, and the operator can associate both sides of an order. The shielded claim applies to the Zcash leg; it does not promise end-to-end anonymity, atomic settlement or trustless custody.
 
-There is no deployed frontend or publicly operated cross-chain payout service yet. One swap in each direction passed; public reverse HTTP intake, broader recovery/soak, live refunds and the bridge remain open. Primary intake and dispatch remain disabled. Contract tests require `git submodule update --init --recursive`; see the Foundry module guide.
+There is no deployed frontend or publicly operated cross-chain payout service yet. Initial swaps in each direction and the first same-user roundtrip passed; public reverse HTTP intake, the remaining recovery/soak, end-user wallet integration and the bridge remain open. Primary intake and dispatch remain disabled. Contract tests require `git submodule update --init --recursive`; see the Foundry module guide.

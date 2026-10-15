@@ -23,6 +23,7 @@ import {refreshReverseObservers} from '../src/reverse-observer-refresh.ts';
 import {spawn} from 'node:child_process';
 import {reverseBaseRegistry} from '../src/reverse-base-rpc.ts';
 import {requireG5NonceReady} from '../src/g5-nonce.ts';
+import {g5ApproveAfterFreshCommit} from '../src/g5-approval.ts';
 
 const [step,path]=process.argv.slice(2);
 const steps=['quote','funding','observe-funding','prepare-commit','broadcast-commit','observe-commit','approve-wallet','prepare-zcash','recover-zcash','broadcast-zcash','observe-zcash','prepare-settle','broadcast-settle','observe-settle'];
@@ -145,7 +146,7 @@ try{
   else if(step==='broadcast-settle')result=await baseBroadcast('SETTLE');
   else if(step==='observe-commit')result=await observeEscrowCommit(worker,r.keys,base,state.orderId);
   else if(step==='approve-wallet'){
-   if((await observeEscrowCommit(worker,r.keys,base,state.orderId)).status!=='COMMIT_FINALIZED')throw Error('FINALIZED_COMMIT_REQUIRED');
+   result=await g5ApproveAfterFreshCommit(()=>observeEscrowCommit(worker,r.keys,base,state.orderId),async()=>{
    const terms=await escrowTerms(worker,r.keys,base,state.orderId),q=await reversePayoutTerms(worker,r.keys,state.orderId);
    const row=(await worker.query('SELECT * FROM zee.escrow_commits WHERE order_id=$1',[state.orderId])).rows[0];
    const proof=r.keys.open(row.receipt_payload,`escrow-proof:${state.orderId}:v1`) as any;
@@ -170,9 +171,14 @@ try{
     if(p.reverseApprovedDigest&&p.reverseApprovedDigest!==digest&&!/^0{64}$/.test(p.reverseApprovedDigest))throw Error('PRIVATE_BASE_APPROVAL_ALREADY_BOUND');
     p.reverseApprovedDigest=digest;await durable(config.baseSignerPrivateConfig,p);
    }
-   config.approvedDigest=digest;await durable(resolve(path),config);result={status:'IMMUTABLE_PRIVATE_WALLET_APPROVAL_SAVED'};
+   config.approvedDigest=digest;await durable(resolve(path),config);return {status:'IMMUTABLE_PRIVATE_WALLET_APPROVAL_SAVED'};
+   });
   }
-  else if(step==='observe-settle')result=await observeEscrowSettlement(worker,r.keys,base,state.orderId);
+  else if(step==='observe-settle'){
+   await requireFreshReverseDelivery(()=>observeReversePayout(worker,r.keys,state.orderId,zcash),
+    ()=>worker.query('SELECT zee.check_reverse_delivery($1)',[state.orderId]));
+   result=await observeEscrowSettlement(worker,r.keys,base,state.orderId);
+  }
   else if(step==='prepare-zcash'||step==='recover-zcash')result=await leased(async(job,owner,check)=>{
    if(!config.observerRefreshCommand)throw Error('FIXED_OBSERVER_REFRESH_COMMAND_REQUIRED');
    await worker.query('SELECT zee.check_reverse_signing($1,$2,$3,$4)',[state.orderId,job.id,owner,job.fence]);

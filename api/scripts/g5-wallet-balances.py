@@ -153,6 +153,12 @@ def capture(item, deposit=False, fee=False):
         if any(c['spend_status'] == 'unspent' for c in coins.get('transparent_coins', [])):
             raise ValueError('Unallocated transparent capital')
         ignored = []
+        pending_calculations = None
+        if not deposit and not fee and not Path(config['journalPath']).exists():
+            recovery = run(base + ['--offline', '--nosync', 'calculate', '--recover'])
+            if recovery.get('version') != 'zeeswap_prepared_v1' or not isinstance(recovery.get('transactions'), list):
+                raise ValueError('Versioned pre-signing SDK recovery export required')
+            pending_calculations = len(recovery['transactions'])
         zero_notes = [n for n in notes.get('ironwood_notes', {}).get('note_summaries', [])
                       if n.get('spend_status') == 'unspent' and type(n.get('value')) is int and n['value'] == 0]
         if zero_notes and not deposit and not fee:
@@ -232,6 +238,7 @@ def capture(item, deposit=False, fee=False):
         return {'sequence': item.get('sequence'), 'ufvkSha256': digest,
                 'scannedHeight': scanned, 'tipHash': bytes(block.hash)[::-1].hex(),
                 'observedAt': datetime.now(timezone.utc).isoformat(), 'notes': available, 'zeroOwnChange': ignored,
+                'pendingCalculatedTransactions': pending_calculations,
                 'spendableZatoshi': str(sum(int(n['value']) for n in available))}
 
 

@@ -23,6 +23,8 @@ The prototype uses TAZ and project-owned mockUSDC, with fixture pricing.
 | Reverse escrow/signing prerequisites | [Historical reverse preflight](evidence/g4-reverse-preflight.md) |
 | Durable reverse execution and recovery | [SDK adapter and repeatable tests](evidence/g4-reverse-recovery.md); distinguish synthetic destination proofs from live receipts |
 | One real reverse public-testnet swap | [G4 reverse receipts and reconciliation](evidence/g4-live-reverse.md): 0.1 mockUSDC to 0.001 shielded TAZ, confirmed recipient delta and finalized Base acknowledgement |
+| Same-user public-testnet roundtrip | [First G5 circle](evidence/g5-first-roundtrip.md): shielded TAZ to mockUSDC and back to the original shielded wallet; two SETTLED orders, finalized original receipts, exact user balances and twelve-wallet/accounting reconciliation. The twenty-order G5 gate remains open |
+| Both full-principal source refunds | [Live refund experiments](evidence/g5-live-refund-experiments.md): finalized original shielded refund after permanent Base cancellation, plus finalized mockUSDC escrow refund after its accepted deadline |
 | Forward worker process interruption | [G5 local recovery evidence](evidence/g5-worker-interruption.md): killed after Anvil PAY broadcast; fresh connections reconcile one original payment and exact accounting. This is not a public-testnet soak or old-snapshot restore |
 | Forward old database snapshot restore | [G5 snapshot/journal recovery](evidence/g5-snapshot-restore.md): actual PostgreSQL rollback, atomic pause and canonical original PAY reconstruction; fixture signer, no live keystore or reverse wallet restore claimed |
 | Public transaction lookup | [Explorer discrepancy and replacement link](evidence/explorer-verification.md) |
@@ -49,9 +51,10 @@ missing. mockUSDC and settlement contracts are deployed and source-verified.
 Forward service integration and payout accounting have passed Anvil + Neon tests.
 One public-testnet swap in each direction passed, including exact recipient
 balance deltas and final accounting. The operator's reverse signer and original
-transaction recovery were exercised with real TAZ. Public reverse HTTP intake,
-live refund execution, broader recovery tests and the two-direction bridge
-remain open under G4–G7.
+transaction recovery were exercised with real TAZ. The first same-user circle
+and both full-principal refund experiments also passed. Public reverse HTTP
+intake, broader recovery/soak tests, end-user wallet integration and the
+two-direction bridge remain open under G4–G7.
 Never present `READY` as a successful destination payment.
 
 ## Historical clean-export verification

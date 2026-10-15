@@ -63,6 +63,11 @@ export function requireG5RoundtripCheckpoint(state:G5State){
  if(state.batchSize!==5||(state.barriers?.length??0)!==0||state.orders.length!==2
   ||state.orders.some((o,i)=>o.sequence!==i+1||o.direction!==g5Direction(i+1)||!o.orderId||!o.receiptVerified))throw Error('G5_TWO_SETTLED_RECEIPTS_REQUIRED');
 }
+export function requireG5CompletedRoundtripRecovery(state:G5State,config:any,diagnostic:any){
+ if(config.branchId!==G5_RETRY_TARGET.branchId||state.batchSize!==5||!state.incident||!state.policyInitialized||state.closed
+  ||(state.barriers?.length??0)!==0||state.orders.length!==2||!state.orders[0].receiptVerified||state.orders.some((o,i)=>o.sequence!==i+1||o.direction!==g5Direction(i+1)||!o.orderId)
+  ||diagnostic?.step!=='verify'||diagnostic?.code!=='G5_EXPLICIT_RECONCILIATION_REQUIRED')throw Error('G5_ONLY_COMPLETED_FIRST_ROUNDTRIP_RECOVERABLE');
+}
 export function requireG5Next(state:G5State,sequence:number){
  g5Direction(sequence);requireG5Operational(state);
  if(state.batchSize){

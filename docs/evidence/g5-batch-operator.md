@@ -157,3 +157,110 @@ zero settled orders, zero Base execution fees, balanced ledgers and no physical
 deficit. Acceptance and dispatch remained false and database reconciliation
 remained required. No quote, source transfer or signature was created by this
 recovery; the next source sync and first admission still require normal checks.
+
+## Fresh COMMIT wait before R2 shielded signing
+
+A live R2 observer reported finalized COMMIT, but the immediately following
+independent approval check returned `AWAITING_BASE_FINALITY`. The approval step
+previously threw `FINALIZED_COMMIT_REQUIRED`, freezing the run before any
+shielded approval, journal or prepared payout existed. A previous database
+confirmation remains insufficient approval authority.
+
+The G5 approval step now treats only this ordinary fresh waiting status as a
+soft wait. It returns `AWAITING_BASE_FINALITY` with phase `APPROVE_WALLET` and
+performs no approval callback or signing. Fresh receipt contradictions, unknown
+statuses and exceptions remain failures requiring reconciliation. Two tests
+cover finalized-then-pending observation, zero approval effects on waiting,
+successful fresh-finalized approval, and unchanged hard failure behavior.
+
+The separately invoked `g5-recover-r2-presigning.ts` is restricted to the retry
+run's first two orders: F1 settled with verified receipts, R2 READY with the
+original confirmed COMMIT, and the exact failed approve-wallet check. It refuses
+any SDK approval, calculation, signing journal, reverse payout, SETTLE or refund.
+It freshly checks the canonical F1 source/RESERVE/PAY, original R2 source funding
+and COMMIT, exact payer and operator signing journals, raw hashes, signatures,
+chain IDs and nonces. It requires the present operator nonce to follow that
+original COMMIT with no pending nonce.
+
+Recovery checks the exact R2 held principal/fee reservations, the two source
+obligations and fenced job states, balanced ledgers, the opening allocation and
+all twelve physical wallets. Escrow remains separate from inventory; actual
+included COMMIT gas is reconciled physically while its accounting reserve stays
+held until settlement. No old lease is restored. The final control transaction
+compares the current reconciliation epoch and state before clearing only the
+reconciliation flag, with intake and dispatch paused. It preserves the incident
+proof, then clears the local incident. A local state-save failure restores
+reconciliation under the same epoch and paused controls.
+
+This is not a generic funded-incident recovery. It cannot replace the source,
+COMMIT, recipient, quote, signed bytes or nonce, and it cannot recover a failure
+after shielded approval/signing. Twenty combined G5 checks (fifteen existing G5
+checks, two approval checks and three pre-signing gate/accounting checks), API
+typecheck and seven Linux physical-capture checks passed. Actual recovery and
+the eventual roundtrip remain separate operator acceptance evidence.
+
+The actual pre-signing recovery subsequently passed with reconciliation epoch
+`3`, unchanged original transactions and paused controls. Normal immutable
+shielded approval, calculation and original-byte broadcast then passed. See
+[the first roundtrip evidence](g5-first-roundtrip.md) for its network receipts
+and the separate completion status.
+
+The G5 `observe-settle` operator step now re-reads and independently verifies the
+canonical shielded payout, then checks the fresh database delivery fence,
+immediately before observing the Base SETTLE receipt. Previously that final
+observer step refreshed generic source checkpoints and could encounter stale
+payout observations after a long Base finality wait. It now uses the same
+`requireFreshReverseDelivery` gate as SETTLE preparation and broadcast. The
+change does not sign, replace or rebroadcast either transaction. API typecheck
+and all seventeen existing unit checks passed, including refusal of a fresh
+pending or contradictory payout despite an older stored confirmation.
+
+## Completed roundtrip verification boundary
+
+After the actual R2 settlement, both orders remained SETTLED with discharged
+obligations and released reservations, but a repeated F1 verification encountered
+the runtime reconciliation flag after refreshing observers. Read-only inspection
+found no deposit reorg/review order event. A shared frontier rewind is the
+working hypothesis: source wallet scanned heights and other observers' network
+tip heights share one checkpoint, and providers can also return a temporarily
+lower latest head. The exact intermediate snapshot that triggered the pause was
+not retained, so neither network nor a specific height change is claimed as the
+confirmed cause. A pause is not proof of an actual chain reorg.
+
+Already-completed `verify`, `barrier` and `roundtrip-checkpoint` paths now use
+fresh read-only chain/SDK proofs instead of invoking ingestion or receipt
+reconciliation. F1 verification independently checks its canonical shielded
+source note, receiver, memo reference and ten confirmations. Both directions'
+fresh receipts must match their original stored block anchors and fees. Normal
+commands still reject existing incident/reconciliation state; they may pause
+runtime controls and save private verification flags. Admission, dispatch,
+general observer writes and rewind/reorg triggers remain unchanged.
+
+The explicitly invoked `recover-completed-roundtrip` accepts only this retry
+run's completed first two orders and the recorded failed verification. It
+requires fourteen migrations, two exact settled source deposits/confirmed
+operations/completed jobs, two forward attempts, one COMMIT, one SETTLE, one
+shielded payout, no refunds, zero open obligations/reservations, exact books and
+proceeds, and actual operator Base fees of 6,491,560,000,802 wei. Fresh canonical
+proofs must match all original receipt anchors and the independent SDK payout
+journal; operator and payer raw journals and nonces must agree. The full twelve
+wallet physical proof must pass, including authenticated zero internal change,
+and the remaining nine reverse wallets must have no unknown SDK calculation.
+
+Only after these checks may a paused control transaction compare the current
+incident epoch `5` and clear reconciliation without changing the epoch. It
+preserves a private incident/recovery record before clearing the local latch.
+Local save failure restores reconciliation under the same paused epoch. Failed
+recovery diagnostics use a separate file so the original incident proof remains
+available for another complete proof attempt. This path cannot recover an unfinished order,
+sign or rebroadcast, advance a five-order barrier, or complete the twenty-order
+G5 gate. Twenty-one combined TypeScript checks and API typecheck passed; actual
+recovery and the final checkpoint are separate operator acceptance evidence.
+
+The coordinator subsequently executed this reviewed recovery successfully under
+epoch `5`, then both ordinary order-verification commands passed. The ordinary
+roundtrip checkpoint returned G5_ROUNDTRIP_CHECKPOINT with two settlements,
+6,491,560,000,802 wei actual Base fees, balanced ledgers and zero unexplained
+deficits. Independent closing SQL confirmed discharged obligations, released
+reservations, paused controls and cleared reconciliation/incident state. No
+batch barrier was advanced. See [the full circle evidence](g5-first-roundtrip.md).
