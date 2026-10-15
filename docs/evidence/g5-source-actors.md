@@ -80,7 +80,7 @@ reviewed core commands and these bounded preparers.
 
 Verified on Ubuntu-24.04 using disposable files and mocked wallet/cast IO:
 
-- Source actor: **5 tests passed**, including distinct order/reference values,
+- Source actor: **6 tests passed**, including distinct order/reference values,
   fixed core-slot bindings, eight-block boundary rejection, unknown-send
   preservation, run incident rejection, and Windows/Ubuntu path mapping.
 - Base payer: **4 tests passed**, including saved-core funding equality,
@@ -97,3 +97,18 @@ descriptor; it does not claim a real funded process-kill experiment. Tests do no
 reset any historical database or use an active live wallet. Private manifests,
 funding instructions, memos, order mappings, raw transactions, journals, and
 receipts remain outside Git.
+
+## Ownership reply correction
+
+The operator's first live pre-quote sync stopped with
+`G5_SOURCE_REFUND_RECIPIENT_NOT_OWNED`. No quote or funding intent had been
+created. Inspection showed that `check_address` returns an object containing
+`is_wallet_address: "true"`, rather than the string as the entire reply.
+
+The actor now requires that object, the strict string `"true"` ownership field,
+the exact configured encoded refund address, unified address type, and strict
+Orchard-only shielded flags. The added fixture uses the observed response shape
+and rejects false/string-vs-boolean ownership confusion, another address, and
+invalid shielded flags. The six source fixtures pass on Ubuntu-24.04. This
+correction establishes parser compatibility locally; the operator must rerun
+the pre-quote sync before proceeding.

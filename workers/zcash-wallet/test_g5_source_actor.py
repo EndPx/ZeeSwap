@@ -4,10 +4,26 @@ from pathlib import Path
 import tempfile
 import unittest
 import hashlib
-from g5_source_actor import binding, durable, fund_once, funding_binding, validate_run_binding, linux_path
+from g5_source_actor import binding, durable, fund_once, funding_binding, validate_run_binding, linux_path, validate_owned_receiver
 
 
 class ActorTest(unittest.TestCase):
+    def test_actual_sdk_owned_receiver_shape_strict_flags_and_exact_address(self):
+        receiver = 'utest1source'
+        actual = {'is_wallet_address': 'true', 'address_type': 'unified', 'address_index': 1,
+                  'account_id': 0, 'has_orchard': True, 'has_sapling': False,
+                  'has_transparent': False, 'encoded_address': receiver}
+        validate_owned_receiver(actual, receiver)
+        for key, value in [('is_wallet_address', 'false'), ('is_wallet_address', True),
+                           ('encoded_address', 'utest1other'), ('has_orchard', False),
+                           ('has_transparent', True), ('has_transparent', 'false'),
+                           ('has_sapling', True), ('address_type', 'transparent')]:
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                validate_owned_receiver({**actual, key: value}, receiver)
+        for reply in ['true', True, None, {}]:
+            with self.assertRaises(ValueError):
+                validate_owned_receiver(reply, receiver)
+
     def test_windows_and_ubuntu_manifest_path_translation(self):
         self.assertEqual(str(linux_path('D:\\Task Root\\state.json')), '/mnt/d/Task Root/state.json')
         self.assertEqual(str(linux_path('\\\\wsl.localhost\\Ubuntu-24.04\\home\\albary\\state.json')), '/home/albary/state.json')

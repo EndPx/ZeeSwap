@@ -18,6 +18,14 @@ BINARY_SHA = 'ef1cbce8186feb852388cf56bb412a28285d57a75041d25efab1f74b9ef6b5d1'
 ROOT = Path('/home/albary/zeeswap-g5-retry')
 
 
+def validate_owned_receiver(reply, receiver):
+    if (not isinstance(reply, dict) or reply.get('is_wallet_address') != 'true'
+            or reply.get('encoded_address') != receiver or reply.get('address_type') != 'unified'
+            or reply.get('has_orchard') is not True or reply.get('has_transparent') is not False
+            or reply.get('has_sapling') is not False):
+        raise ValueError('G5_SOURCE_REFUND_RECIPIENT_NOT_OWNED')
+
+
 def linux_path(value):
     value = value.replace('\\', '/')
     value = re.sub(r'^//(?:wsl.localhost|wsl\$)/Ubuntu-24.04(?=/)', '', value, flags=re.I)
@@ -172,8 +180,7 @@ class WalletIO:
         key = self.call(['--offline', '--nosync', 'export_ufvk']).get('ufvk', '')
         if hashlib.sha256(key.encode()).hexdigest() != ufvk_hash:
             raise ValueError('G5_SOURCE_UFVK_BINDING')
-        if self.call(['--offline', '--nosync', 'check_address', self.config['refundRecipient']]) != 'true':
-            raise ValueError('G5_SOURCE_REFUND_RECIPIENT_NOT_OWNED')
+        validate_owned_receiver(self.call(['--offline', '--nosync', 'check_address', self.config['refundRecipient']]), self.config['refundRecipient'])
         status = self.call(['--offline', '--nosync', 'sync', 'status'])
         ranges = status.get('scan_ranges', [])
         if not ranges or any(r.get('priority') != 'Scanned' for r in ranges):
