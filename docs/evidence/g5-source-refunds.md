@@ -114,3 +114,20 @@ operator review.
   exact recipient principal, finality, balanced closing ledger, fee provenance,
   unchanged private transaction identities and paused closing controls. These
   facts are not established by the local checks in this document.
+
+### Frozen late-source recovery scope
+
+A separate operator mode now binds recovery to the original frozen G5 run,
+its sole first forward order, original owner, confirmed 100000-zatoshi LATE
+source, 10000-zatoshi fee cap, current refund epoch and immutable Base
+cancellation approval. It rejects quote creation, funding, normal dispatch,
+other branches and another order's authority. Header refresh reads canonical
+headers only and refuses output ingestion, so the operator-owned fee note
+cannot become another customer deposit.
+
+Coordinator verification on 2026-10-15: TypeScript typecheck passed; the three
+incident-binding tests and five existing source-refund tests passed (8/8).
+A read-only status command against the original incident returned
+REFUND_REQUIRED with CANCEL planned and neither Base nor Zcash refund confirmed.
+This records recovery tooling readiness; live refund completion requires its
+own canonical receipts and final accounting.

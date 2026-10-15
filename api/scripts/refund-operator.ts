@@ -20,33 +20,37 @@ import {sourceRefundTerms,sourceRefundCall,refundContext,validateRefundBaseTrans
 import {approvalDigest} from '../src/reverse-authority.ts';
 import {LocalReverseWalletAdapter} from '../src/reverse-wallet-adapter.ts';
 import type {PreparedZcashTransaction} from '../src/reverse-settlement.ts';
+import {requireRefundTarget} from '../src/refund-incident.ts';
+import {assertIncidentRefund,refreshIncidentRefundHeaders} from './refund-incident-context.ts';
 
 const [step,path]=process.argv.slice(2);
 if(!['quote-reverse','quote-forward','funding','observe-reverse','begin','approve-base','prepare-base','broadcast-base','observe-base',
- 'approve-wallet','prepare-zcash','recover-zcash','broadcast-zcash','observe-zcash','status'].includes(step)||!path||process.argv.length!==4)
+ 'approve-wallet','prepare-zcash','recover-zcash','broadcast-zcash','observe-zcash','refresh-headers','status'].includes(step)||!path||process.argv.length!==4)
  throw Error('One explicit refund step and private config required');
 const config=JSON.parse(await readFile(path,'utf8'));
 const database=JSON.parse(await readFile(resolve(config.databaseConfig),'utf8'));
-// Bind a separately created, explicitly named branch and exact private endpoint.
-// Never accept primary, G4 evidence, or the twenty-swap inventory branch here.
-if(database.projectId!=='raspy-truth-63998651'||database.branchName!=='zeeswap-g5-live-refunds'
- ||database.branchId!=='br-weathered-cell-aogn8u34'
- ||new URL(database.adminUrl).hostname!=='ep-twilight-rain-aosy9prl.c-2.ap-southeast-1.aws.neon.tech')
- throw Error('Exact isolated source-refund database required');
+const incident=requireRefundTarget(config,database,[],step);
 process.env.ZEE_RUNTIME_CONFIG=resolve(config.runtimeConfig);
 const r=await runtime(true),worker=connect(r.workerUrl),api=connect(r.apiUrl),admin=connect(database.adminUrl);
 const base=new BaseContract(reverseBaseRegistry(loadBaseRegistry(),config.baseRpcUrl));
-for(const url of [r.workerUrl,r.apiUrl]){
- if(new URL(url).hostname.replace('-pooler.','.')!=='ep-twilight-rain-aosy9prl.c-2.ap-southeast-1.aws.neon.tech')
-  throw Error('Refund runtime database endpoint mismatch');
-}
+requireRefundTarget(config,database,[r.workerUrl,r.apiUrl],step);
 const statePath=resolve(config.stateFile);
 let state:any,exists=true;
 try{state=JSON.parse(await readFile(statePath,'utf8'));}catch(error){if((error as any).code!=='ENOENT')throw error;state={version:1};exists=false;}
 const save=()=>savePrivate(statePath,state,!exists).then(()=>{exists=true;});
 try{
+ if(incident){
+  const source=await assertIncidentRefund(config,state,worker,r.keys,base);
+  if(step!=='status'){
+   await refreshIncidentRefundHeaders(config,worker,base,source.row.deposit_id);
+   await assertIncidentRefund(config,state,worker,r.keys,base);
+  }
+ }
  const health=await base.preflight();let result:unknown;
- if(step==='quote-reverse'||step==='quote-forward'){
+ if(step==='refresh-headers'){
+  if(!incident)throw Error('Incident header refresh requires existing recovery mode');
+  result={status:'INCIDENT_CANONICAL_HEADERS_REFRESHED'};
+ }else if(step==='quote-reverse'||step==='quote-forward'){
   if(config.inputAmount!=='100000'||config.baseFeeBudget!=='100000000000000')throw Error('Exact approved refund experiment cap required');
   const reverse=step==='quote-reverse';
   const recipient=reverse?await r.wallet.validate(config.recipient):getAddress(config.recipient);
@@ -144,7 +148,9 @@ try{
      const wallet=new LocalReverseWalletAdapter(config.zcashCommand,config.zcashArgs,state.approvedDigest),terms=await forwardRefundPayoutTerms(worker,r.keys,state.orderId);
      if(step==='prepare-zcash'||step==='recover-zcash'){
       await worker.query('SELECT zee.check_source_refund_signing($1)',[state.orderId]);
-      const p=step==='prepare-zcash'?await wallet.prepare():await wallet.recover();await storeForwardRefund(worker,r.keys,state.orderId,p,wallet);result={status:'SOURCE_REFUND_ZCASH_SIGNED_DURABLY'};
+      const p=step==='prepare-zcash'?await wallet.prepare():await wallet.recover();
+      if(incident){await refreshIncidentRefundHeaders(config,worker,base,q.row.deposit_id);await assertIncidentRefund(config,state,worker,r.keys,base);}
+      await storeForwardRefund(worker,r.keys,state.orderId,p,wallet);result={status:'SOURCE_REFUND_ZCASH_SIGNED_DURABLY'};
      }else if(step==='observe-zcash')result=await observeForwardRefund(worker,r.keys,state.orderId,wallet);
      else{
       if(!row.zcash_payload||row.confirmed)throw Error('Durable unresolved source refund required');

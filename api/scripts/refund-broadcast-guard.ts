@@ -10,13 +10,13 @@ import {reverseBaseRegistry} from '../src/reverse-base-rpc.ts';
 import {refundContext,forwardRefundPayoutTerms,sourceRefundTerms,verifyBaseRefund} from '../src/source-refunds.ts';
 import {validatePreparedZcash,type PreparedZcashTransaction} from '../src/reverse-settlement.ts';
 import type {PreparedBaseTransaction} from '../src/base-signer.ts';
+import {requireRefundTarget} from '../src/refund-incident.ts';
+import {assertIncidentRefund} from './refund-incident-context.ts';
 const path=process.argv[2];if(!path||process.argv.length!==3)throw Error('Fixed private source refund config required');
 const config=JSON.parse(await readFile(path,'utf8')),database=JSON.parse(await readFile(resolve(config.databaseConfig),'utf8'));
-const host='ep-twilight-rain-aosy9prl.c-2.ap-southeast-1.aws.neon.tech';
-if(database.projectId!=='raspy-truth-63998651'||database.branchId!=='br-weathered-cell-aogn8u34'||database.branchName!=='zeeswap-g5-live-refunds'
- ||new URL(database.adminUrl).hostname!==host)throw Error('Exact isolated refund branch required');
+const incident=requireRefundTarget(config,database,[],'broadcast-zcash');
 process.env.ZEE_RUNTIME_CONFIG=resolve(config.runtimeConfig);const r=await runtime(true);
-if(new URL(r.workerUrl).hostname.replace('-pooler.','.')!==host)throw Error('Refund worker endpoint mismatch');
+requireRefundTarget(config,database,[r.workerUrl],'broadcast-zcash');
 const pool=connect(r.workerUrl);
 try{
  let input='';for await(const chunk of process.stdin){input+=chunk;if(input.length>2048)throw Error('Bounded identity required');}
@@ -28,6 +28,7 @@ try{
  const p=r.keys.open(row.zcash_payload,refundContext(state.orderId,'ZCASH')) as PreparedZcashTransaction;
  const terms=await forwardRefundPayoutTerms(pool,r.keys,state.orderId);validatePreparedZcash(p,terms);
  const source=await sourceRefundTerms(pool,r.keys,state.orderId),base=new BaseContract(reverseBaseRegistry(loadBaseRegistry(),config.baseRpcUrl));
+ if(incident)await assertIncidentRefund(config,state,pool,r.keys,base);
  const cancellation=r.keys.open(row.base_payload,refundContext(state.orderId,'CANCEL')) as PreparedBaseTransaction;
  const checkpoint=(await pool.query("SELECT scanned_height FROM zee.scanner_checkpoints WHERE network='zcash-testnet'")).rows[0];
  if(request.operationId!==state.orderId||approved.orderId!==state.orderId||request.approvedDigest!==state.approvedDigest
