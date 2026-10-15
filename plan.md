@@ -35,7 +35,7 @@ Status: One bounded public-testnet swap passed in each direction: 0.001 shielded
 | Neon regression branch | `br-muddy-waterfall-aoqd8o9b` (`zeeswap-g2-tests`): isolated synthetic DB/HTTP tests. Primary remains free of test orders/funds and dispatch is paused. |
 | Neon forward evidence branch | `br-crimson-river-aobpimyq` (`zeeswap-g4-live-forward`): one real forward settlement with reconciled capital, separate from fixtures and primary; experiment closed. |
 | Neon reverse evidence branch | `br-small-sound-aozx7xa6` (`zeeswap-g4-live-reverse`): one real reverse settlement, twelve migrations, isolated operator capital and reconciled final ledger; controls paused. |
-| Neon G5 soak branch | `br-weathered-bird-aoaodegw` (`zeeswap-g5-live-soak`): isolated clone of empty primary, twelve migrations, no orders and no allocated inventory; paused with reconciliation required. See `docs/evidence/g5-soak-setup.md`. |
+| Neon G5 soak branch | `br-weathered-bird-aoaodegw` (`zeeswap-g5-live-soak`): twelve migrations, no orders, four explicitly allocated capital accounts/eight opening ledger entries; actual ten-wallet funding verified; paused with reconciliation required. See `docs/evidence/g5-soak-runner.md`. |
 | Repository | Public: https://github.com/EndPx/ZeeSwap ; default branch `main` |
 | Public wording | Describe user outcomes. Keep memo-based routing in technical documentation, not the product vision or hero tagline. |
 
@@ -372,6 +372,8 @@ Open dependencies are not completed work: end-user wallet/UI integration, produc
 When closing one, replace its status with the date and evidence path. Do not delete the original failure evidence. An unresolved integration gate may change the SDK or host after comparison, but not the pair, two-direction requirement, privacy promise, or full product scope without a recorded decision.
 
 Current changes:
+
+- 2026-10-15: Implemented and independently reviewed the dedicated twenty-order alternating runner with immutable per-order approvals, preserved incidents, exact full physical Base/TAZ/source-proceeds reconciliation and retained G4 isolation. Ten fresh reverse wallets received/decrypted distinct confirmed 110,000-zatoshi notes in setup transaction e1632941f638e112e62b7f69ed0aace41f912c27744bfe9881ddb59485c071da (batch fee 55,000). Actual opening capitalization and identical retry passed on the G5 branch: four accounts/eight entries, no duplicate credit, controls paused. Typecheck, eight G5 unit, three Linux capital and two Linux lock tests passed; seventeen existing unit checks passed during implementation. Soak progress is still 0/20; no new cross-chain settlement is claimed. See docs/evidence/g5-soak-runner.md.
 
 - 2026-10-15: Verified actual old database snapshot recovery with PostgreSQL 18.6 custom dump/restore, original signed journal and finalized Anvil receipts. Restoring a snapshot with active controls atomically enters reconciliation and invalidates old leases. Owner-only recovery imports a missing finalized PAY once; missing/corrupt journals, altered bytes/terms, active controls, worker privileges, unavailable DB/RPC and concurrent recovery were tested. Final five-case suite passed in 50.406 seconds, typecheck passed, disposable databases removed; no live keystore, Zcash wallet or reverse snapshot restore is claimed. See docs/evidence/g5-snapshot-restore.md.
 
