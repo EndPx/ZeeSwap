@@ -15,6 +15,37 @@ import sys
 from signer import save
 
 
+def block_json(text):
+    """Accept legacy cast blocks or a successful version-1 cast JSON envelope.
+
+    Envelope failure must never fall through to legacy parsing. Validate both
+    snapshots before using height, deadline or hash as signing authority.
+    """
+    value = json.loads(text)
+    if not isinstance(value, dict):
+        raise ValueError('Object cast block response required')
+    envelope = {'schema_version', 'success', 'data', 'errors', 'warnings'}
+    if set(value) & envelope:
+        if (set(value) != envelope or type(value['schema_version']) is not int or value['schema_version'] != 1
+                or value['success'] is not True or not isinstance(value['errors'], list) or value['errors']
+                or not isinstance(value['warnings'], list) or not isinstance(value['data'], dict)):
+            raise ValueError('Successful version-1 cast block envelope required')
+        value = value['data']
+    def integer(item):
+        if type(item) is int:
+            result = item
+        elif isinstance(item, str) and re.fullmatch(r'(?:0x[0-9a-fA-F]+|0|[1-9][0-9]*)', item):
+            result = int(item, 16 if item.startswith('0x') else 10)
+        else:
+            raise ValueError('Canonical cast block integer required')
+        if not 0 <= result < 2**64:
+            raise ValueError('Cast block integer outside bounds')
+        return result
+    if not {'number', 'timestamp', 'hash'} <= set(value) or not isinstance(value['hash'], str) or not re.fullmatch(r'0x[0-9a-fA-F]{64}', value['hash']):
+        raise ValueError('Complete cast block identity required')
+    return {**value, 'number': integer(value['number']), 'timestamp': integer(value['timestamp']), 'hash': value['hash'].lower()}
+
+
 def approval(config):
     value = json.loads(Path(config['refundApprovedRequest']).read_text())
     digest = hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
@@ -60,8 +91,8 @@ def run(config, request):
     root = Path(config['journalRoot']); root.mkdir(mode=0o700, parents=True, exist_ok=True)
     with open(root / 'signer.lock', 'a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB); lock_fd = lock.fileno()
-        finalized = json.loads(cast('block', 'finalized', '--json', '--rpc-url', config['rpcUrl']))
-        block = str(int(finalized['number'], 16) if isinstance(finalized['number'], str) and finalized['number'].startswith('0x') else int(finalized['number']))
+        finalized = block_json(cast('block', 'finalized', '--json', '--rpc-url', config['rpcUrl']))
+        block = str(finalized['number'])
         state = cast('call', config['settlement'], 'states(bytes32)(uint8)', terms['id'], '--block', block, '--rpc-url', config['rpcUrl'])
         latest = cast('call', config['settlement'], 'states(bytes32)(uint8)', terms['id'], '--block', 'latest', '--rpc-url', config['rpcUrl'])
         if terms['phase'] == 'CANCEL':
@@ -69,13 +100,12 @@ def run(config, request):
                 raise ValueError('Only NONE or RESERVED can permanently cancel')
         else:
             timestamp = finalized['timestamp']
-            timestamp = int(timestamp, 16) if isinstance(timestamp, str) and timestamp.startswith('0x') else int(timestamp)
             values = cast('call', config['settlement'], 'escrows(bytes32)(address,address,uint256,uint256)', terms['id'], '--block', block, '--rpc-url', config['rpcUrl']).splitlines()
             expected = [int(terms['payer'], 16), int(terms['refundRecipient'], 16), int(terms['amount']), int(terms['cancellationAvailableAt'])]
             if (state != '4' or latest != '4' or timestamp < int(terms['cancellationAvailableAt']) or len(values) != 4
                     or [int(v.split()[0], 16) if i < 2 else int(v.split()[0]) for i, v in enumerate(values)] != expected):
                 raise ValueError('Only uncommitted exact escrow after canonical cancellation deadline may refund')
-        if json.loads(cast('block', block, '--json', '--rpc-url', config['rpcUrl']))['hash'] != finalized['hash']:
+        if block_json(cast('block', block, '--json', '--rpc-url', config['rpcUrl']))['hash'] != finalized['hash']:
             raise ValueError('Finalized refund snapshot changed')
         identifier = hashlib.sha256(terms['id'].encode()).hexdigest()
         path = root / (identifier + '.refund.' + terms['phase'] + '.tx.json')

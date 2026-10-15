@@ -45,6 +45,24 @@ refund record exists before a broadcast-capable command. Both observed refund
 paths discharge the customer obligation only after independently verified
 recipient receipts and chain finality.
 
+### Cast JSON compatibility correction
+
+The installed `cast block --json` returned a versioned result envelope instead
+of a legacy top-level block. The first live cancellation preparation stopped
+before signing because the previous parser expected a top-level `number`.
+The refund signer now accepts legacy block JSON and an exact successful
+version-1 envelope with block data, empty errors and an array of warnings.
+Unsuccessful responses, unsupported versions and malformed metadata fail
+closed. Both the finalized snapshot and its canonical re-read use this parser.
+
+The restricted signer regression suite passed 10/10 tests, including envelope
+parsing at both reads and refusal before nonce selection/signing when the
+canonical response fails. A read-only probe of the actual installed CLI and
+configured HTTPS Base endpoint parsed a successful version-1 response at
+finalized height `48141851` and matched the canonical block re-read. The probe
+did not sign or broadcast a transaction. This compatibility check is separate
+from a successful live cancellation or refund receipt.
+
 The coordinator independently repeated the final six database cases, five API
 cases, nine wallet cases and five Base signer cases successfully. TypeScript
 typecheck also passed. A separate ABI derivation matched the cancellation event
