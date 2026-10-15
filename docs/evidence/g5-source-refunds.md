@@ -1,5 +1,31 @@
 # G5 source refund boundaries
 
+## Exact-funded SDK zero change compatibility
+
+The actual shielded source refund SDK journal retained two authenticated output
+records: the full 100000-zatoshi external refund and a zero-valued internal
+change output at a distinct index. TypeScript previously required every output
+to be positive and rejected the already prepared transaction before its durable
+database record. Recovery of those same original bytes hit the same validation
+error; this was not evidence that a broadcast had occurred.
+
+`validatePreparedZcash` now accepts the canonical amount string `"0"` only for
+`ownChange: true`. External outputs and selected input notes remain strictly
+positive. The complete SDK output list, original indices, recipient binding,
+raw bytes, txid and input/output/fee conservation are preserved. Independent SDK
+journal comparison and recipient ciphertext verification remain required by the
+existing infrastructure adapter.
+
+The dedicated five-test zero-change suite and seventeen existing API unit tests
+passed together (22/22), and global TypeScript typechecking passed. Negative
+cases include zero external payments, noncanonical or negative zero/change,
+non-boolean ownership, mismatched conservation, duplicate indices and altered
+recipient. A read-only check of the actual private prepared journal passed the
+corrected validator, retained both outputs, and matched its previously recorded
+txid and SHA-256 of the original raw bytes without mutation, signing or broadcast.
+This compatibility check establishes neither a current expiry window nor a
+confirmed refund; live recovery must independently recheck both before sending.
+
 Recorded 2026-10-15. This document records local verification. Public-testnet
 refund receipts are pending operator execution and independent reconciliation.
 No synthetic receipt below is cross-chain settlement evidence.

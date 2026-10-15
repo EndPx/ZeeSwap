@@ -47,7 +47,9 @@ export function validatePreparedZcash(p:PreparedZcashTransaction,q:ReversePayout
  ||!/^[0-9a-f]{64}$/.test(p.txid)||!/^([0-9a-f]{2})+$/.test(p.rawTransaction)||p.rawTransaction.length>4_000_000
  ||!/^[1-9][0-9]*$/.test(p.expiryHeight)||BigInt(p.expiryHeight)>0xffffffffn||!/^[1-9][0-9]*$/.test(p.feeZatoshi)||BigInt(p.feeZatoshi)>BigInt(q.maxFeeZatoshi)
  ||external.length!==1||external[0].recipient!==q.recipient||external[0].amount!==q.amountZatoshi
- ||p.outputs.some(o=>typeof o.ownChange!=='boolean'||!/^[1-9][0-9]*$/.test(o.amount)||!o.recipient
+ // Exact-input SDK transactions may retain an authenticated zero-valued
+ // internal change output. Preserve it and its index; external outputs stay positive.
+ ||p.outputs.some(o=>typeof o.ownChange!=='boolean'||typeof o.amount!=='string'||!(o.ownChange?/^(0|[1-9][0-9]*)$/:/^[1-9][0-9]*$/).test(o.amount)||!o.recipient
    ||!Number.isSafeInteger(o.index)||o.index<0||o.index>0xffffffff)
  ||new Set(p.outputs.map(o=>o.index)).size!==p.outputs.length
  ||!p.selectedNotes.length||p.selectedNotes.some(n=>n.pool!=='ironwood'||!/^[0-9a-f]{64}$/.test(n.txid)||!Number.isSafeInteger(n.index)||n.index<0||!/^[1-9][0-9]*$/.test(n.value)))throw Error('INVALID_PREPARED_ZCASH_PAYOUT');
