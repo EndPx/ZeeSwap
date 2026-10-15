@@ -35,6 +35,7 @@ Status: One bounded public-testnet swap passed in each direction: 0.001 shielded
 | Neon regression branch | `br-muddy-waterfall-aoqd8o9b` (`zeeswap-g2-tests`): isolated synthetic DB/HTTP tests. Primary remains free of test orders/funds and dispatch is paused. |
 | Neon forward evidence branch | `br-crimson-river-aobpimyq` (`zeeswap-g4-live-forward`): one real forward settlement with reconciled capital, separate from fixtures and primary; experiment closed. |
 | Neon reverse evidence branch | `br-small-sound-aozx7xa6` (`zeeswap-g4-live-reverse`): one real reverse settlement, twelve migrations, isolated operator capital and reconciled final ledger; controls paused. |
+| Neon G5 soak branch | `br-weathered-bird-aoaodegw` (`zeeswap-g5-live-soak`): isolated clone of empty primary, twelve migrations, no orders and no allocated inventory; paused with reconciliation required. See `docs/evidence/g5-soak-setup.md`. |
 | Repository | Public: https://github.com/EndPx/ZeeSwap ; default branch `main` |
 | Public wording | Describe user outcomes. Keep memo-based routing in technical documentation, not the product vision or hero tagline. |
 
@@ -371,6 +372,8 @@ Open dependencies are not completed work: end-user wallet/UI integration, produc
 When closing one, replace its status with the date and evidence path. Do not delete the original failure evidence. An unresolved integration gate may change the SDK or host after comparison, but not the pair, two-direction requirement, privacy promise, or full product scope without a recorded decision.
 
 Current changes:
+
+- 2026-10-15: Provisioned the isolated G5 live-soak branch from empty paused primary and verified existing migration hashes before applying 0011/0012. New branch has twelve migrations, zero orders and disabled acceptance/dispatch with reconciliation required. Fresh private application keys are outside Git. Synchronized the test funding wallet and verified one confirmed 11,060,000-zatoshi Ironwood note. This checkpoint allocates no inventory and makes no payment; the twenty-order run and remaining recovery/refund tests are open. See docs/evidence/g5-soak-setup.md.
 
 - 2026-10-15: Added a forward PAY worker process-kill recovery test using production dispatch/reconciliation, loopback Anvil contracts and an invocation-owned disposable Neon database. Fresh connections recover the original signed PAY under reconciliation pause with zero new signatures or broadcasts, one exact recipient credit, exact principal/gas debits and balanced once-only accounting. Final revision passed 15/15 twice after an initial pre-interruption RESERVE finality observation failure; the test now explicitly waits for canonical finalized receipts without retrying economic operations. Other checks: 17 unit, 38 DB/HTTP, 40 wallet Python, five Base signer and four verifier tests, typecheck. Existing evidence branches remain paused with one SETTLED order each; primary remains empty. No new public-testnet payment, old-snapshot restore or 20-order soak is claimed. See docs/evidence/g5-worker-interruption.md.
 
