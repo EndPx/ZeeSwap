@@ -59,7 +59,7 @@ It does not mark the five-order batch complete or unlock order six.
 ## Verification
 
 - API TypeScript typecheck passed.
-- Thirteen G5 pure/runtime checks passed, including historical versus retry
+- Fifteen G5 pure/runtime checks passed, including historical versus retry
   target/cap separation, four exact batch barriers, frozen incident admission,
   unchanged checkpoint admission state, exact extra fee ownership and a nonce
   guard refusing an unbroadcast or unmined original transaction.
@@ -115,3 +115,45 @@ It does not mark the five-order batch complete or unlock order six.
 Live proof remains separate: actual fresh funding and finalized recipient
 receipts are required before recording the first roundtrip, and all twenty
 settlements and four physical barriers are required before closing G5.
+
+## Empty-opening configuration recovery
+
+The first retry admission stopped before creating a quote, order or private
+slot. The operator found a platform configuration error: the Windows wallet
+adapter had been pointed at a direct Linux CLI/protobuf configuration. The
+Linux physical capture configuration was valid. Correcting the private Windows
+wrapper, protobuf and shared sentinel paths allowed the complete read-only
+boundary diagnostic to pass with zero orders and fees, balanced ledgers and no
+unexplained physical deficit. No payment was initiated by this failed admission.
+
+Normal incident protection remains in force. `diagnose` runs the existing
+boundary checks without SQL writes or changing the incident/reconciliation
+state. Failures write only static error codes, exception class, phase and source
+locations to an ignored private diagnostic file; arbitrary RPC/SQL error text,
+credentials, raw bytes and memos are excluded. `status` also avoids SQL writes.
+
+An explicitly invoked `recover-empty-opening` is available only for the literal
+retry branch before its first policy initialization. It requires an incident,
+zero private slots and barriers, paused intake/dispatch and reconciliation still
+required. All quotes, orders, deposits, liabilities, reservations, operations,
+jobs, bindings, attempts, refunds and order events must be absent. The only
+ledger entries may be the exact eight opening entries. Full account and physical
+reconciliation must pass again.
+
+The operator supplies a fresh private no-funding/no-signing audit that names all
+ten actual user source configurations. The recovery checks their exact branch,
+run, wallet path and agreed refund receiver; fixed funding intents, results,
+actor locks and core funding instructions must be absent. All ten reverse
+states, raw signing journals and approvals must be absent and their private
+approved digests must still be zero. It records a separate private proof before
+clearing only the local empty-opening incident flag. It does not clear database
+reconciliation, activate intake/dispatch, recover any funded order, or apply to
+the historical late-source incident. The next normal empty admission retains
+its original once-only policy initialization checks.
+
+The coordinator executed the reviewed empty-opening recovery after supplying
+its explicit private audit. It returned G5_EMPTY_OPENING_RECOVERED_PAUSED with
+zero settled orders, zero Base execution fees, balanced ledgers and no physical
+deficit. Acceptance and dispatch remained false and database reconciliation
+remained required. No quote, source transfer or signature was created by this
+recovery; the next source sync and first admission still require normal checks.

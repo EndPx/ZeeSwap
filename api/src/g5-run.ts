@@ -49,6 +49,15 @@ export function validateG5State(state:G5State,config:any){
  if(state.batchSize&&state.orders.length>barriers.length*5+5)throw Error('G5_FIVE_ORDER_BATCH_LIMIT');
 }
 export function requireG5Operational(state:G5State){if(state.incident)throw Error('G5_INCIDENT_RUN_FROZEN');if(state.closed)throw Error('G5_RUN_CLOSED');}
+export function requireG5EmptyOpeningRecovery(state:G5State,config:any,audit:any){
+ if(config.branchId!==G5_RETRY_TARGET.branchId||state.batchSize!==5||!state.incident||state.closed||state.policyInitialized
+  ||state.orders.length!==0||(state.barriers?.length??0)!==0)throw Error('G5_ONLY_EMPTY_RETRY_OPENING_RECOVERABLE');
+ const age=Date.now()-Date.parse(audit?.observedAt);
+ if(audit?.version!==1||audit.runId!==state.runId||audit.statement!=='NO_SOURCE_FUNDING_OR_NEW_SIGNER_INTENTS'
+  ||!Number.isFinite(age)||age< -5000||age>300000||!Array.isArray(audit.sourceActorConfigs)||audit.sourceActorConfigs.length!==10
+  ||audit.sourceActorConfigs.some((s:any,i:number)=>s.sequence!==i*2+1||typeof s.configFile!=='string')
+  ||new Set(audit.sourceActorConfigs.map((s:any)=>s.configFile)).size!==10)throw Error('G5_EXPLICIT_FRESH_EMPTY_OPENING_AUDIT_REQUIRED');
+}
 export function requireG5RoundtripCheckpoint(state:G5State){
  requireG5Operational(state);
  if(state.batchSize!==5||(state.barriers?.length??0)!==0||state.orders.length!==2

@@ -7,12 +7,13 @@ import {connect} from '../src/db.ts';
 import {BaseContract,loadBaseRegistry} from '../src/base-contract.ts';
 import {reverseBaseRegistry} from '../src/reverse-base-rpc.ts';
 import {g5Binding,requireG5Target,validateG5State,type G5State} from '../src/g5-run.ts';
-export const read=async(path:string)=>{
+export function privateLocalPath(path:string){
  if(process.platform==='win32'&&path.startsWith('/')&&!path.startsWith('//')){
   const mounted=path.match(/^\/mnt\/([a-z])\/(.*)$/);path=mounted?`${mounted[1]}:/${mounted[2]}`:`//wsl.localhost/Ubuntu-24.04${path}`;
  }
- return JSON.parse(await readFile(resolve(path),'utf8'));
-};
+ return resolve(path);
+}
+export const read=async(path:string)=>JSON.parse(await readFile(privateLocalPath(path),'utf8'));
 export async function durable(path:string,value:unknown,exclusive=false){
  path=resolve(path);const tmp=exclusive?path:path+'.'+randomUUID()+'.tmp';const file=await open(tmp,'wx',0o600);
  try{await file.writeFile(JSON.stringify(value,null,2));await file.sync();}finally{await file.close();}
@@ -33,5 +34,5 @@ export async function g5Context(path:string,create=false){
  await lock.writeFile(JSON.stringify({pid:process.pid,runId:state.runId}));await lock.sync();
  state=await read(config.stateFile);validateG5State(state,config);
  const admin=connect(target.adminUrl,1),worker=connect(r.workerUrl),api=connect(r.apiUrl),base=new BaseContract(reverseBaseRegistry(loadBaseRegistry(),config.baseRpcUrl));
- return {config,state,target,r,admin,worker,api,base,save:()=>durable(config.stateFile,state),async close(){try{await admin.query('UPDATE zee.runtime_control SET accepting_orders=false,dispatch_enabled=false');}finally{await Promise.all([admin.end(),worker.end(),api.end()]);await lock.close();await unlink(lockPath);}}};
+ return {config,state,target,r,admin,worker,api,base,save:()=>durable(config.stateFile,state),async close(pause=true){try{if(pause)await admin.query('UPDATE zee.runtime_control SET accepting_orders=false,dispatch_enabled=false');}finally{await Promise.all([admin.end(),worker.end(),api.end()]);await lock.close();await unlink(lockPath);}}};
 }

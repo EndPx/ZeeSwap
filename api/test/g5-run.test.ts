@@ -1,10 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {g5Binding,g5Direction,requireG5Target,validateG5State,requireG5Next,requireG5Operational,requireG5RoundtripCheckpoint,validateG5Accounts,expectedG5Balances,validateG5OpeningLedger,validateG5PhysicalBase,validateG5WalletBalances,requireG5CommandConfig,G5_CAPITAL,G5_TARGET,G5_RETRY_TARGET,g5Capital,type G5State} from '../src/g5-run.ts';
+import {resolve} from 'node:path';
+import {privateLocalPath} from '../scripts/g5-context.ts';
+import {g5Binding,g5Direction,requireG5Target,validateG5State,requireG5Next,requireG5Operational,requireG5EmptyOpeningRecovery,requireG5RoundtripCheckpoint,validateG5Accounts,expectedG5Balances,validateG5OpeningLedger,validateG5PhysicalBase,validateG5WalletBalances,requireG5CommandConfig,G5_CAPITAL,G5_TARGET,G5_RETRY_TARGET,g5Capital,type G5State} from '../src/g5-run.ts';
 import {requireG5NonceReady} from '../src/g5-nonce.ts';
+import {g5Diagnostic} from '../src/g5-diagnostic.ts';
 import {PrivateData} from '../src/private-data.ts';
 const config={version:1,runId:'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',branchId:G5_TARGET.branchId,baseFeeBudget:'100000000000000',forward:{recipient:'base-recipient',refundRecipient:'shielded-refund'},reverseOrders:Array.from({length:10},(_,i)=>({sequence:(i+1)*2,configFile:`/private/order-${(i+1)*2}.json`}))};
 test('G5 validates actual adapter config arguments across Windows UNC and Linux paths',()=>{
+ assert.equal(privateLocalPath('.deploy-local/manifest.json'),resolve('.deploy-local/manifest.json'));
+ if(process.platform==='win32'){
+  assert.equal(privateLocalPath('/home/operator/manifest.json'),resolve('//wsl.localhost/Ubuntu-24.04/home/operator/manifest.json'));
+  assert.equal(privateLocalPath('/mnt/d/private/manifest.json'),resolve('d:/private/manifest.json'));
+ }
  requireG5CommandConfig(['-d','Ubuntu-24.04','--','python3','adapter.py','--config','/home/operator/raw.json'],'\\\\wsl.localhost\\Ubuntu-24.04\\home\\operator\\raw.json');
  requireG5CommandConfig(['--config','/home/operator/raw.json'],'\\\\wsl$\\Ubuntu-24.04\\home\\operator\\raw.json');
  requireG5CommandConfig(['adapter.py','--config','/mnt/d/private/raw.json'],'D:\\private\\raw.json');
@@ -114,4 +122,20 @@ test('global operator nonce gate prevents another raw preparation until original
  known={blockNumber:100n};await assert.rejects(()=>requireG5NonceReady(pool,keys,base,'new','RESERVE'),/NONCE_MUST_LAND/);
  nonce=4;await requireG5NonceReady(pool,keys,base,'new','RESERVE');
  known=null;await requireG5NonceReady(pool,keys,base,'other','COMMIT');
+});
+test('explicit empty-opening recovery excludes historical, initialized, funded, closed and stale-audit runs',()=>{
+ const s=retryState();s.incident=true;
+ const audit={version:1,runId:s.runId,observedAt:new Date().toISOString(),statement:'NO_SOURCE_FUNDING_OR_NEW_SIGNER_INTENTS',sourceActorConfigs:retryConfig.forwardOrders.map(o=>({sequence:o.sequence,configFile:'/private/source-'+o.sequence+'.json'}))};
+ requireG5EmptyOpeningRecovery(s,retryConfig,audit);assert.equal(s.incident,true);
+ for(const changed of [{...s,policyInitialized:true},{...s,closed:true},{...s,incident:false},{...s,orders:[{sequence:1,direction:'ZCASH_TO_BASE' as const,owner:'owner'}]},{...s,barriers:[5]}])assert.throws(()=>requireG5EmptyOpeningRecovery(changed,retryConfig,audit),/ONLY_EMPTY/);
+ assert.throws(()=>requireG5EmptyOpeningRecovery({...s,batchSize:undefined},config,audit),/ONLY_EMPTY/);
+ for(const changed of [{...audit,runId:'other'},{...audit,statement:'clear incident'},{...audit,observedAt:new Date(Date.now()-300001).toISOString()},{...audit,sourceActorConfigs:audit.sourceActorConfigs.slice(1)},{...audit,sourceActorConfigs:audit.sourceActorConfigs.map(o=>({...o,configFile:'/same'}))}])assert.throws(()=>requireG5EmptyOpeningRecovery(s,retryConfig,changed),/AUDIT/);
+});
+test('private diagnostics retain static code and source locations without RPC credentials, raw bytes or memo text',()=>{
+ const failure=new Error('https://user:private-password@host.invalid/?raw=feedbeef memo=private-order');failure.stack='Error: private-password\n at boundary (D:/private/credential-source/g5-operator.ts:42:7)\n at https://user:private-password@rpc.invalid/source.js:9:2';
+ const value=g5Diagnostic(failure,'diagnose','boundary-source-snapshot'),encoded=JSON.stringify(value);
+ assert.equal(value.code,'PRIVATE_DIAGNOSTIC_ERROR');assert.equal(value.exceptionClass,'Error');assert.deepEqual(value.frames,[{file:'g5-operator.ts',line:42,column:7},{file:'source.js',line:9,column:2}]);
+ for(const secret of ['private-password','feedbeef','private-order','https://','credential-source'])assert.ok(!encoded.includes(secret));
+ const pg=Object.assign(new Error('G5_EXACT_OPENING_REQUIRED'),{code:'P0001'});assert.equal(g5Diagnostic(pg,'start','boundary-database').sqlState,'P0001');
+ assert.equal(g5Diagnostic(new TypeError('a raw secret'),'diagnose','startup').exceptionClass,'TypeError');
 });
