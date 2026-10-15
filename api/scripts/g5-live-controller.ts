@@ -12,6 +12,7 @@ import {read,durable,privateLocalPath} from './g5-context.ts';
 import {g5Binding,G5_RETRY_TARGET,validateG5State,g5PathIdentity} from '../src/g5-run.ts';
 import {initialG5LiveState,validateG5LiveState,runG5LiveBounded,syncAndFundG5Source,type G5LiveStage,type G5LiveSnapshot,type G5LiveState} from '../src/g5-live-controller.ts';
 import {resolveG5ReferencedPrivatePath} from '../src/g5-private-path.ts';
+import {g5ChildDiagnostic} from '../src/g5-child-diagnostic.ts';
 type Command={command:string;args:string[]};
 const [mode,path,arg]=process.argv.slice(2);
 if(!['init','tick','status','release-hold'].includes(mode)||!path||process.argv.length>5)throw Error('G5_LIVE_EXPLICIT_MODE_CONFIG_REQUIRED');
@@ -22,20 +23,23 @@ const binding=createHash('sha256').update(JSON.stringify(cfg)).digest('hex'),sta
 if(g5PathIdentity(statePath)===g5PathIdentity(manifest.stateFile))throw Error('G5_LIVE_SEPARATE_STATE_REQUIRED');
 const lock=await open(statePath+'.lock','wx',0o600);await lock.writeFile(JSON.stringify({pid:process.pid,runId:cfg.runId}));await lock.sync();
 const apiDir=resolve(dirname(fileURLToPath(import.meta.url)),'..');
+let activeAction={sequence:0,stage:'SNAPSHOT'};
 async function command(c:Command){
  if(typeof c.command!=='string'||!Array.isArray(c.args)||c.args.some(a=>typeof a!=='string'))throw Error('G5_LIVE_FIXED_ARGV_REQUIRED');
  return new Promise<any>((ok,no)=>{
   // No shell and no inherited stdio. Kill on timeout, preserve intent and treat
   // it as UNKNOWN even if a descendant might have completed the operation.
-  const child=spawn(c.command,c.args,{cwd:apiDir,stdio:['ignore','pipe','pipe'],windowsHide:true});let stdout='',size=0;
-  const timer=setTimeout(()=>{child.kill();no(Error('G5_LIVE_CHILD_TIMEOUT_UNKNOWN'));},cfg.commandTimeoutMilliseconds??240000);
-  child.stdout.on('data',b=>{size+=b.length;if(size>1048576){child.kill();no(Error('G5_LIVE_CHILD_OUTPUT_LIMIT'));}else stdout+=b.toString();});
-  child.stderr.on('data',()=>{});child.on('error',()=>{clearTimeout(timer);no(Error('G5_LIVE_CHILD_UNKNOWN'));});
-  child.on('close',code=>{clearTimeout(timer);if(code!==0){no(Error('G5_LIVE_CHILD_UNKNOWN'));return;}try{const lines=stdout.trim().split(/\r?\n/);const value=JSON.parse(lines.at(-1)!);if(typeof(value.status??value.state)!=='string')throw Error();ok({...value,status:value.status??value.state});}catch{no(Error('G5_LIVE_CHILD_PROTOCOL_UNKNOWN'));}});
+  const action={...activeAction},child=spawn(c.command,c.args,{cwd:apiDir,stdio:['ignore','pipe','pipe'],windowsHide:true});let stdout='',stderr='',size=0,settled=false;
+  const fail=async(code:string,exitCode:number|null=null,signal:string|null=null)=>{if(settled)return;settled=true;clearTimeout(timer);
+   await durable(statePath+'.child-diagnostic.private.json',g5ChildDiagnostic(stderr,action,exitCode,signal)).catch(()=>{});stderr='';stdout='';no(Error(code));};
+  const timer=setTimeout(()=>{child.kill();void fail('G5_LIVE_CHILD_TIMEOUT_UNKNOWN');},cfg.commandTimeoutMilliseconds??240000);
+  child.stdout.on('data',b=>{size+=b.length;if(size>1048576){child.kill();void fail('G5_LIVE_CHILD_OUTPUT_LIMIT');}else stdout+=b.toString();});
+  child.stderr.on('data',b=>{if(stderr.length<65536)stderr+=b.toString().slice(0,65536-stderr.length);});child.on('error',error=>{stderr=String(error.stack??'Error:').slice(0,65536);void fail('G5_LIVE_CHILD_UNKNOWN');});
+  child.on('close',(code,signal)=>{clearTimeout(timer);if(settled)return;if(code!==0){void fail('G5_LIVE_CHILD_UNKNOWN',code,signal);return;}try{const lines=stdout.trim().split(/\r?\n/);const value=JSON.parse(lines.at(-1)!);if(typeof(value.status??value.state)!=='string')throw Error();settled=true;stderr='';ok({...value,status:value.status??value.state});}catch{void fail('G5_LIVE_CHILD_PROTOCOL_UNKNOWN',code,signal);}});
  });
 }
 const script=(name:string,args:string[])=>command({command:process.execPath,args:['--import','tsx',resolve(apiDir,'scripts',name),...args]});
-const snapshot=()=>script('g5-controller-status.ts',[cfg.runConfig]) as Promise<G5LiveSnapshot>;
+const snapshot=()=>{activeAction={sequence:0,stage:'SNAPSHOT'};return script('g5-controller-status.ts',[cfg.runConfig]) as Promise<G5LiveSnapshot>;};
 const core=(step:string,sequence:number)=>script('g5-operator.ts',[step,cfg.runConfig,String(sequence)]);
 const reverse=(step:string,sequence:number)=>script('g5-reverse-operator.ts',[step,manifest.reverseOrders.find((o:any)=>o.sequence===sequence).configFile]);
 const base=createPublicClient({transport:http(manifest.baseRpcUrl,{timeout:30000,retryCount:0})});
@@ -77,6 +81,7 @@ async function payer(sequence:number,stage:G5LiveStage){
  return {status:'ORIGINAL_PAYER_BROADCAST_KNOWN'};
 }
 async function execute(sequence:number,stage:G5LiveStage|'BARRIER'|'CLOSE'){
+ activeAction={sequence,stage};
  const actor=cfg.sourceActors.find((o:any)=>o.sequence===sequence);
  if(stage==='SYNC')return command(actor.sync);
  if(stage==='SOURCE_FUND')return syncAndFundG5Source({sync:()=>command(actor.sync),fund:()=>command(actor.fund)});

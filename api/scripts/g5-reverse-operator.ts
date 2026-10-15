@@ -2,7 +2,7 @@
  * automatic funding, private stdout, or public HTTP route. Each invocation does
  * only its named step, with approved private configs supplied by the operator.
  */
-import { readFile,open,rename } from 'node:fs/promises';
+import { open,rename } from 'node:fs/promises';
 import { randomBytes,randomUUID } from 'node:crypto';
 import { resolve,dirname } from 'node:path';
 import { connect } from '../src/db.ts';
@@ -11,6 +11,7 @@ import {requireG5Target} from '../src/g5-run.ts';
 import {g5ReverseSlot} from './g5-slot.ts';
 import {read as readG5Config} from './g5-context.ts';
 import {g5Diagnostic} from '../src/g5-diagnostic.ts';
+import {reportReverseStartupFailure,cleanupG5StartupResources,type G5ReverseInitPhase} from '../src/g5-reverse-startup.ts';
 import { runtime } from './runtime.ts';
 import { BaseContract,loadBaseRegistry } from '../src/base-contract.ts';
 import { Repository } from '../src/repository.ts';
@@ -29,26 +30,38 @@ import {isObserverWait} from '../src/observer-frontiers.ts';
 
 const [step,path]=process.argv.slice(2);
 const steps=['quote','funding','observe-funding','prepare-commit','broadcast-commit','observe-commit','approve-wallet','prepare-zcash','recover-zcash','broadcast-zcash','observe-zcash','prepare-settle','broadcast-settle','observe-settle'];
-if(!steps.includes(step)||!path||process.argv.length!==4)throw Error('One explicit reverse step and private config file required');
-const config=JSON.parse(await readFile(path,'utf8'));
-process.env.ZEE_DB_CONFIG=resolve(config.databaseConfig);process.env.ZEE_RUNTIME_CONFIG=resolve(config.runtimeConfig);
-const target=requireG5Target(dbConfig());
-const g5slot=await g5ReverseSlot({...config,selfConfigFile:resolve(path)});
-try{
- const runConfig=await readG5Config(config.runConfig);
- if(typeof runConfig.walletConfig!=='string'||!process.env.ZEE_WALLET_CONFIG
-  ||resolve(process.env.ZEE_WALLET_CONFIG)!==resolve(runConfig.walletConfig))throw Error('G5_SOURCE_VIEWING_WALLET_BINDING_REQUIRED');
-}catch(error){await g5slot.close();throw error;}
-const r=await runtime(true),worker=connect(r.workerUrl),api=connect(r.apiUrl),admin=connect(target.adminUrl),base=new BaseContract(reverseBaseRegistry(loadBaseRegistry(),config.baseRpcUrl));
-requireG5Target(target,[r.apiUrl,r.workerUrl]);
-const baseSigner=new LocalReverseBaseSigner(config.baseSignerCommand,config.baseSignerArgs);
-const zcash=new LocalReverseWalletAdapter(config.zcashCommand,config.zcashArgs,config.approvedDigest);
-const statePath=resolve(config.stateFile);
-let state:any;
-try{state=JSON.parse(await readFile(statePath,'utf8'));}catch(error){if((error as any).code!=='ENOENT')throw error;state={version:1};}
-if(state.owner&&state.owner!==g5slot.owner)throw Error('G5_PRIVATE_OWNER_MISMATCH');
-state.owner=g5slot.owner;
-if(g5slot.orderId&&state.orderId!==g5slot.orderId)throw Error('G5_PRIVATE_ORDER_MISMATCH');
+const initialized=await(async()=>{
+ let phase:G5ReverseInitPhase='ARGUMENTS',config:any,statePath:string|undefined;
+ let slot:Awaited<ReturnType<typeof g5ReverseSlot>>|undefined;
+ const pools:ReturnType<typeof connect>[]=[];
+ try{
+  if(!steps.includes(step)||!path||process.argv.length!==4)throw Error('G5_REVERSE_EXPLICIT_STEP_CONFIG_REQUIRED');
+  phase='CONFIG_READ';config=await readG5Config(path);
+  if(typeof config.stateFile==='string')statePath=resolve(config.stateFile);
+  phase='TARGET';process.env.ZEE_DB_CONFIG=resolve(config.databaseConfig);process.env.ZEE_RUNTIME_CONFIG=resolve(config.runtimeConfig);
+  const target=requireG5Target(dbConfig());
+  phase='SLOT';slot=await g5ReverseSlot({...config,selfConfigFile:resolve(path)});
+  phase='VIEW_BINDING';const runConfig=await readG5Config(config.runConfig);
+  if(typeof runConfig.walletConfig!=='string'||!process.env.ZEE_WALLET_CONFIG||resolve(process.env.ZEE_WALLET_CONFIG)!==resolve(runConfig.walletConfig))throw Error('G5_SOURCE_VIEWING_WALLET_BINDING_REQUIRED');
+  phase='RUNTIME';const r=await runtime(true);
+  phase='POOLS';const worker=connect(r.workerUrl);pools.push(worker);const api=connect(r.apiUrl);pools.push(api);const admin=connect(target.adminUrl);pools.push(admin);
+  requireG5Target(target,[r.apiUrl,r.workerUrl]);
+  phase='BASE';const base=new BaseContract(reverseBaseRegistry(loadBaseRegistry(),config.baseRpcUrl));
+  phase='SIGNERS';const baseSigner=new LocalReverseBaseSigner(config.baseSignerCommand,config.baseSignerArgs),zcash=new LocalReverseWalletAdapter(config.zcashCommand,config.zcashArgs,config.approvedDigest);
+  phase='STATE_READ';statePath=resolve(config.stateFile);let state:any;
+  try{state=await readG5Config(statePath);}catch(error){if((error as any).code!=='ENOENT')throw error;state={version:1};}
+  phase='STATE_BINDING';if(state.owner&&state.owner!==slot.owner)throw Error('G5_PRIVATE_OWNER_MISMATCH');state.owner=slot.owner;
+  if(slot.orderId&&state.orderId!==slot.orderId)throw Error('G5_PRIVATE_ORDER_MISMATCH');
+  return {config,statePath,state,r,worker,api,admin,base,baseSigner,zcash,g5slot:slot};
+ }catch(error){
+  await reportReverseStartupFailure(error,step,phase,{emit:packet=>{process.stderr.write(JSON.stringify(packet)+'\n');},
+   persist:statePath?packet=>durable(statePath!+'.initialization-diagnostic.private.json',packet):undefined});
+  try{await cleanupG5StartupResources(pools);}catch(cleanup){await reportReverseStartupFailure(cleanup,step,'POOL_CLOSE',{emit:packet=>{process.stderr.write(JSON.stringify(packet)+'\n');}});}
+  try{await slot?.close();}catch(cleanup){await reportReverseStartupFailure(cleanup,step,'SLOT_CLOSE',{emit:packet=>{process.stderr.write(JSON.stringify(packet)+'\n');}});}
+  throw Error('G5_REVERSE_INITIALIZATION_FAILED');
+ }
+})();
+const {config,statePath,state,r,worker,api,admin,base,baseSigner,zcash,g5slot}=initialized;
 async function durable(path:string,value:unknown){
  const temporary=path+'.'+randomUUID()+'.tmp',file=await open(temporary,'wx',0o600);
  try{await file.writeFile(JSON.stringify(value,null,2));await file.sync();}finally{await file.close();}
@@ -159,13 +172,13 @@ try{
    // Optional fixed local/UNC config paths let the operator provision the same
    // immutable approval in the narrow SDK and Base signer services.
    if(config.zcashPrivateConfig){
-    const p=JSON.parse(await readFile(config.zcashPrivateConfig,'utf8'));
+    const p=await readG5Config(config.zcashPrivateConfig);
     const index=p.preflightCommand.indexOf('--approved-digest');if(index<0||index+1>=p.preflightCommand.length)throw Error('PRIVATE_PREFLIGHT_DIGEST_ARG_MISSING');
     if(p.approvedDigest!==digest&&!/^0{64}$/.test(p.approvedDigest))throw Error('PRIVATE_WALLET_APPROVAL_ALREADY_BOUND');
     p.approvedDigest=digest;p.preflightCommand[index+1]=digest;await durable(config.zcashPrivateConfig,p);
    }
    if(config.baseSignerPrivateConfig){
-    const p=JSON.parse(await readFile(config.baseSignerPrivateConfig,'utf8'));
+    const p=await readG5Config(config.baseSignerPrivateConfig);
     if(p.reverseApprovedDigest&&p.reverseApprovedDigest!==digest&&!/^0{64}$/.test(p.reverseApprovedDigest))throw Error('PRIVATE_BASE_APPROVAL_ALREADY_BOUND');
     p.reverseApprovedDigest=digest;await durable(config.baseSignerPrivateConfig,p);
    }
@@ -204,10 +217,15 @@ try{
  await g5slot.incident().catch(()=>{});
  console.error('REVERSE_OPERATOR_STEP_FAILED: reconcile the private state, original transaction and signer journal');process.exitCode=1;}
 }finally{
- // Every named operator step ends paused. The operator explicitly re-enables
- // only the next approved step after refreshing observers and reconciliation.
+ // A successful body/soft wait does not establish successful cleanup. Persist
+ // separate sanitized failures without overwriting the original body diagnostic.
+ const reportCleanup=(error:unknown,phase:G5ReverseInitPhase)=>reportReverseStartupFailure(error,step,phase,{
+  emit:packet=>{process.stderr.write(JSON.stringify(packet)+'\n');},
+  persist:packet=>durable(statePath+'.cleanup-'+phase+'.private.json',packet)});
  try{await admin.query('UPDATE zee.runtime_control SET accepting_orders=false,dispatch_enabled=false');}
- catch{console.error('REVERSE_OPERATOR_PAUSE_FAILED');process.exitCode=1;}
- await Promise.all([worker.end(),api.end(),admin.end()]);
- await g5slot.close();
+ catch(error){await reportCleanup(error,'PAUSE');console.error('REVERSE_OPERATOR_PAUSE_FAILED');process.exitCode=1;}
+ try{await cleanupG5StartupResources([worker,api,admin]);}
+ catch(error){await reportCleanup(error,'POOL_CLOSE');process.exitCode=1;}
+ try{await g5slot.close();}
+ catch(error){await reportCleanup(error,'SLOT_CLOSE');process.exitCode=1;}
 }

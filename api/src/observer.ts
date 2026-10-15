@@ -6,6 +6,7 @@ import { Repository, parseMemo } from './repository.ts';
 import { atomic } from './amounts.ts';
 import { PrivateData } from './private-data.ts';
 import { publishObserverBatch,requireObserverEpoch } from './observer-frontiers.ts';
+import {retryAuthenticatedBaseHeadRead} from './base-observer-read-retry.ts';
 import type { WalletAdapter } from './wallet-adapter.ts';
 
 const HASH=/^[0-9a-f]{64}$/;
@@ -81,8 +82,10 @@ export async function baseHead(pool:pg.Pool,rpc='https://sepolia.base.org'){
  async function call(method:string,params:unknown[]){const response=await fetch(rpc,{method:'POST',headers:{'content-type':'application/json'},
   body:JSON.stringify({jsonrpc:'2.0',id:1,method,params}),signal:AbortSignal.timeout(15000)});
   if(!response.ok)throw new Error('BASE_RPC_UNAVAILABLE');const data=await response.json() as any;if(data.error||data.result==null)throw new Error('BASE_RPC_UNAVAILABLE');return data.result;}
+ return retryAuthenticatedBaseHeadRead({read:async()=>{
  if(await call('eth_chainId',[])!=='0x14a34')throw new Error('WRONG_BASE_NETWORK');
  const [tip,finalized]=await Promise.all([call('eth_getBlockByNumber',['latest',false]),call('eth_getBlockByNumber',['finalized',false])]);
+ const observedAt=new Date();
  const canonical=await call('eth_getBlockByNumber',[finalized.number,false]);
  if(canonical.hash!==finalized.hash)throw new Error('BASE_CANONICALITY_CONFLICT');
  const height=Number(BigInt(tip.number)),finalHeight=Number(BigInt(finalized.number));
@@ -90,8 +93,11 @@ export async function baseHead(pool:pg.Pool,rpc='https://sepolia.base.org'){
  const time=new Date(Number(BigInt(finalized.timestamp))*1000);
  const tipTime=Number(BigInt(tip.timestamp))*1000;
  if(!Number.isFinite(time.getTime())||!Number.isFinite(tipTime)||Date.now()-tipTime>120000||tipTime-Date.now()>30000)throw new Error('STALE_BASE_HEAD');
+ return {heads:{height,finalHeight,tip,finalized,time},observedAt};
+ },publish:async({heads:{height,finalHeight,tip,finalized,time},observedAt})=>{
  await publishObserverBatch(pool,'base-head',[{network:'base-sepolia',height,hash:tip.hash.slice(2),
-  finalizedHeight:finalHeight,finalizedTime:time,observedAt:new Date()}],
+  finalizedHeight:finalHeight,finalizedTime:time,observedAt}],
   [{network:'base-sepolia',height:finalHeight,hash:finalized.hash.slice(2),time}]);
  return {chainId:84532,latest:height,finalized:finalHeight};
+ }});
 }

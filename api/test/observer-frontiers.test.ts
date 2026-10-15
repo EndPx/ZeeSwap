@@ -6,6 +6,7 @@ import {disposableSettlement} from '../scripts/test-settlement-database.ts';
 import {connect} from '../src/db.ts';
 import {publishObserverBatch,requireScannedReceipt,requireObserverEpoch,isObserverWait,type ObserverCheckpoint} from '../src/observer-frontiers.ts';
 import {transaction} from '../src/db.ts';
+import {baseHead} from '../src/observer.ts';
 import {refreshReverseObserversFromWallet} from '../src/reverse-observer-refresh.ts';
 import type {BaseContract} from '../src/base-contract.ts';
 import type {WalletAdapter} from '../src/wallet-adapter.ts';
@@ -124,4 +125,50 @@ test('reverse operator bridge publishes actual source SDK scan and waits behind 
  assert.deepEqual(await row(),prior);assert.equal(await paused(),false);
  scanned=9006;await refreshReverseObserversFromWallet(worker,base,wallet);
  assert.equal(Number((await row()).scanned_height),9006);assert.equal(await paused(),false);
+});
+
+test('wired reverse refresh retries only Base reads and publishes the original source capture once',async()=>{
+ await reset();await publishObserverBatch(worker,'synthetic-base',[checkpoint('base-sepolia',100,90)]);
+ const time=new Date().toISOString(),source={schemaVersion:1,network:'zcash-testnet',consensusBranch:'77190ad9',observedAt:time,
+  scannedHeight:10000,tipHash:hash,blocks:[{height:10000,hash,time},{height:9991,hash,time}],outputs:[]};
+ let scans=0,reads=0;
+ const wallet={snapshot:async()=>{scans++;return source;}} as unknown as WalletAdapter;
+ const base={heads:async()=>{reads++;return {latest:{number:BigInt(reads===1?99:101),hash:'0x'+hash},finalized:{number:BigInt(reads===2?89:90),hash:'0x'+hash,timestamp:1n}};},
+  client:{getBlock:async()=>({hash:'0x'+hash,timestamp:1n})}} as unknown as BaseContract;
+ await refreshReverseObserversFromWallet(worker,base,wallet);
+ assert.equal(scans,1);assert.equal(reads,3);assert.equal((await row()).observed_at.toISOString(),source.observedAt);
+ assert.equal(Number((await row('base-sepolia')).scanned_height),101);assert.equal(await paused(),false);
+});
+
+test('wired reverse refresh all-lag leaves both checkpoints unchanged and canonical conflict freezes on first read',async()=>{
+ await reset();await publishObserverBatch(worker,'synthetic-base',[checkpoint('base-sepolia',100,90)],[{network:'base-sepolia',height:90,hash,time:new Date()}]);
+ const before=await row('base-sepolia');let scans=0,reads=0,contradict=false;
+ const time=new Date().toISOString();
+ const wallet={snapshot:async()=>{scans++;return {schemaVersion:1,network:'zcash-testnet',consensusBranch:'77190ad9',observedAt:time,
+  scannedHeight:11000,tipHash:hash,blocks:[{height:11000,hash,time},{height:10991,hash,time}],outputs:[]};}} as unknown as WalletAdapter;
+ const base={heads:async()=>{reads++;return {latest:{number:99n,hash:'0x'+hash},finalized:{number:90n,hash:'0x'+hash,timestamp:1n}};},
+  client:{getBlock:async({blockNumber}:{blockNumber:bigint})=>({hash:'0x'+(contradict&&blockNumber===90n?other:hash),timestamp:1n})}} as unknown as BaseContract;
+ await assert.rejects(()=>refreshReverseObserversFromWallet(worker,base,wallet),isObserverWait);
+ assert.equal(scans,1);assert.equal(reads,3);assert.deepEqual(await row('base-sepolia'),before);assert.equal(await row(),undefined);
+ // A changed retained anchor (not the finalized proof itself) reaches the locked publisher.
+ await pool.query("INSERT INTO zee.chain_observations VALUES('base-sepolia',89,$1,now())",[hash]);
+ (base as any).client.getBlock=async({blockNumber}:{blockNumber:bigint})=>({hash:'0x'+(blockNumber===89n?other:hash),timestamp:1n});
+ reads=0;await assert.rejects(()=>refreshReverseObserversFromWallet(worker,base,wallet),/OBSERVER_CANONICAL_CONFLICT/);
+ assert.equal(reads,1);assert.equal(await paused(),true);assert.deepEqual(await row('base-sepolia'),before);
+});
+
+test('wired standalone Base head retries authenticated RPC observations without weakening network or canonical checks',async()=>{
+ await reset();await publishObserverBatch(worker,'synthetic-base',[checkpoint('base-sepolia',100,90)]);
+ const original=globalThis.fetch;let attempts=0,wrongNetwork=false;
+ globalThis.fetch=(async(_url,options)=>{
+  const request=JSON.parse(options!.body as string);let result:unknown;
+  if(request.method==='eth_chainId'){attempts++;result=wrongNetwork?'0x1':'0x14a34';}
+  else {const tag=request.params[0],height=tag==='latest'?(attempts<3?99:101):90;
+   result={number:'0x'+height.toString(16),hash:'0x'+hash,timestamp:'0x'+Math.floor(Date.now()/1000).toString(16)};}
+  return {ok:true,json:async()=>({result})} as Response;
+ }) as typeof fetch;
+ try{
+  assert.deepEqual(await baseHead(worker,'https://synthetic.invalid'),{chainId:84532,latest:101,finalized:90});assert.equal(attempts,3);
+  attempts=0;wrongNetwork=true;await assert.rejects(()=>baseHead(worker,'https://synthetic.invalid'),/WRONG_BASE_NETWORK/);assert.equal(attempts,1);
+ }finally{globalThis.fetch=original;}
 });
