@@ -11,7 +11,8 @@ import {g5Context,read,durable,privateLocalPath} from './g5-context.ts';
 import {g5Direction,requireG5Next,requireG5Operational,requireG5EmptyOpeningRecovery,requireG5RoundtripCheckpoint,requireG5CompletedRoundtripRecovery,validateG5Accounts,validateG5OpeningLedger,validateG5PhysicalBase,validateG5WalletBalances,g5PathIdentity,requireG5CommandConfig} from '../src/g5-run.ts';
 import {Repository,parseMemo} from '../src/repository.ts';
 import {accessHash} from '../src/private-data.ts';
-import {scanOnce,validateSnapshot} from '../src/observer.ts';
+import {scanOnce,validateSnapshot,observerCheckHeights} from '../src/observer.ts';
+import {isObserverWait} from '../src/observer-frontiers.ts';
 import {refreshReverseObservers} from '../src/reverse-observer-refresh.ts';
 import {dispatchBaseOnce,reconcileBaseReceipts} from '../src/base-settlement.ts';
 import {LocalBaseSigner} from '../src/base-signer.ts';
@@ -31,7 +32,7 @@ async function requireAbsent(path:string){
 }
 async function refresh(){
  const references=(await c.worker.query("SELECT DISTINCT block_height::text FROM zee.deposits WHERE network='zcash-testnet' UNION SELECT block_height::text FROM zee.reverse_payouts WHERE confirmed")).rows;
- const snapshot=await c.r.wallet.snapshot(references.map(r=>Number(r.block_height)));
+ const snapshot=await c.r.wallet.snapshot(await observerCheckHeights(c.worker,references.map(r=>Number(r.block_height))));
  await refreshReverseObservers(c.worker,c.base,snapshot);
  return scanOnce(c.worker,c.r.keys,c.r.wallet);
 }
@@ -311,6 +312,8 @@ try{
  console.log(JSON.stringify(result));
 }catch(error){
  await durable(c.config.stateFile+(step==='recover-completed-roundtrip'?'.completed-recovery-diagnostic.private.json':'.diagnostic.private.json'),g5Diagnostic(error,step,phase)).catch(()=>{});
+ if(isObserverWait(error)){console.log(JSON.stringify({status:'OBSERVER_WAIT'}));}
+ else{
  if(!readOnly&&!c.state.incident){c.state.incident=true;await c.save().catch(()=>{});await c.admin.query('SELECT zee.enter_reconciliation()').catch(()=>{});}
- console.error('G5_OPERATOR_STOPPED_RECONCILE_ORIGINAL_ATTEMPTS');process.exitCode=1;
+ console.error('G5_OPERATOR_STOPPED_RECONCILE_ORIGINAL_ATTEMPTS');process.exitCode=1;}
 }finally{await c.close(!readOnly);}

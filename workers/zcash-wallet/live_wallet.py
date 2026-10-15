@@ -68,9 +68,13 @@ def main():
             tip=service.GetBlock(messages.BlockID(height=scanned),timeout=20)
             blocks={scanned:tip}
             checks=request.get('checkHeights',[])+[max(0,scanned-9)]
-            if len(checks)>501 or any(type(h) is not int or h<0 or h>scanned for h in checks):
+            if len(checks)>503 or any(type(h) is not int or h<0 for h in checks):
                 raise ValueError('Invalid reconciliation heights')
             for height in checks:
+                # A provider or SDK can temporarily lag a persisted checkpoint.
+                # Do not advertise blocks the wallet has not scanned. The DB
+                # publisher returns WAIT without renewing its old checkpoint.
+                if height>scanned:continue
                 if height not in blocks:blocks[height]=service.GetBlock(messages.BlockID(height=height),timeout=20)
             received={}
             for pool in ('ironwood','orchard','sapling'):

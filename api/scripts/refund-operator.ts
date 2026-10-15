@@ -8,6 +8,7 @@ import {randomBytes} from 'node:crypto';
 import {getAddress,zeroAddress} from 'viem';
 import {connect} from '../src/db.ts';
 import {runtime} from './runtime.ts';
+import {requireExplicitObserverWallet} from '../src/explicit-observer-wallet.ts';
 import {BaseContract,loadBaseRegistry} from '../src/base-contract.ts';
 import {reverseBaseRegistry} from '../src/reverse-base-rpc.ts';
 import {Repository} from '../src/repository.ts';
@@ -28,6 +29,7 @@ if(!['quote-reverse','quote-forward','funding','observe-reverse','begin','approv
  'approve-wallet','prepare-zcash','recover-zcash','broadcast-zcash','observe-zcash','refresh-headers','status'].includes(step)||!path||process.argv.length!==4)
  throw Error('One explicit refund step and private config required');
 const config=JSON.parse(await readFile(path,'utf8'));
+process.env.ZEE_WALLET_CONFIG=await requireExplicitObserverWallet(config);
 const database=JSON.parse(await readFile(resolve(config.databaseConfig),'utf8'));
 const incident=requireRefundTarget(config,database,[],step);
 process.env.ZEE_RUNTIME_CONFIG=resolve(config.runtimeConfig);

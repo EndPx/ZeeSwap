@@ -5,6 +5,7 @@ import { transaction } from './db.ts';
 import { Repository, parseMemo } from './repository.ts';
 import { atomic } from './amounts.ts';
 import { PrivateData } from './private-data.ts';
+import { publishObserverBatch,requireObserverEpoch } from './observer-frontiers.ts';
 import type { WalletAdapter } from './wallet-adapter.ts';
 
 const HASH=/^[0-9a-f]{64}$/;
@@ -40,15 +41,12 @@ export function validateSnapshot(value:unknown):Snapshot {
 
 export async function ingestSnapshot(pool:pg.Pool,keys:PrivateData,value:unknown){
  const s=validateSnapshot(value);
+ const finalized=s.blocks.find(b=>b.height===Math.max(0,s.scannedHeight-9))!;
+ const epoch=await publishObserverBatch(pool,'source-wallet-snapshot',[{network:'zcash-testnet',height:s.scannedHeight,hash:s.tipHash,
+  finalizedHeight:finalized.height,finalizedTime:new Date(finalized.time),observedAt:new Date(s.observedAt)}],
+  s.blocks.map(b=>({network:'zcash-testnet' as const,height:b.height,hash:b.hash,time:new Date(b.time)})));
  return transaction(pool,async c=>{
-  await c.query('SELECT zee.lock_observer_cycle()');
-  const finalized=s.blocks.find(b=>b.height===Math.max(0,s.scannedHeight-9))!;
-  await c.query(`INSERT INTO zee.scanner_checkpoints(network,scanned_height,tip_hash,finalized_height,finalized_time,observed_at)
-   VALUES('zcash-testnet',$1,$2,$3,$4,$5) ON CONFLICT(network) DO UPDATE SET scanned_height=$1,tip_hash=$2,finalized_height=$3,finalized_time=$4,observed_at=$5`,
-   [s.scannedHeight,s.tipHash,finalized.height,finalized.time,s.observedAt]);
-  await c.query(`INSERT INTO zee.chain_observations SELECT 'zcash-testnet',height,hash,time FROM
-   jsonb_to_recordset($1::jsonb) AS blocks(height bigint,hash text,time timestamptz)
-   ON CONFLICT(network,height) DO UPDATE SET block_hash=EXCLUDED.block_hash,block_time=EXCLUDED.block_time`,[JSON.stringify(s.blocks)]);
+  await requireObserverEpoch(c,epoch);
   const repository=new Repository(c,keys);let seen=0,planned=0,quarantined=0;
   for(const o of s.outputs){
    if(atomic(o.amount)===0n)continue;
@@ -68,7 +66,14 @@ export async function ingestSnapshot(pool:pg.Pool,keys:PrivateData,value:unknown
 export async function scanOnce(pool:pg.Pool,keys:PrivateData,wallet:WalletAdapter){
  const rows=(await pool.query("SELECT DISTINCT block_height::text FROM zee.deposits WHERE network='zcash-testnet' ORDER BY block_height LIMIT 501")).rows;
  if(rows.length>500)throw new Error('RECONCILIATION_WINDOW_LIMIT');
- return ingestSnapshot(pool,keys,await wallet.snapshot(rows.map(r=>Number(r.block_height))));
+ return ingestSnapshot(pool,keys,await wallet.snapshot(await observerCheckHeights(pool,rows.map(r=>Number(r.block_height)))));
+}
+
+export async function observerCheckHeights(pool:pg.Pool,depositHeights:number[]){
+ const row=(await pool.query("SELECT scanned_height,finalized_height FROM zee.scanner_checkpoints WHERE network='zcash-testnet'")).rows[0];
+ const heights=[...new Set([...depositHeights,...(row?[Number(row.scanned_height),Number(row.finalized_height)]:[])])];
+ if(heights.length>502)throw Error('RECONCILIATION_WINDOW_LIMIT');
+ return heights;
 }
 
 export async function baseHead(pool:pg.Pool,rpc='https://sepolia.base.org'){
@@ -85,7 +90,8 @@ export async function baseHead(pool:pg.Pool,rpc='https://sepolia.base.org'){
  const time=new Date(Number(BigInt(finalized.timestamp))*1000);
  const tipTime=Number(BigInt(tip.timestamp))*1000;
  if(!Number.isFinite(time.getTime())||!Number.isFinite(tipTime)||Date.now()-tipTime>120000||tipTime-Date.now()>30000)throw new Error('STALE_BASE_HEAD');
- await pool.query(`INSERT INTO zee.scanner_checkpoints VALUES('base-sepolia',$1,$2,$3,$4,clock_timestamp())
-  ON CONFLICT(network) DO UPDATE SET scanned_height=$1,tip_hash=$2,finalized_height=$3,finalized_time=$4,observed_at=clock_timestamp()`,[height,tip.hash.slice(2),finalHeight,time]);
+ await publishObserverBatch(pool,'base-head',[{network:'base-sepolia',height,hash:tip.hash.slice(2),
+  finalizedHeight:finalHeight,finalizedTime:time,observedAt:new Date()}],
+  [{network:'base-sepolia',height:finalHeight,hash:finalized.hash.slice(2),time}]);
  return {chainId:84532,latest:height,finalized:finalHeight};
 }

@@ -1,3 +1,4 @@
+import { publishObserverBatch,requireObserverEpoch } from './observer-frontiers.ts';
 import { encodeFunctionData, decodeEventLog, getAddress, recoverTypedDataAddress, parseTransaction,
  recoverTransactionAddress, keccak256, type Address, type Hex, type TransactionSerialized } from 'viem';
 import type pg from 'pg';
@@ -57,12 +58,13 @@ export async function finalizedReceipt(base:BaseContract,hash:Hex){
 export function escrowEvents(base:BaseContract,receipt:any,name:string){return receipt.logs.filter((l:any)=>l.address.toLowerCase()===base.registry.contracts.ZeeSwapSettlement.address.toLowerCase()).flatMap((l:any)=>{
  try{const e=decodeEventLog({abi:settlementAbi,data:l.data,topics:l.topics});return e.eventName===name?[{args:e.args as any,index:l.logIndex}]:[];}catch{return [];}
 });}
-export async function canonicalCheckpoint(c:pg.PoolClient,p:NonNullable<Awaited<ReturnType<typeof finalizedReceipt>>>){
- await c.query(`INSERT INTO zee.scanner_checkpoints VALUES('base-sepolia',$1,$2,$3,$4,clock_timestamp())
- ON CONFLICT(network) DO UPDATE SET scanned_height=$1,tip_hash=$2,finalized_height=$3,finalized_time=$4,observed_at=clock_timestamp()`,
- [Number(p.heads.latest.number),p.heads.latest.hash!.slice(2),Number(p.heads.finalized.number),new Date(Number(p.heads.finalized.timestamp)*1000)]);
- await c.query(`INSERT INTO zee.chain_observations VALUES('base-sepolia',$1,$2,$3)
- ON CONFLICT(network,height) DO UPDATE SET block_hash=$2,block_time=$3`,[Number(p.receipt.blockNumber),p.receipt.blockHash.slice(2),new Date(Number(p.block.timestamp)*1000)]);
+export async function canonicalCheckpoint(pool:pg.Pool,p:NonNullable<Awaited<ReturnType<typeof finalizedReceipt>>>){
+ return publishObserverBatch(pool,'base-escrow-receipt',[
+  {network:'base-sepolia',height:Number(p.heads.latest.number),hash:p.heads.latest.hash!.slice(2),finalizedHeight:Number(p.heads.finalized.number),finalizedTime:new Date(Number(p.heads.finalized.timestamp)*1000),observedAt:new Date()}
+ ],[
+  {network:'base-sepolia',height:Number(p.receipt.blockNumber),hash:p.receipt.blockHash.slice(2),time:new Date(Number(p.block.timestamp)*1000)},
+  {network:'base-sepolia',height:Number(p.heads.finalized.number),hash:p.heads.finalized.hash!.slice(2),time:new Date(Number(p.heads.finalized.timestamp)*1000)}
+ ]);
 }
 export async function escrowState(base:BaseContract,terms:FundingTerms,blockNumber:bigint){
  const address=base.registry.contracts.ZeeSwapSettlement.address;
@@ -92,8 +94,9 @@ export async function observeEscrowFunding(pool:pg.Pool,keys:PrivateData,base:Ba
   ||proof.block.timestamp>=BigInt(terms.fundingCutoff))throw Error('BASE_ESCROW_FUNDING_MISMATCH');
  const qrow=(await pool.query('SELECT private_payload FROM zee.quotes WHERE id=$1',[orderId])).rows[0];
  const q=keys.open(qrow.private_payload,`quote:${orderId}:v1`) as any;
+ const epoch=await canonicalCheckpoint(pool,proof);
  return transaction(pool,async c=>{
-  await canonicalCheckpoint(c,proof);const repo=new Repository(c,keys);
+  await requireObserverEpoch(c,epoch);const repo=new Repository(c,keys);
   const id=await repo.observe({network:'base-sepolia',txid:hash.slice(2),index:matches[0].index,emitter:base.registry.contracts.ZeeSwapSettlement.address,
    reference:q.reference,receiver:q.depositReceiver,amount:terms.amount,height:Number(proof.receipt.blockNumber),blockHash:proof.receipt.blockHash.slice(2),
    blockTime:new Date(Number(proof.block.timestamp)*1000),shielded:false});
@@ -127,7 +130,8 @@ export async function observeEscrowCommit(pool:pg.Pool,keys:PrivateData,base:Bas
  const fee=(p.receipt.gasUsed*p.receipt.effectiveGasPrice+BigInt(l1??0)).toString();
  const proof={transactionHash:signed.hash,blockHeight:Number(p.receipt.blockNumber),blockHash:p.receipt.blockHash,fee,state:'PAYOUT_COMMITTED',
  finalizedHeight:Number(p.heads.finalized.number),finalizedHash:p.heads.finalized.hash};
- await transaction(pool,async c=>{await canonicalCheckpoint(c,p);await c.query('SELECT zee.confirm_escrow_commit($1,$2,$3,$4,$5,$6)',
+ const epoch=await canonicalCheckpoint(pool,p);
+ await transaction(pool,async c=>{await requireObserverEpoch(c,epoch);await c.query('SELECT zee.confirm_escrow_commit($1,$2,$3,$4,$5,$6)',
   [orderId,keys.lookup('base-tx',signed.hash),proof.blockHeight,proof.blockHash.slice(2),fee,keys.seal(proof,proofContext(orderId))]);});
  return {status:'COMMIT_FINALIZED'};
 }

@@ -68,8 +68,10 @@ review and broadcast remain separate operations.
 `api/src/g5-actor-controller.ts` is an orchestration policy with injected IO.
 It bounds execution by step count and time, persists a funding latch before
 delegating to a funding actor, freezes on uncertainty, and requires full barriers
-at sequences 5, 10, 15, and 20. The live IO adapter is **not wired**. This policy
-is not a runnable live twenty-order controller and is not settlement evidence.
+at sequences 5, 10, 15, and 20. This initial policy was not wired to live IO.
+The subsequently added [bounded live controller](g5-live-controller.md) connects
+the reviewed operators and actors with separate durable private state. Its
+local tests remain distinct from live settlements and do not complete G5.
 
 The core verifier must only be invoked after observation reports `SETTLED`;
 calling it as a pending-state poll would incident-latch the run. The literal

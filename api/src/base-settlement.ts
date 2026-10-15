@@ -1,3 +1,4 @@
+import { publishObserverBatch,requireObserverEpoch } from './observer-frontiers.ts';
 import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
 import { getAddress, type Hex } from 'viem';
@@ -15,18 +16,17 @@ export const receiptContext=(id:string,phase:string)=>`base-receipt:${id}:${phas
 async function checkpoint(pool:pg.Pool,base:BaseContract){
  if(!base.localTest)return baseHead(pool,base.registry.rpcUrl);
  const {latest,finalized}=await base.heads();
- await pool.query(`INSERT INTO zee.scanner_checkpoints VALUES('base-sepolia',$1,$2,$3,$4,clock_timestamp())
- ON CONFLICT(network) DO UPDATE SET scanned_height=$1,tip_hash=$2,finalized_height=$3,finalized_time=$4,observed_at=clock_timestamp()`,
- [Number(latest.number),latest.hash!.slice(2),Number(finalized.number),new Date(Number(finalized.timestamp)*1000)]);
+ await publishObserverBatch(pool,'base-local-head',[{network:'base-sepolia',height:Number(latest.number),hash:latest.hash!.slice(2),
+  finalizedHeight:Number(finalized.number),finalizedTime:new Date(Number(finalized.timestamp)*1000),observedAt:new Date()}],
+  [{network:'base-sepolia',height:Number(finalized.number),hash:finalized.hash!.slice(2),time:new Date(Number(finalized.timestamp)*1000)}]);
 }
 async function saveReceipt(pool:pg.Pool,keys:PrivateData,base:BaseContract,orderId:string,receipt:ConfirmedBaseReceipt){
  await checkpoint(pool,base);
  const block=await base.client.getBlock({blockNumber:BigInt(receipt.blockNumber)});
  if(block.hash!==receipt.blockHash)throw Error('BASE_REORG');
+ const epoch=await publishObserverBatch(pool,'base-forward-receipt',[],[{network:'base-sepolia',height:receipt.blockNumber,hash:receipt.blockHash.slice(2),time:new Date(Number(block.timestamp)*1000)}]);
  await transaction(pool,async c=>{
-  await c.query(`INSERT INTO zee.chain_observations VALUES('base-sepolia',$1,$2,$3)
-   ON CONFLICT(network,height) DO UPDATE SET block_hash=EXCLUDED.block_hash,block_time=EXCLUDED.block_time`,
-   [receipt.blockNumber,receipt.blockHash.slice(2),new Date(Number(block.timestamp)*1000)]);
+  await requireObserverEpoch(c,epoch);
   await c.query('SELECT zee.confirm_base_attempt($1,$2,$3,$4,$5,$6,$7)',[orderId,receipt.phase,keys.lookup('base-tx',receipt.hash),
    receipt.blockNumber,receipt.blockHash.slice(2),receipt.fee,keys.seal(receipt,receiptContext(orderId,receipt.phase))]);
  });

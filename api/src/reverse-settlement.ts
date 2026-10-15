@@ -1,3 +1,4 @@
+import { publishObserverBatch,requireObserverEpoch } from './observer-frontiers.ts';
 import type pg from 'pg';
 import { encodeFunctionData,getAddress,keccak256,parseTransaction,recoverTransactionAddress,type TransactionSerialized } from 'viem';
 import { BaseContract,settlementAbi } from './base-contract.ts';
@@ -90,12 +91,9 @@ export async function observeReversePayout(pool:pg.Pool,keys:PrivateData,orderId
  ||![proof.blockHeight,proof.tipHeight].every(h=>Number.isSafeInteger(h)&&h>0)||proof.tipHeight-proof.blockHeight+1<10
  ||BigInt(proof.blockHeight)>BigInt(prepared.expiryHeight)||!/^[0-9a-f]{64}$/.test(proof.blockHash)||!/^[0-9a-f]{64}$/.test(proof.tipHash)
  ||!Number.isFinite(Date.parse(proof.observedAt))||Date.now()-Date.parse(proof.observedAt)>60000||Date.parse(proof.observedAt)>Date.now()+5000)throw Error('INVALID_REVERSE_ZCASH_RECEIPT');
+ const receiptEpoch=await publishObserverBatch(pool,'reverse-payout-receipt',[],[{network:'zcash-testnet',height:proof.blockHeight,hash:proof.blockHash,time:new Date(proof.observedAt)}],proof.blockHeight);
  await transaction(pool,async c=>{
-  await c.query(`INSERT INTO zee.scanner_checkpoints VALUES('zcash-testnet',$1,$2,$1::bigint-9,$3,$3)
-   ON CONFLICT(network) DO UPDATE SET scanned_height=$1,tip_hash=$2,finalized_height=$1::bigint-9,finalized_time=$3,observed_at=$3`,
-   [proof.tipHeight,proof.tipHash,new Date(proof.observedAt)]);
-  await c.query(`INSERT INTO zee.chain_observations VALUES('zcash-testnet',$1,$2,$3)
-   ON CONFLICT(network,height) DO UPDATE SET block_hash=$2,block_time=$3`,[proof.blockHeight,proof.blockHash,new Date(proof.observedAt)]);
+  await requireObserverEpoch(c,receiptEpoch);
   await c.query('SELECT zee.confirm_reverse_payout($1,$2,$3,$4,$5,$6)',[orderId,keys.lookup('zcash-tx',prepared.txid),proof.blockHeight,proof.blockHash,proof.feeZatoshi,keys.seal(proof,receiptContext(orderId))]);
  });
  return {status:'ZCASH_DELIVERY_FINALIZED'};
@@ -125,6 +123,7 @@ export async function observeEscrowSettlement(pool:pg.Pool,keys:PrivateData,base
  const l1=(p.receipt as any).l1Fee;if(!base.localTest&&typeof l1!=='bigint')throw Error('BASE_FEE_UNAVAILABLE');
  const fee=(p.receipt.gasUsed*p.receipt.effectiveGasPrice+BigInt(l1??0)).toString();
  const proof={transactionHash:signed.hash,blockHeight:Number(p.receipt.blockNumber),blockHash:p.receipt.blockHash,fee,state:'SETTLED',finalizedHeight:Number(p.heads.finalized.number),finalizedHash:p.heads.finalized.hash};
- await transaction(pool,async c=>{await canonicalCheckpoint(c,p);await c.query('SELECT zee.confirm_escrow_settlement($1,$2,$3,$4,$5,$6)',[orderId,keys.lookup('base-tx',signed.hash),proof.blockHeight,proof.blockHash.slice(2),fee,keys.seal(proof,`escrow-settle-proof:${orderId}:v1`)]);});
+ const epoch=await canonicalCheckpoint(pool,p);
+ await transaction(pool,async c=>{await requireObserverEpoch(c,epoch);await c.query('SELECT zee.confirm_escrow_settlement($1,$2,$3,$4,$5,$6)',[orderId,keys.lookup('base-tx',signed.hash),proof.blockHeight,proof.blockHash.slice(2),fee,keys.seal(proof,`escrow-settle-proof:${orderId}:v1`)]);});
  return {status:'SETTLED'};
 }

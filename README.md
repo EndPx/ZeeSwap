@@ -24,6 +24,7 @@ Real testnet swaps are verified in both directions: **0.001 shielded TAZ → 0.1
 - [Source refund boundaries](docs/evidence/g5-source-refunds.md): permanent cancellation and uncommitted escrow deadline gates, durable source refunds and full-principal accounting; live receipts are recorded separately below.
 - [Actual funded refund experiments](docs/evidence/g5-live-refund-experiments.md) and [retry preparation](docs/evidence/g5-retry-preparation.md): both full-principal refunds are finalized, the historical run remains frozen and its capital allocation was released.
 - [First same-user roundtrip](docs/evidence/g5-first-roundtrip.md): shielded TAZ to mockUSDC and back to the original wallet; two SETTLED orders, finalized original receipts, zero open obligations/reservations, balanced books and twelve-wallet reconciliation. The retry has 2/20 settlements; its four batch barriers and remaining recovery tests stay open.
+- [Observer reliability](docs/evidence/g5-observer-frontiers.md), [bounded live controller](docs/evidence/g5-live-controller.md) and [held SDK fault rehearsal](docs/evidence/g5-funded-sdk-fault.md): actual scan/network-tip separation, epoch-fenced confirmations, once-only source actors and reviewed original-byte recovery. Local checks and replay observations passed; the remaining public-testnet settlements and funded interruption remain separate acceptance gates.
 
 ## Verify locally
 

@@ -9,6 +9,8 @@ import { connect } from '../src/db.ts';
 import {config as dbConfig} from './config.ts';
 import {requireG5Target} from '../src/g5-run.ts';
 import {g5ReverseSlot} from './g5-slot.ts';
+import {read as readG5Config} from './g5-context.ts';
+import {g5Diagnostic} from '../src/g5-diagnostic.ts';
 import { runtime } from './runtime.ts';
 import { BaseContract,loadBaseRegistry } from '../src/base-contract.ts';
 import { Repository } from '../src/repository.ts';
@@ -19,11 +21,11 @@ import { LocalReverseWalletAdapter } from '../src/reverse-wallet-adapter.ts';
 import { withLeaseHeartbeat } from '../src/lease-heartbeat.ts';
 import { accessHash } from '../src/private-data.ts';
 import {approvalDigest} from '../src/reverse-authority.ts';
-import {refreshReverseObservers} from '../src/reverse-observer-refresh.ts';
-import {spawn} from 'node:child_process';
+import {refreshReverseObserversFromWallet} from '../src/reverse-observer-refresh.ts';
 import {reverseBaseRegistry} from '../src/reverse-base-rpc.ts';
 import {requireG5NonceReady} from '../src/g5-nonce.ts';
 import {g5ApproveAfterFreshCommit} from '../src/g5-approval.ts';
+import {isObserverWait} from '../src/observer-frontiers.ts';
 
 const [step,path]=process.argv.slice(2);
 const steps=['quote','funding','observe-funding','prepare-commit','broadcast-commit','observe-commit','approve-wallet','prepare-zcash','recover-zcash','broadcast-zcash','observe-zcash','prepare-settle','broadcast-settle','observe-settle'];
@@ -32,6 +34,11 @@ const config=JSON.parse(await readFile(path,'utf8'));
 process.env.ZEE_DB_CONFIG=resolve(config.databaseConfig);process.env.ZEE_RUNTIME_CONFIG=resolve(config.runtimeConfig);
 const target=requireG5Target(dbConfig());
 const g5slot=await g5ReverseSlot({...config,selfConfigFile:resolve(path)});
+try{
+ const runConfig=await readG5Config(config.runConfig);
+ if(typeof runConfig.walletConfig!=='string'||!process.env.ZEE_WALLET_CONFIG
+  ||resolve(process.env.ZEE_WALLET_CONFIG)!==resolve(runConfig.walletConfig))throw Error('G5_SOURCE_VIEWING_WALLET_BINDING_REQUIRED');
+}catch(error){await g5slot.close();throw error;}
 const r=await runtime(true),worker=connect(r.workerUrl),api=connect(r.apiUrl),admin=connect(target.adminUrl),base=new BaseContract(reverseBaseRegistry(loadBaseRegistry(),config.baseRpcUrl));
 requireG5Target(target,[r.apiUrl,r.workerUrl]);
 const baseSigner=new LocalReverseBaseSigner(config.baseSignerCommand,config.baseSignerArgs);
@@ -50,16 +57,7 @@ async function durable(path:string,value:unknown){
 }
 const save=async()=>{await durable(statePath,state);if(state.orderId)await g5slot.bind(state.orderId);};
 async function refreshObservers(){
- if(!config.observerRefreshCommand||!Array.isArray(config.observerRefreshArgs))throw Error('FIXED_OBSERVER_REFRESH_COMMAND_REQUIRED');
- await new Promise<void>((resolve,reject)=>{
-  const child=spawn(config.observerRefreshCommand,config.observerRefreshArgs,{stdio:['ignore','pipe','pipe'],windowsHide:true});
-  let size=0;const timer=setTimeout(()=>{child.kill();reject(Error('REVERSE_OBSERVER_CAPTURE_TIMEOUT'));},240000);
-  child.on('error',()=>{clearTimeout(timer);reject(Error('REVERSE_OBSERVER_CAPTURE_FAILED'));});
-  child.stdout.on('data',b=>{size+=b.length;if(size>32768)child.kill();});child.stderr.on('data',()=>{});
-  child.on('close',code=>{clearTimeout(timer);if(code===0&&size<=32768)resolve();else reject(Error('REVERSE_OBSERVER_CAPTURE_FAILED'));});
- });
- const proof=JSON.parse(await readFile(resolve(config.capitalProofFile),'utf8'));
- await refreshReverseObservers(worker,base,proof.snapshot);
+ await refreshReverseObserversFromWallet(worker,base,r.wallet);
 }
 async function leased(run:(job:any,owner:string,check:()=>Promise<void>)=>Promise<unknown>){
  let owner=state.currentLease?.owner,job:any;
@@ -180,7 +178,6 @@ try{
    result=await observeEscrowSettlement(worker,r.keys,base,state.orderId);
   }
   else if(step==='prepare-zcash'||step==='recover-zcash')result=await leased(async(job,owner,check)=>{
-   if(!config.observerRefreshCommand)throw Error('FIXED_OBSERVER_REFRESH_COMMAND_REQUIRED');
    await worker.query('SELECT zee.check_reverse_signing($1,$2,$3,$4)',[state.orderId,job.id,owner,job.fence]);
    const prepared=step==='recover-zcash'?await zcash.recover():await zcash.prepare();await check();
    await refreshObservers();await check();
@@ -199,10 +196,13 @@ try{
  }
  console.log(JSON.stringify(result));
 }catch(error){
+ await durable(statePath+'.diagnostic.private.json',g5Diagnostic(error,step,'reverse-operator-step')).catch(()=>{});
+ if(isObserverWait(error)){console.log(JSON.stringify({status:'OBSERVER_WAIT'}));}
+ else{
  state.lastFailure={step,time:new Date().toISOString(),name:(error as any)?.name??'Error',message:String((error as any)?.message??'unknown').slice(0,4000)};
  await save().catch(()=>{});
  await g5slot.incident().catch(()=>{});
- console.error('REVERSE_OPERATOR_STEP_FAILED: reconcile the private state, original transaction and signer journal');process.exitCode=1;
+ console.error('REVERSE_OPERATOR_STEP_FAILED: reconcile the private state, original transaction and signer journal');process.exitCode=1;}
 }finally{
  // Every named operator step ends paused. The operator explicitly re-enables
  // only the next approved step after refreshing observers and reconciliation.

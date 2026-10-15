@@ -17,14 +17,15 @@ import { LocalReverseWalletAdapter } from '../src/reverse-wallet-adapter.ts';
 import { withLeaseHeartbeat } from '../src/lease-heartbeat.ts';
 import { accessHash } from '../src/private-data.ts';
 import {approvalDigest} from '../src/reverse-authority.ts';
-import {refreshReverseObservers} from '../src/reverse-observer-refresh.ts';
-import {spawn} from 'node:child_process';
+import {refreshReverseObserversFromWallet} from '../src/reverse-observer-refresh.ts';
+import {requireExplicitObserverWallet} from '../src/explicit-observer-wallet.ts';
 import {reverseBaseRegistry} from '../src/reverse-base-rpc.ts';
 
 const [step,path]=process.argv.slice(2);
 const steps=['quote','funding','observe-funding','prepare-commit','broadcast-commit','observe-commit','approve-wallet','prepare-zcash','recover-zcash','broadcast-zcash','observe-zcash','prepare-settle','broadcast-settle','observe-settle'];
 if(!steps.includes(step)||!path||process.argv.length!==4)throw Error('One explicit reverse step and private config file required');
 const config=JSON.parse(await readFile(path,'utf8'));
+process.env.ZEE_WALLET_CONFIG=await requireExplicitObserverWallet(config);
 process.env.ZEE_DB_CONFIG=resolve(config.databaseConfig);process.env.ZEE_RUNTIME_CONFIG=resolve(config.runtimeConfig);
 const target=requireDevelopment();
 if(target.branchId!=='br-small-sound-aozx7xa6')throw Error('Exact isolated live reverse operator branch required');
@@ -42,17 +43,10 @@ async function durable(path:string,value:unknown){
 }
 const save=()=>durable(statePath,state);
 async function refreshObservers(){
- if(!config.observerRefreshCommand||!Array.isArray(config.observerRefreshArgs))throw Error('FIXED_OBSERVER_REFRESH_COMMAND_REQUIRED');
- await new Promise<void>((resolve,reject)=>{
-  const child=spawn(config.observerRefreshCommand,config.observerRefreshArgs,{stdio:['ignore','pipe','pipe'],windowsHide:true});
-  let size=0;const timer=setTimeout(()=>{child.kill();reject(Error('REVERSE_OBSERVER_CAPTURE_TIMEOUT'));},240000);
-  child.on('error',()=>{clearTimeout(timer);reject(Error('REVERSE_OBSERVER_CAPTURE_FAILED'));});
-  child.stdout.on('data',b=>{size+=b.length;if(size>32768)child.kill();});child.stderr.on('data',()=>{});
-  child.on('close',code=>{clearTimeout(timer);if(code===0&&size<=32768)resolve();else reject(Error('REVERSE_OBSERVER_CAPTURE_FAILED'));});
- });
- const proof=JSON.parse(await readFile(resolve(config.capitalProofFile),'utf8'));
- await refreshReverseObservers(worker,base,proof.snapshot);
+ await requireExplicitObserverWallet(config);
+ await refreshReverseObserversFromWallet(worker,base,r.wallet);
 }
+
 async function leased(run:(job:any,owner:string,check:()=>Promise<void>)=>Promise<unknown>){
  let owner=state.currentLease?.owner,job:any;
  if(owner){
@@ -159,7 +153,6 @@ try{
   }
   else if(step==='observe-settle')result=await observeEscrowSettlement(worker,r.keys,base,state.orderId);
   else if(step==='prepare-zcash'||step==='recover-zcash')result=await leased(async(job,owner,check)=>{
-   if(!config.observerRefreshCommand)throw Error('FIXED_OBSERVER_REFRESH_COMMAND_REQUIRED');
    await worker.query('SELECT zee.check_reverse_signing($1,$2,$3,$4)',[state.orderId,job.id,owner,job.fence]);
    const prepared=step==='recover-zcash'?await zcash.recover():await zcash.prepare();await check();
    await refreshObservers();await check();

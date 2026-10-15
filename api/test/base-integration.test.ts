@@ -15,6 +15,7 @@ import { BaseContract,payoutTypedData,payoutCall,type BaseRegistry,type PayoutTe
 import { validatePrepared,type BaseSigner,type PreparedBaseTransaction } from '../src/base-signer.ts';
 import { dispatchBaseOnce,reconcileBaseReceipts } from '../src/base-settlement.ts';
 import { ingestSnapshot } from '../src/observer.ts';
+import {isObserverWait} from '../src/observer-frontiers.ts';
 import { createApi } from '../src/http-api.ts';
 import { Repository } from '../src/repository.ts';
 import { authorizeEscrow, fundingCall, fundingTypedData, observeEscrowFunding, storeEscrowCommit, observeEscrowCommit } from '../src/base-escrow.ts';
@@ -324,6 +325,12 @@ test('reverse durable bytes reject mismatches and stale fences; delivery does no
  await assert.rejects(()=>observeReversePayout(worker,r.keys,reverse.id,{...fixtureVerifier,receipt:async()=>({...delivery!,amountZatoshi:'99999'})}),/INVALID_REVERSE_ZCASH_RECEIPT/);
  await assert.rejects(()=>observeReversePayout(worker,r.keys,reverse.id,{...fixtureVerifier,receipt:async()=>({...delivery!,tipHeight:height+8})}),/INVALID_REVERSE_ZCASH_RECEIPT/);
  await assert.rejects(()=>worker.query('SELECT zee.confirm_reverse_payout($1,$2,$3,$4,$5,$6)',[reverse.id,r.keys.lookup('zcash-tx',preparedZcash.txid),height,'e'.repeat(64),'10000',r.keys.seal(delivery,'receipt')]),/canonical finality/);
+ const beforeReceipt=(await worker.query("SELECT scanned_height FROM zee.scanner_checkpoints WHERE network='zcash-testnet'")).rows[0].scanned_height;
+ await assert.rejects(()=>observeReversePayout(worker,r.keys,reverse.id,fixtureVerifier),isObserverWait);
+ assert.equal((await worker.query("SELECT scanned_height FROM zee.scanner_checkpoints WHERE network='zcash-testnet'")).rows[0].scanned_height,beforeReceipt);
+ const scanTime=new Date().toISOString();
+ await ingestSnapshot(worker,r.keys,{schemaVersion:1,network:'zcash-testnet',consensusBranch:'77190ad9',observedAt:scanTime,
+  scannedHeight:sourceHeight,tipHash:'a'.repeat(64),blocks:[{height:sourceHeight,hash:'a'.repeat(64),time:scanTime},{height:sourceHeight-9,hash:'e'.repeat(64),time:scanTime}],outputs:[]});
  assert.equal((await observeReversePayout(worker,r.keys,reverse.id,fixtureVerifier)).status,'ZCASH_DELIVERY_FINALIZED');
  await observeReversePayout(worker,r.keys,reverse.id,fixtureVerifier);
  await assert.rejects(()=>worker.query('SELECT zee.confirm_reverse_payout($1,$2,$3,$4,$5,$6)',[reverse.id,r.keys.lookup('zcash-tx',preparedZcash.txid),height,'f'.repeat(64),'10000',r.keys.seal(delivery,'receipt')]),/receipt changed/);

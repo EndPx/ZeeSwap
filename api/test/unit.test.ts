@@ -64,7 +64,7 @@ test('reverse observer refresh preserves policy and money; contradictory finaliz
  const snapshot={schemaVersion:1,network:'zcash-testnet',consensusBranch:'77190ad9',observedAt:now,scannedHeight:1000,tipHash:hash,
  blocks:[{height:991,hash,time:now},{height:1000,hash,time:now}],outputs:[]};
  const queries:string[]=[];
- const client={query:async(sql:string)=>{queries.push(sql);return {rows:[]};},release(){}};
+ const client={query:async(sql:string)=>{queries.push(sql);return {rows:sql.includes('SELECT epoch::text')?[{epoch:'0'}]:[]};},release(){}};
  const pool={query:async()=>({rows:[]}),connect:async()=>client} as unknown as pg.Pool;
  const heads={latest:{number:100n,hash:'0x'+hash},finalized:{number:90n,hash:'0x'+hash,timestamp:1n}};
  const base={heads:async()=>heads,client:{getBlock:async()=>({hash:'0x'+hash,timestamp:1n})}} as unknown as BaseContract;

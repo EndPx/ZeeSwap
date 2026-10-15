@@ -1,3 +1,4 @@
+import { publishObserverBatch,requireObserverEpoch } from './observer-frontiers.ts';
 import type pg from 'pg';
 import {encodeFunctionData,getAddress,keccak256,parseTransaction,recoverTransactionAddress,type Hex,type Address,type TransactionSerialized} from 'viem';
 import {BaseContract,settlementAbi,publicSettlementId} from './base-contract.ts';
@@ -69,7 +70,8 @@ export async function observeSourceRefundBase(pool:pg.Pool,keys:PrivateData,base
  if((phase==='CANCEL')!==(q.row.direction==='ZCASH_TO_BASE'))throw Error('SOURCE_REFUND_DIRECTION_MISMATCH');
  const proof=await verifyBaseRefund(base,q.id,phase,hash,phase==='REFUND'?await escrowTerms(pool,keys,base,orderId):undefined);
  if(!proof)return {status:'AWAITING_BASE_FINALITY'};
- await transaction(pool,async c=>{await canonicalCheckpoint(c,proof);await c.query('SELECT zee.confirm_source_refund_base($1,$2,$3,$4,$5,$6,$7)',
+ const epoch=await canonicalCheckpoint(pool,proof);
+ await transaction(pool,async c=>{await requireObserverEpoch(c,epoch);await c.query('SELECT zee.confirm_source_refund_base($1,$2,$3,$4,$5,$6,$7)',
   [orderId,phase,keys.lookup('base-tx',hash),Number(proof.receipt.blockNumber),proof.receipt.blockHash.slice(2),proof.fee,
    keys.seal({hash,phase,fee:proof.fee,blockHeight:Number(proof.receipt.blockNumber),blockHash:proof.receipt.blockHash},refundContext(orderId,phase+'-proof'))]);});
  return {status:phase==='CANCEL'?'CANCELLATION_FINALIZED':'REFUNDED'};
@@ -96,11 +98,9 @@ export async function observeForwardRefund(pool:pg.Pool,keys:PrivateData,orderId
   ||proof.tipHeight-proof.blockHeight+1<10||BigInt(proof.blockHeight)>BigInt(p.expiryHeight)
   ||!/^[0-9a-f]{64}$/.test(proof.blockHash)||!/^[0-9a-f]{64}$/.test(proof.tipHash)||!Number.isFinite(age)||age< -5000||age>60000)
   throw Error('SOURCE_REFUND_ZCASH_RECEIPT_MISMATCH');
+ const receiptEpoch=await publishObserverBatch(pool,'forward-refund-receipt',[],[{network:'zcash-testnet',height:proof.blockHeight,hash:proof.blockHash,time:new Date(proof.observedAt)}],proof.blockHeight);
  await transaction(pool,async c=>{
-  await c.query(`INSERT INTO zee.scanner_checkpoints VALUES('zcash-testnet',$1,$2,$1::bigint-9,$3,$3)
-   ON CONFLICT(network) DO UPDATE SET scanned_height=$1,tip_hash=$2,finalized_height=$1::bigint-9,finalized_time=$3,observed_at=$3`,[proof.tipHeight,proof.tipHash,new Date(proof.observedAt)]);
-  await c.query(`INSERT INTO zee.chain_observations VALUES('zcash-testnet',$1,$2,$3)
-   ON CONFLICT(network,height) DO UPDATE SET block_hash=$2,block_time=$3`,[proof.blockHeight,proof.blockHash,new Date(proof.observedAt)]);
+  await requireObserverEpoch(c,receiptEpoch);
   await c.query('SELECT zee.confirm_source_refund_zcash($1,$2,$3,$4,$5,$6)',[orderId,keys.lookup('zcash-tx',p.txid),proof.blockHeight,proof.blockHash,p.feeZatoshi,keys.seal(proof,refundContext(orderId,'ZCASH-proof'))]);
  });return {status:'REFUNDED'};
 }
