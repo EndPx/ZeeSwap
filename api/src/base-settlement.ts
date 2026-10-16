@@ -1,3 +1,4 @@
+import {requireBaseReceiptReadiness} from './base-receipt-readiness.ts';
 import { publishObserverBatch,requireObserverEpoch } from './observer-frontiers.ts';
 import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
@@ -27,6 +28,7 @@ async function saveReceipt(pool:pg.Pool,keys:PrivateData,base:BaseContract,order
  const epoch=await publishObserverBatch(pool,'base-forward-receipt',[],[{network:'base-sepolia',height:receipt.blockNumber,hash:receipt.blockHash.slice(2),time:new Date(Number(block.timestamp)*1000)}]);
  await transaction(pool,async c=>{
   await requireObserverEpoch(c,epoch);
+  await requireBaseReceiptReadiness(c,{orderId,phase:receipt.phase,txHash:keys.lookup('base-tx',receipt.hash),height:receipt.blockNumber,blockHash:receipt.blockHash.slice(2),fee:receipt.fee});
   await c.query('SELECT zee.confirm_base_attempt($1,$2,$3,$4,$5,$6,$7)',[orderId,receipt.phase,keys.lookup('base-tx',receipt.hash),
    receipt.blockNumber,receipt.blockHash.slice(2),receipt.fee,keys.seal(receipt,receiptContext(orderId,receipt.phase))]);
  });

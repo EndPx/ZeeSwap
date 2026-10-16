@@ -1,3 +1,4 @@
+import {baseConfirmationSqlDiagnostic,baseReceiptReadinessDiagnostic,isBaseConfirmationSqlContext} from './base-receipt-readiness.ts';
 import {physicalCaptureDiagnostic} from './g5-physical-diagnostic.ts';
 import {walletScannerDiagnostic} from './wallet-scanner-protocol.ts';
 /** Error messages from RPC/SQL/SDK commands can contain secrets. Persist only
@@ -12,10 +13,11 @@ export function g5Diagnostic(error:unknown,step:string,phase:string){
  }).slice(0,12):[];
  const observerFrontier=observerFrontierDiagnostic(value?.diagnostic);
  const scanner=walletScannerDiagnostic(value?.scannerDiagnostic);
+ const baseConfirmation=baseConfirmationSqlDiagnostic(error),baseReceiptReadiness=baseReceiptReadinessDiagnostic(value?.diagnostic);
  const physicalCapture=physicalCaptureDiagnostic(value?.physicalCaptureDiagnostic);
- return {version:1,observedAt:new Date().toISOString(),step,phase,code,exceptionClass,
+ return {version:1,observedAt:new Date().toISOString(),step,phase,code:baseConfirmation?.code??(isBaseConfirmationSqlContext(error)?'PRIVATE_DIAGNOSTIC_ERROR':code),exceptionClass,
   ...(typeof value?.code==='string'&&/^[A-Z0-9]{5}$/.test(value.code)?{sqlState:value.code}:{}),frames,
-  ...(observerFrontier?{observerFrontier}:{}),...(scanner?{scanner}:{}),...(physicalCapture?{physicalCapture}:{})};
+  ...(observerFrontier?{observerFrontier}:{}),...(scanner?{scanner}:{}),...(physicalCapture?{physicalCapture}:{}),...(baseConfirmation?{baseConfirmation}:{}),...(baseReceiptReadiness?{baseReceiptReadiness}:{})};
 }
 
 /** Keep only public observer headers from known internal producers. Arbitrary
