@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {g5SignerAuditConfig,requireG5SignerQuiescence,requireG5PrivateArtifactAbsent,g5SignerDirectoryWithLock,G5_EMPTY_SIGNER_LOCK_SHA256} from '../src/g5-signer-quiescence.ts';
+import {g5SignerAuditConfig,requireG5SignerQuiescence,requireG5PrivateArtifactAbsent,g5SignerDirectoryWithLock,g5PrestoreSignerDirectoryWithLock,G5_EMPTY_SIGNER_LOCK_SHA256} from '../src/g5-signer-quiescence.ts';
 test('forward signer audit follows the exact configured distribution and refuses guessed or substituted config routes',()=>{
  const client={command:'wsl.exe',args:['--distribution','Ubuntu','--exec','python3','/repo/signer.py','--config','/home/operator/forward.json']};assert.equal(g5SignerAuditConfig(client),'//wsl.localhost/Ubuntu/home/operator/forward.json');assert.equal(g5SignerAuditConfig({...client,args:client.args.map(a=>a==='Ubuntu'?'Ubuntu-24.04':a)}),'//wsl.localhost/Ubuntu-24.04/home/operator/forward.json');
  for(const args of [client.args.filter(a=>!['--distribution','Ubuntu'].includes(a)),[...client.args,'--config','/other'],client.args.map(a=>a==='Ubuntu'?'other':a),client.args.map(a=>a==='/home/operator/forward.json'?'/home/../other':a),client.args.map(a=>a==='/repo/signer.py'?'/repo/unrelated.py':a)])assert.throws(()=>g5SignerAuditConfig({...client,args}));
@@ -25,4 +25,8 @@ test('retained64/8 inventories admit exactly one real empty OS lock as65/9 while
  for(const stat of [{...regular,isSymbolicLink:()=>true},{...regular,isFile:()=>false},{...regular,size:1}])assert.throws(()=>g5SignerDirectoryWithLock(kind,baseline,names,stat,empty));
  assert.throws(()=>g5SignerDirectoryWithLock(kind,baseline,names,regular,Buffer.from('unexpected')));assert.throws(()=>g5SignerDirectoryWithLock(kind,[...baseline.slice(0,-1),{...baseline[0],name:'signer.lock'}],names,regular,empty));
  }
+});
+
+test('prestore directory explicitly retains65 originals including nonce28 plus exact OS lock as66; EMPTY wrapper remainsstrict64',()=>{
+ const baseline=Array.from({length:65},(_,i)=>({name:String(i).padStart(3,'0')+(i===64?'.PAY.tx.json':'.auth.json'),sha256:'a'.repeat(64),bytesBase64:'original'})),names=[...baseline.map(f=>f.name),'signer.lock'],stat={isFile:()=>true,isSymbolicLink:()=>false,size:0};const result=g5PrestoreSignerDirectoryWithLock('operator',baseline,names,stat,Buffer.alloc(0));assert.equal(result.length,66);assert.deepEqual(result.slice(0,65),baseline);assert.throws(()=>g5SignerDirectoryWithLock('operator',baseline,names,stat,Buffer.alloc(0)));for(const changed of [names.slice(1),[...names,'extra.tmp'],[...names,'second.tx.json']])assert.throws(()=>g5PrestoreSignerDirectoryWithLock('operator',baseline,changed,stat,Buffer.alloc(0)));
 });

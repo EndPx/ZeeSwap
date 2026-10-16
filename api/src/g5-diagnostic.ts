@@ -27,8 +27,8 @@ export function g5Diagnostic(error:unknown,step:string,phase:string){
  */
 export function observerFrontierDiagnostic(value:unknown){
  const v=value as any;
- const sources=['source-wallet-snapshot','base-head','reverse-observer-refresh','base-escrow-receipt','base-forward-receipt','base-local-head','reverse-payout-receipt','forward-refund-receipt'];
- const waits=['HEAD_BEHIND','FINALITY_BEHIND','OLDER_OBSERVATION','SCANNER_FINALITY_PENDING'];
+ const sources=['source-wallet-snapshot','base-head','reverse-observer-refresh','base-escrow-receipt','base-forward-receipt','base-local-head','base-head-read-retry','reverse-payout-receipt','forward-refund-receipt'];
+ const waits=['HEAD_BEHIND','FINALITY_BEHIND','OLDER_OBSERVATION','SCANNER_FINALITY_PENDING','SOURCE_CAPTURE_EXPIRED'];
  const conflicts=['TIP_HASH_CHANGED','CANONICAL_HASH_CHANGED'];
  if(!v||v.event!=='observer-frontier'||!sources.includes(v.source)||!['zcash-testnet','base-sepolia'].includes(v.network)
   ||!(v.status==='WAIT'&&waits.includes(v.reason)||v.status==='CONFLICT'&&conflicts.includes(v.reason)))return undefined;

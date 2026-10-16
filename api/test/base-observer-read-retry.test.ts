@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {ObserverWaitError} from '../src/observer-frontiers.ts';
+import {ObserverWaitError,isObserverWait} from '../src/observer-frontiers.ts';
+import {g5Diagnostic} from '../src/g5-diagnostic.ts';
 import {retryAuthenticatedBaseHeadRead} from '../src/base-observer-read-retry.ts';
 
 const hash='ab'.repeat(32);
@@ -35,7 +36,7 @@ test('canonical conflict propagates after its first committed freeze and is neve
 });
 test('source lag, older Base observation, other network, malformed lookalikes and unknown errors immediately stop',async()=>{
  for(const error of [lag('HEAD_BEHIND','zcash-testnet'),lag('OLDER_OBSERVATION'),lag('SCANNER_FINALITY_PENDING'),
-  new Error('BASE_RPC_UNAVAILABLE'),Object.assign(new Error('OBSERVER_WAIT'),{diagnostic:lag().diagnostic}),new ObserverWaitError({network:'base-sepolia',reason:'HEAD_BEHIND'})]){
+  new Error('BASE_RPC_UNAVAILABLE'),new Error('STALE_SNAPSHOT'),Object.assign(new Error('OBSERVER_WAIT'),{diagnostic:lag().diagnostic}),new ObserverWaitError({network:'base-sepolia',reason:'HEAD_BEHIND'})]){
   let reads=0;
   await assert.rejects(()=>retryAuthenticatedBaseHeadRead({read:async()=>({heads:++reads,observedAt:new Date()}),publish:async()=>{throw error;}},snapshot()),value=>value===error);
   assert.equal(reads,1);
@@ -43,20 +44,20 @@ test('source lag, older Base observation, other network, malformed lookalikes an
 });
 test('an already stale source capture prevents even the first Base read',async()=>{
  let reads=0;const source={...snapshot(),observedAt:new Date(Date.now()-61000).toISOString()};
- await assert.rejects(()=>retryAuthenticatedBaseHeadRead({read:async()=>({heads:++reads,observedAt:new Date()}),publish:async()=>true},source),/STALE_SNAPSHOT/);
+ await assert.rejects(()=>retryAuthenticatedBaseHeadRead({read:async()=>({heads:++reads,observedAt:new Date()}),publish:async()=>true},source),e=>!isObserverWait(e)&&/STALE_SNAPSHOT/.test((e as Error).message));
  assert.equal(reads,0);
 });
 test('source capture expiring between attempts stops before another read and cannot have its timestamp renewed',async()=>{
  const now=Date.now,initial=now(),source=snapshot(),observedAt=source.observedAt;let reads=0;
  try{
-  await assert.rejects(()=>retryAuthenticatedBaseHeadRead({read:async()=>({heads:++reads,observedAt:new Date(initial)}),publish:async()=>{Date.now=()=>initial+61001;throw lag();}},source),/STALE_SNAPSHOT/);
+  await assert.rejects(()=>retryAuthenticatedBaseHeadRead({read:async()=>({heads:++reads,observedAt:new Date(initial)}),publish:async()=>{Date.now=()=>initial+61001;throw lag();}},source),e=>isObserverWait(e)&&e.diagnostic.reason==='SOURCE_CAPTURE_EXPIRED'&&e.diagnostic.network==='zcash-testnet');
   assert.equal(reads,1);assert.equal(source.observedAt,observedAt);
  }finally{Date.now=now;}
 });
 test('source expiring during a Base read prevents publication even if that head would be usable',async()=>{
  const now=Date.now,initial=now();let reads=0,publishes=0;
  try{
-  await assert.rejects(()=>retryAuthenticatedBaseHeadRead({read:async()=>{reads++;Date.now=()=>initial+61001;return {heads:101,observedAt:new Date(initial)};},publish:async()=>{publishes++;return true;}},snapshot()),/STALE_SNAPSHOT/);
+  await assert.rejects(()=>retryAuthenticatedBaseHeadRead({read:async()=>{reads++;Date.now=()=>initial+61001;return {heads:101,observedAt:new Date(initial)};},publish:async()=>{publishes++;return true;}},snapshot()),e=>{assert(isObserverWait(e));assert.equal(e.diagnostic.reason,'SOURCE_CAPTURE_EXPIRED');const safe=g5Diagnostic(e,'dispatch','base-preflight');assert.equal(safe.observerFrontier?.reason,'SOURCE_CAPTURE_EXPIRED');assert.equal((safe.observerFrontier?.incoming as any).observedAt,(e.diagnostic.incoming as any).observedAt);return true;});
   assert.equal(reads,1);assert.equal(publishes,0);
  }finally{Date.now=now;}
 });
@@ -65,5 +66,15 @@ test('a later canonical or unknown failure after one eligible lag is propagated 
   let reads=0;
   await assert.rejects(()=>retryAuthenticatedBaseHeadRead({read:async()=>({heads:++reads,observedAt:new Date()}),publish:async()=>{if(reads===1)throw lag();throw error;}},snapshot()),value=>value===error);
   assert.equal(reads,2);
+ }
+});
+
+test('later future/nonfinite clock and invalid initial capture stay hard without publication',async()=>{
+ for(const shift of [-6000,NaN]){const now=Date.now,initial=now();let reads=0,publishes=0;try{
+  await assert.rejects(()=>retryAuthenticatedBaseHeadRead({read:async()=>{reads++;Date.now=()=>initial+shift;return {heads:101,observedAt:new Date(initial)};},publish:async()=>{publishes++;return true;}},snapshot()),e=>!isObserverWait(e)&&/STALE_SNAPSHOT/.test((e as Error).message));
+  assert.equal(reads,1);assert.equal(publishes,0);
+ }finally{Date.now=now;}}
+ for(const source of [{...snapshot(),observedAt:'not-a-date'},{...snapshot(),observedAt:new Date(Date.now()+6000).toISOString()},{...snapshot(),blocks:[]}]){
+  let reads=0;await assert.rejects(()=>retryAuthenticatedBaseHeadRead({read:async()=>({heads:++reads,observedAt:new Date()}),publish:async()=>true},source),e=>!isObserverWait(e));assert.equal(reads,0);
  }
 });

@@ -1,3 +1,4 @@
+import {readBaseAnchorsBounded} from './base-anchor-reads.ts';
 import type pg from 'pg';
 import { BaseContract } from './base-contract.ts';
 import { validateSnapshot,observerCheckHeights } from './observer.ts';
@@ -29,13 +30,14 @@ export async function refreshReverseObservers(pool:pg.Pool,base:BaseContract,val
  const heads=await base.heads(),observedAt=new Date();
  const references=(await pool.query("SELECT height::text FROM zee.chain_observations WHERE network='base-sepolia' ORDER BY height LIMIT 501")).rows;
  if(references.length>500)throw Error('REVERSE_RECONCILIATION_WINDOW_LIMIT');
- const blocks:{height:string;hash:string;time:Date}[]=[];
- for(const {height} of references){
-  // A lagging provider cannot serve an anchor above its own latest head.
-  // The locked publisher will return WAIT without refreshing either frontier.
-  if(BigInt(height)>heads.latest.number)continue;
-  const block=await base.client.getBlock({blockNumber:BigInt(height)});blocks.push({height,hash:block.hash!.slice(2),time:new Date(Number(block.timestamp)*1000)});
- }
+ // A lagging provider cannot serve an anchor above its own latest head.
+ // Preserve all eligible anchors in SQL order; the fixed four-read bound
+ // drains started requests on failure before any publication can occur.
+ const eligible=references.filter(({height})=>BigInt(height)<=heads.latest.number);
+ const blocks=await readBaseAnchorsBounded(eligible,async({height})=>{
+  const block=await base.client.getBlock({blockNumber:BigInt(height)});
+  return {height,hash:block.hash!.slice(2),time:new Date(Number(block.timestamp)*1000)};
+ });
  if((await base.client.getBlock({blockNumber:heads.finalized.number})).hash!==heads.finalized.hash)throw Error('BASE_REORG');
  return {heads:{chain:heads,blocks},observedAt};
  },publish:async(read,source)=>{

@@ -6,8 +6,10 @@ import {privateJsonRoute} from './private-json-read.ts';
 export const G5_EMPTY_SIGNER_LOCK_SHA256='e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 /** The retained incident inventories excluded the OS lock. Authenticate that
  * one live entry explicitly without mutating or weakening either baseline. */
-export function g5SignerDirectoryWithLock(kind:'operator'|'payer',baseline:any[],names:string[],stat:{isFile():boolean;isSymbolicLink():boolean;size:number|bigint},bytes:Buffer){
- const expected=kind==='operator'?64:8;
+type SignerLockStat={isFile():boolean;isSymbolicLink():boolean;size:number|bigint};
+export function g5SignerDirectoryWithLock(kind:'operator'|'payer',baseline:any[],names:string[],stat:SignerLockStat,bytes:Buffer){return signerDirectoryWithLock(kind==='operator'?64:8,baseline,names,stat,bytes);}
+export function g5PrestoreSignerDirectoryWithLock(kind:'operator'|'payer',baseline:any[],names:string[],stat:SignerLockStat,bytes:Buffer){return signerDirectoryWithLock(kind==='operator'?65:8,baseline,names,stat,bytes);}
+function signerDirectoryWithLock(expected:number,baseline:any[],names:string[],stat:SignerLockStat,bytes:Buffer){
  if(!Array.isArray(baseline)||baseline.length!==expected||new Set(baseline.map(f=>f.name)).size!==expected||baseline.some(f=>typeof f.name!=='string'||f.name==='signer.lock'||f.name.endsWith('.tmp')||f.name.includes('/')||f.name.includes('\\'))||new Set(names).size!==names.length||!stat.isFile()||stat.isSymbolicLink()||BigInt(stat.size)!==0n||bytes.length!==0||createHash('sha256').update(bytes).digest('hex')!==G5_EMPTY_SIGNER_LOCK_SHA256)throw Error('G5_SIGNER_EXACT_EMPTY_LOCK_REQUIRED');
  const result=[...baseline,{name:'signer.lock',sha256:G5_EMPTY_SIGNER_LOCK_SHA256,bytesBase64:'',nonce:null,hash:null,hasRaw:false}];
  if(JSON.stringify(result.map(f=>f.name).sort())!==JSON.stringify([...names].sort()))throw Error('G5_SIGNER_COMPLETE_DIRECTORY_CHANGED');return result;
