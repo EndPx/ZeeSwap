@@ -17,7 +17,7 @@ export interface PreparedSourceAdmission {
  version:1;runId:string;manifestBinding:string;sequence:number;attempt:number;owner:string;receiver:string;
  actorConfigHash:string;input:QuoteInput;epoch:string;basePreflightObservedAt:string;preparedAt:string;
 }
-const reasons=['SOURCE_SYNC_STALE','SOURCE_CHECKPOINT_STALE','BASE_CHECKPOINT_STALE','BASE_PREFLIGHT_STALE','SOURCE_TIP_BEHIND_SCAN','INSUFFICIENT_WINDOW'];
+const reasons=['SOURCE_SYNC_STALE','SOURCE_CHECKPOINT_STALE','BASE_CHECKPOINT_STALE','BASE_PREFLIGHT_STALE','SOURCE_TIP_BEHIND_SCAN','INSUFFICIENT_WINDOW','SOURCE_WALLET_SCAN_BEHIND'];
 export function sourceAdmissionWait(sequence:number,reason:string){
  if(!reasons.includes(reason))throw Error('G5_SOURCE_ADMISSION_WAIT_REASON_INVALID');
  return {version:1 as const,status:'SOURCE_ADMISSION_WAIT' as const,sequence,reason,quoteCreated:false,accepted:false};
@@ -63,6 +63,8 @@ function clockAge(time:unknown,now:number){if(typeof time!=='string')return Infi
 export function sourceAdmissionDecision(prepared:PreparedSourceAdmission,actor:any,sync:any,source:any,base:any,now:number){
  const sequence=prepared.sequence;
  if(sync?.state!=='SYNCED'||sourceAdmissionDigest(sync.binding)!==sourceAdmissionDigest(actor)||!Number.isSafeInteger(sync.tip)||sync.tip<0)throw Error('G5_SOURCE_SYNC_BINDING_REQUIRED');
+ if(!Number.isSafeInteger(sync.scannedHeight)||sync.scannedHeight<0||sync.tip<sync.scannedHeight)throw Error('G5_SOURCE_SYNC_SCAN_REQUIRED');
+ if(sync.tip-sync.scannedHeight>1)return sourceAdmissionWait(sequence,'SOURCE_WALLET_SCAN_BEHIND');
  if(clockAge(sync.observedAt,now)>60000)return sourceAdmissionWait(sequence,'SOURCE_SYNC_STALE');
  if(clockAge(prepared.basePreflightObservedAt,now)>120000)return sourceAdmissionWait(sequence,'BASE_PREFLIGHT_STALE');
  if(!source||!base)throw Error('G5_SOURCE_ADMISSION_CHECKPOINT_REQUIRED');
@@ -129,10 +131,13 @@ export async function runSourcePreparation(io:{validateRefund():Promise<void>;al
 }
 
 /** A single durable action owns sync -> SQL admission -> admitted intent -> fund.
- * There is no observer snapshot or SDK resync after acceptance. */
+ * The wrapper adds no post-acceptance observer work. The source actor alone
+ * may perform one read-only scan catchup before proposal, with at least eight
+ * blocks still remaining; any uncertain fund result retains the ADMITTED fence. */
 export async function admitAndFundSource(sequence:number,io:{sync():Promise<any>;admit():Promise<any>;recordAdmitted(result:any):Promise<void>;authorize(result:any):Promise<any>;fund():Promise<any>}){
  const synced=await io.sync();
- if(synced.status==='SOURCE_PREFUND_WAIT'&&sourcePrefundWait(synced,sequence))return synced;
+ if(synced.status==='SOURCE_PREFUND_WAIT'&&sourcePrefundWait(synced,sequence))
+  return synced.code==='G5_SOURCE_SCAN_STALE'?sourceAdmissionWait(sequence,'SOURCE_WALLET_SCAN_BEHIND'):synced;
  if(synced.status!=='SYNCED')throw Error('G5_LIVE_FRESH_SOURCE_SYNC_REQUIRED');
  const admitted=await io.admit();if(isSourceAdmissionWait(admitted,sequence))return admitted;
  if(admitted.status!=='SOURCE_ADMITTED'||admitted.sequence!==sequence||typeof admitted.epoch!=='string'||!/^\d+$/.test(admitted.epoch)||typeof admitted.fundingSha256!=='string'||!/^[0-9a-f]{64}$/.test(admitted.fundingSha256))throw Error('G5_SOURCE_ORIGINAL_ADMISSION_RECONCILIATION_REQUIRED');

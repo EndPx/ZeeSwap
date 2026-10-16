@@ -24,3 +24,10 @@ test('source packets cannot override reverse Base body or another source action'
  const cleanupFirst=[packet('LOCK_RELEASE','SOURCE_FILE_PERMISSION'),packet('SDK_SYNC')].map(p=>JSON.stringify(p)).join('\n');
  assert.equal(g5ChildDiagnostic(cleanupFirst,{sequence:7,stage:'SYNC'},1,null).phase,'G5_SOURCE_SDK_SYNC');
 });
+
+test('completed sync scan WAIT has strict positive public heights and cannot originate from fund',()=>{
+ const scan={...wait(),phase:'SCAN_FRESHNESS',code:'G5_SOURCE_SCAN_STALE',scannedHeight:100,tipHeight:102};assert.equal(sourcePrefundWait(scan,7),true);
+ for(const delta of [{command:'fund'},{scannedHeight:103},{scannedHeight:101},{scannedHeight:'100'},{tipHeight:99},{phase:'NETWORK_TIP'},{sdkCompleted:false},{uncertain:true},{proposalStarted:true},{private:'SECRET'}])assert.equal(sourcePrefundWait({...scan,...delta},7),false);
+ const d={...packet('SCAN_FRESHNESS','G5_SOURCE_SCAN_STALE'),scannedHeight:100,tipHeight:102};assert.deepEqual(sourceActorDiagnostic(d),d);
+ for(const delta of [{tipHeight:99},{tipHeight:'102'},{phase:'PROPOSE'},{code:'SECRET'},{uri:'https://SECRET'}])assert.equal(sourceActorDiagnostic({...d,...delta}),undefined);
+});

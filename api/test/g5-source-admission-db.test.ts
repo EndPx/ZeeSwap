@@ -23,7 +23,7 @@ async function fixture(tip=1002){
  const slot:G5Order={sequence:13,direction:'ZCASH_TO_BASE',owner:randomBytes(32).toString('base64url'),receiver:'fixture:receiver:'+randomUUID()},state:G5State={version:1,runId:config.runId,binding:g5Binding(config),openingEventId:'synthetic',orders:[slot],batchSize:5};
  const actor={sequence:13,branchId:config.branchId,runId:config.runId,runConfig:'/synthetic/run.json',walletPath:'/home/albary/zeeswap-g5-retry/source-13/user-wallet',preQuoteSyncFile:'/home/albary/zeeswap-g5-retry/source-13/source-prequote-sync.private.json',refundRecipient:'utest1source13',ufvkSha256:'a'.repeat(64),approvedNote:{pool:'ironwood',txid:'b'.repeat(64),index:0,value:'110000'}};
  await db.query('UPDATE zee.scanner_checkpoints SET observed_at=clock_timestamp()');const epoch=(await db.query('SELECT epoch::text FROM zee.runtime_control')).rows[0].epoch;
- const prepared=prepareSourceAdmission(config,state,slot,actor,'/synthetic/run.json',contract,epoch,new Date().toISOString()),sync={state:'SYNCED',binding:actor,tip,observedAt:new Date().toISOString()};
+ const prepared=prepareSourceAdmission(config,state,slot,actor,'/synthetic/run.json',contract,epoch,new Date().toISOString()),sync={state:'SYNCED',binding:actor,tip,scannedHeight:tip,observedAt:new Date().toISOString()};
  return {config,slot,state,actor,epoch,prepared,sync,admit:()=>admitPreparedSource(db,keys,config,state,slot,actor,'/synthetic/run.json',contract,prepared,sync)};
 }
 async function rows(){return (await db.query(`SELECT (SELECT count(*)::text FROM zee.quotes) AS quotes,(SELECT count(*)::text FROM zee.orders) AS orders,(SELECT count(*)::text FROM zee.reservations) AS reservations,(SELECT count(*)::text FROM zee.ledger_entries) AS ledger`)).rows[0];}
@@ -35,6 +35,13 @@ test('failed SQL acceptance rolls quote issuance and all reservation changes bac
  try{await assert.rejects(()=>f.admit());assert.deepEqual(await rows(),before);assert.equal((await db.query('SELECT accepting_orders FROM zee.runtime_control')).rows[0].accepting_orders,false);}
  finally{await db.query("UPDATE zee.inventory_accounts SET balance=1000000000000000 WHERE asset='baseETH' AND purpose='fee'");}
 });
+test('actual source-wallet lag2 refuses before quote despite valid ten-block deposit window; missing or negative scan proof stays hard',async()=>{
+ const f=await fixture(),before=await rows();f.sync.scannedHeight=1000;
+ const r=await f.admit();assert.equal(r.status,'SOURCE_ADMISSION_WAIT');assert.equal('reason' in r?r.reason:undefined,'SOURCE_WALLET_SCAN_BEHIND');assert.deepEqual(await rows(),before);
+ (f.sync as any).scannedHeight=undefined;await assert.rejects(()=>f.admit(),/SYNC_SCAN_REQUIRED/);assert.deepEqual(await rows(),before);
+ f.sync.scannedHeight=1003;await assert.rejects(()=>f.admit(),/SYNC_SCAN_REQUIRED/);assert.deepEqual(await rows(),before);
+});
+
 test('ten-block admission retains cutoff scan+12; replay exports the identical original and never issues another quote',async()=>{
  const f=await fixture(),first=await f.admit();assert.equal(first.status,'SOURCE_ADMITTED');if(!('funding' in first))throw Error('test funding missing');
  assert.equal(first.funding.cutoffHeight,'1012');f.slot.orderId=first.funding.orderId;const before=await rows();assert.equal(before.quotes,'1');assert.equal(before.orders,'1');assert.equal(before.reservations,'3');

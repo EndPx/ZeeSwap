@@ -59,3 +59,12 @@ test('a result originating from fund cannot disguise an unknown effect as a pre-
  await assert.rejects(()=>runG5LiveBounded(h.state,{maxSteps:1,maxMilliseconds:1000},h.io),/ORIGINAL_EFFECT_RECONCILIATION_REQUIRED/);
  assert.equal(funds,1);
 });
+
+test('new completed positive scan-lag WAIT skips fund, then a fresh sync progresses once; negative scan WAIT freezes',async()=>{
+ const scan={...wait(),phase:'SCAN_FRESHNESS',code:'G5_SOURCE_SCAN_STALE',scannedHeight:100,tipHeight:102},h=harness();let syncs=0,funds=0;
+ h.io.execute=async sequence=>syncAndFundG5Source({sync:async()=>++syncs===1?scan:{status:'SYNCED'},fund:async()=>{funds++;return {status:'BROADCAST'};}},sequence);
+ await runG5LiveBounded(h.state,{maxSteps:1,maxMilliseconds:1000},h.io);assert.equal(funds,0);assert.equal(h.state.incident,false);assert.equal(h.state.slots[2].stage,'SOURCE_FUND');
+ await runG5LiveBounded(h.state,{maxSteps:1,maxMilliseconds:1000},h.io);assert.equal(funds,1);assert.equal(h.state.slots[2].stage,'OBSERVE_SOURCE');
+ const bad=harness();bad.io.execute=async sequence=>syncAndFundG5Source({sync:async()=>({...scan,tipHeight:99}),fund:async()=>{throw Error('must not fund');}},sequence);
+ assert.equal((await runG5LiveBounded(bad.state,{maxSteps:1,maxMilliseconds:1000},bad.io)).status,'UNKNOWN_OR_INCIDENT');assert.equal(bad.state.incident,true);
+});

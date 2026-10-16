@@ -13,7 +13,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-from g5_source_diagnostics import SourceActorState, SourceReadUnavailable, absent, report, prefund_wait
+from g5_source_diagnostics import SourceActorState, SourceReadUnavailable, SourceScanBehind, absent, report, prefund_wait
 
 STATE = SourceActorState()
 
@@ -68,7 +68,7 @@ def validate_run_binding(config, funding_path=None, funding=None):
 
 
 def require_archive_profile(archived):
-    if not isinstance(archived, list) or [a.get('sequence') for a in archived] not in ([], [7], [7, 13]):
+    if not isinstance(archived, list) or [a.get('sequence') for a in archived] not in ([], [7], [7, 13], [7, 13, 15]):
         raise ValueError('G5_SOURCE_ARCHIVED_ATTEMPT_ARTIFACT_REQUIRED')
 
 
@@ -79,7 +79,7 @@ def funding_path_for_slot(state_path, sequence, slot, archived):
     if attempt == 1:
         return Path(str(state_path) + '.funding-' + str(sequence) + '.json')
     profile = [a.get('sequence') for a in archived]
-    if (sequence not in (7, 13) or profile not in ([7], [7, 13]) or sequence not in profile):
+    if (sequence not in (7, 13, 15) or profile not in ([7], [7, 13], [7, 13, 15]) or sequence not in profile):
         raise ValueError('G5_SOURCE_FIXED_CORE_FUNDING_PATH')
     old = next(a for a in archived if a.get('sequence') == sequence)
     if (old.get('version') != 1 or old.get('attempt') != 1
@@ -94,7 +94,7 @@ def funding_path_for_slot(state_path, sequence, slot, archived):
 
 def validate_archived_source_attempt(state_path, slot, old, config):
     sequence = config.get('sequence')
-    if sequence not in (7, 13):
+    if sequence not in (7, 13, 15):
         raise ValueError('G5_SOURCE_ARCHIVED_ATTEMPT_ARTIFACT_REQUIRED')
     original_path = Path(str(state_path) + '.funding-' + str(sequence) + '.json')
     audit_path = Path(str(state_path) + '.source' + str(sequence) + '-expired-audit.private.json')
@@ -181,6 +181,35 @@ def funding_binding(funding, config, tip):
         raise ValueError('G5_SOURCE_MINIMUM_EIGHT_BLOCK_WINDOW')
 
 
+def require_source_scan(scanned, tip, maximum=2):
+    STATE.phase = 'SCAN_FRESHNESS'
+    if type(scanned) is not int or type(tip) is not int or scanned < 0 or tip < scanned:
+        raise ValueError('G5_SOURCE_SCAN_TIP_INVALID')
+    if tip - scanned > maximum:
+        raise SourceScanBehind(scanned, tip)
+    return {'scannedHeight': scanned, 'tipHeight': tip}
+
+
+def validate_funding_note(config, funding, journal, io):
+    """One completed read-only catchup, only before this invocation's proposal."""
+    try:
+        io.validate_note(config['approvedNote'], config['ufvkSha256'])
+    except SourceScanBehind as error:
+        if (type(error.scanned_height) is not int or type(error.tip_height) is not int
+                or error.scanned_height < 0 or error.tip_height-error.scanned_height <= 2
+                or STATE.command != 'fund' or not STATE.lock_acquired or STATE.lock_released
+                or STATE.proposal_started or STATE.intent_created or STATE.uncertain or STATE.sdk_active
+                or not STATE.sdk_completed or not absent(journal) or not absent(str(journal)+'.result.json')):
+            raise
+        funding_binding(funding, config, error.tip_height)
+        STATE.phase = 'FUND_SCAN_CATCHUP'
+        io.call(['--server', 'https://testnet.zec.rocks:443', '--waitsync', 'notes', 'all'])
+        if not absent(journal) or not absent(str(journal)+'.result.json'):
+            raise ValueError('G5_SOURCE_ORIGINAL_OPERATION_RECOVERY_REQUIRED')
+        # No loop: a second lag, timeout or unknown error remains hard.
+        io.validate_note(config['approvedNote'], config['ufvkSha256'])
+
+
 def fund_once(config, funding, journal, io):
     """Injectable IO for fixtures. Existing/uncertain intent ALWAYS blocks send."""
     wallet = binding(config)
@@ -198,7 +227,11 @@ def fund_once(config, funding, journal, io):
     funding_binding(funding, config, tip)
     STATE.phase = 'RECEIVER'
     io.validate_receiver(funding['receiver'])
-    io.validate_note(config['approvedNote'], config['ufvkSha256'])
+    validate_funding_note(config, funding, journal, io)
+    STATE.phase = 'PRE_PROPOSAL_FUNDING_BINDING'
+    current_tip = io.tip()
+    STATE.phase = 'PRE_PROPOSAL_FUNDING_BINDING'
+    funding_binding(funding, config, current_tip)
     STATE.phase = 'PROPOSE'
     STATE.proposal_started = True
     fee = io.propose(funding)
@@ -297,8 +330,7 @@ class WalletIO:
         if not ranges or any(r.get('priority') != 'Scanned' for r in ranges):
             raise ValueError('G5_SOURCE_COMPLETE_SCAN_REQUIRED')
         scanned = max(int(r['end_block']) for r in ranges) - 1
-        if not 0 <= self.tip() - scanned <= 2:
-            raise ValueError('G5_SOURCE_SCAN_STALE')
+        proof = require_source_scan(scanned, self.tip())
         STATE.phase = 'COINS'
         coins = self.call(['--offline', '--nosync', 'coins', 'all'])
         if any(c.get('spend_status') == 'unspent' for c in coins.get('transparent_coins', [])):
@@ -316,6 +348,7 @@ class WalletIO:
         height = re.fullmatch(r'confirmed at block height (\d+)', note.get('status', ''))
         if pool != expected['pool'] or note.get('txid') != expected['txid'] or note.get('output_index') != expected['index'] or str(note.get('value')) != expected['value'] or not height or scanned - int(height[1]) + 1 < 10:
             raise ValueError('G5_SOURCE_APPROVED_NOTE_MISMATCH')
+        return proof
 
     def propose(self, funding):
         return self.call(['--offline', '--nosync', 'send', funding['receiver'], '100000', funding['memo']]).get('fee')
@@ -466,8 +499,8 @@ def require_unfunded_audit_notes(config, funding, status, notes, coins, export):
 def require_unfunded_audit_scope(state, sequence):
     matches = [s for s in state.get('orders', []) if s.get('sequence') == sequence]
     slot = matches[0] if len(matches) == 1 else {}
-    if (sequence not in (7, 13) or not slot or slot.get('attempt', 1) != 1
-            or [a.get('sequence') for a in state.get('archivedAttempts', [])] != ([] if sequence == 7 else [7])):
+    if (sequence not in (7, 13, 15) or not slot or slot.get('attempt', 1) != 1
+            or [a.get('sequence') for a in state.get('archivedAttempts', [])] != ({7: [], 13: [7], 15: [7, 13]}.get(sequence))):
         raise ValueError('G5_SOURCE_AUDIT_LITERAL_SEQUENCE_REQUIRED')
     return slot
 
@@ -475,7 +508,7 @@ def require_unfunded_audit_scope(state, sequence):
 def audit_unfunded(config, funding_path, io, private_root, view_path):
     STATE.phase = 'FUNDING_READ'
     sequence = config.get('sequence')
-    if sequence not in (7, 13) or funding_path is None:
+    if sequence not in (7, 13, 15) or funding_path is None:
         raise ValueError('G5_SOURCE_AUDIT_LITERAL_SEQUENCE_REQUIRED')
     funding_bytes = Path(funding_path).read_bytes()
     funding = json.loads(funding_bytes)
@@ -580,20 +613,22 @@ def main():
             require_no_source_artifacts(private_root)
             STATE.phase = 'SDK_SYNC'
             io.call(['--server', 'https://testnet.zec.rocks:443', '--waitsync', 'notes', 'all'])
-            io.validate_note(config['approvedNote'], config['ufvkSha256'])
+            scan = io.validate_note(config['approvedNote'], config['ufvkSha256'])
             sync_path = Path(config['preQuoteSyncFile'])
             require_no_source_artifacts(private_root)
-            if sync_path.exists():
-                # Retain every old private snapshot. Never touch a funding intent.
-                import uuid
-                sync_path.rename(str(sync_path) + '.' + str(uuid.uuid4()) + '.previous')
             STATE.phase = 'SYNC_WRITE'
             sync_tip = io.tip()
             sync_observed_at = datetime.now(timezone.utc).isoformat()
             STATE.phase = 'SYNC_INTENT_CHECK'
             require_no_source_artifacts(private_root)
+            require_source_scan(scan['scannedHeight'], sync_tip, maximum=1)
+            if sync_path.exists():
+                # Retain old completed proofs; no funding intent is touched.
+                import uuid
+                sync_path.rename(str(sync_path) + '.' + str(uuid.uuid4()) + '.previous')
             STATE.phase = 'SYNC_WRITE'
-            durable(sync_path, {'state': 'SYNCED', 'binding': config, 'tip': sync_tip, 'observedAt': sync_observed_at})
+            durable(sync_path, {'state': 'SYNCED', 'binding': config, 'tip': sync_tip,
+                               'scannedHeight': scan['scannedHeight'], 'observedAt': sync_observed_at})
             print('{"state":"SYNCED"}')
         elif args.step == 'audit-unfunded':
             audit_proof = audit_unfunded(config, args.funding, io, private_root, args.view_config)

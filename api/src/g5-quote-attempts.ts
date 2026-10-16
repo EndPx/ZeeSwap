@@ -5,13 +5,13 @@ import type {G5State} from './g5-run.ts';
 import {accessHash,type PrivateData} from './private-data.ts';
 export const g5AttemptDigest=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 /** Only the audited Source7 predecessor and the explicitly reviewed Source13
- * predecessor. Every exception remains independently authenticated. */
+ * predecessors, followed only by Source15. Every exception remains independently authenticated. */
 export function requireG5ArchivedAttempts(state:G5State):any[]{
  const archive=state.archivedAttempts;
  if(archive===undefined){if(state.orders.some(o=>o.attempt!==undefined))throw Error('G5_UNAUDITED_QUOTE_ATTEMPT');return [];}
- if(state.runId!=='1f34e059-4de1-49f6-bbaa-323008577994'||state.batchSize!==5||!Array.isArray(archive)||![1,2].includes(archive.length))throw Error('G5_ONLY_LITERAL_ARCHIVED_SOURCE7_ATTEMPT');
+ if(state.runId!=='1f34e059-4de1-49f6-bbaa-323008577994'||state.batchSize!==5||!Array.isArray(archive)||![1,2,3].includes(archive.length))throw Error('G5_ONLY_LITERAL_ARCHIVED_SOURCE7_ATTEMPT');
  for(const [i,a] of archive.entries()){
-  const sequence=i===0?7:13,current=state.orders[sequence-1];
+  const sequence=[7,13,15][i],current=state.orders[sequence-1];
   if(a?.version!==1||a.sequence!==sequence||a.attempt!==1||a.direction!=='ZCASH_TO_BASE'||!a.orderId||!a.owner||!a.receiver||a.verified||a.receiptVerified
    ||!current||current.sequence!==sequence||current.attempt!==2||current.owner===a.owner||current.orderId===a.orderId||current.receiver===a.receiver
    ||typeof a.fundingFile!=='string'||!a.fundingFile.endsWith('.funding-'+sequence+'.json')||!a.auditFile||!/^[0-9a-f]{64}$/.test(a.auditSha256)||!/^[0-9a-f]{64}$/.test(a.fundingSha256)||!/^[0-9a-f]{64}$/.test(a.fundingBindingSha256)||!/^[0-9a-f]{64}$/.test(a.quotePayloadSha256)||!/^[1-9][0-9]*$/.test(a.cutoffHeight)||!Number.isFinite(Date.parse(a.archivedAt))||!/^[1-9][0-9]*$/.test(a.epoch))throw Error('G5_ONLY_LITERAL_ARCHIVED_SOURCE7_ATTEMPT');

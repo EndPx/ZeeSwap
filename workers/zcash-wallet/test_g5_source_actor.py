@@ -11,7 +11,7 @@ import sys
 from contextlib import redirect_stderr
 from unittest.mock import patch
 import g5_source_actor as actor
-from g5_source_diagnostics import SourceActorState, SourceReadUnavailable, diagnostic_packet, prefund_wait
+from g5_source_diagnostics import SourceActorState, SourceReadUnavailable, SourceScanBehind, diagnostic_packet, prefund_wait
 from g5_source_actor import binding, durable, fund_once, funding_binding, validate_run_binding, linux_path, validate_owned_receiver
 
 
@@ -125,7 +125,7 @@ class ActorTest(unittest.TestCase):
                 proposals = 0
                 def tip(self):
                     self.reads += 1
-                    return 100 if self.reads == 1 else 103
+                    return 100 if self.reads <= 2 else 103
                 def validate_receiver(self, _): pass
                 def validate_note(self, *_): pass
                 def propose(self, _): self.proposals += 1; return 10000
@@ -287,10 +287,17 @@ class DiagnosticAndAuditTest(unittest.TestCase):
     def test_source13_artifact_gate_uses_its_own_original_and_fixed_audit(self):
         self.check_attempt_artifacts(13)
 
+    def test_source15_own_artifacts_and_exact_predecessors(self):
+        self.check_attempt_artifacts(15)
+        state={'orders':[{'sequence':15,'attempt':1}],'archivedAttempts':[{'sequence':7},{'sequence':13}]}
+        self.assertEqual(actor.require_unfunded_audit_scope(state,15)['sequence'],15)
+        for profile in ([],[{'sequence':7}],[{'sequence':13},{'sequence':7}],[{'sequence':7},{'sequence':13},{'sequence':15}]):
+            with self.assertRaises(ValueError): actor.require_unfunded_audit_scope({**state,'archivedAttempts':profile},15)
+
     def test_source13_literal_audit_scope_and_ordered_archives_preserve_source7_compatibility(self):
-        for profile in ([], [{'sequence': 7}], [{'sequence': 7}, {'sequence': 13}]):
+        for profile in ([], [{'sequence': 7}], [{'sequence': 7}, {'sequence': 13}], [{'sequence':7},{'sequence':13},{'sequence':15}]):
             actor.require_archive_profile(profile)
-        for profile in ([{'sequence': 13}], [{'sequence': 13}, {'sequence': 7}], [{'sequence': 7}, {'sequence': 13}, {'sequence': 15}]):
+        for profile in ([{'sequence': 13}], [{'sequence': 13}, {'sequence': 7}], [{'sequence': 7}, {'sequence': 13}, {'sequence': 15}, {'sequence':17}]):
             with self.assertRaises(ValueError): actor.require_archive_profile(profile)
         state = {'orders': [{'sequence': 13, 'attempt': 1}], 'archivedAttempts': [{'sequence': 7}]}
         self.assertEqual(actor.require_unfunded_audit_scope(state, 13)['sequence'], 13)
@@ -382,6 +389,129 @@ class DiagnosticAndAuditTest(unittest.TestCase):
             finally:
                 child.terminate(); child.wait(timeout=5)
 
+
+
+
+class SourceScanCatchupTest(unittest.TestCase):
+    def test_actual_note_validator_distinguishes_positive_lag_from_tip_behind_or_bad_height(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config, _, _=ActorTest().fixture(directory);key='synthetic-view-key';config['ufvkSha256']=hashlib.sha256(key.encode()).hexdigest()
+            wallet=object.__new__(actor.WalletIO);wallet.config=config
+            def call(args):
+                actor.STATE.sdk_completed=True
+                if args[-1]=='export_ufvk': return {'ufvk':key}
+                if 'check_address' in args: return {'is_wallet_address':'true','encoded_address':config['refundRecipient'],'address_type':'unified','has_orchard':True,'has_sapling':False,'has_transparent':False}
+                if args[-2:]==['sync','status']: return {'scan_ranges':[{'priority':'Scanned','end_block':101}]}
+                if args[-2:]==['coins','all']: return {'transparent_coins':[]}
+                if args[-2:]==['notes','all']: return {'ironwood_notes':{'note_summaries':[{'txid':config['approvedNote']['txid'],'output_index':0,'value':110000,'status':'confirmed at block height 91','spend_status':'unspent'}]}}
+                raise AssertionError('Unexpected capability')
+            wallet.call=call
+            with patch.object(actor,'STATE',SourceActorState()):
+                wallet.tip=lambda:102;self.assertEqual(wallet.validate_note(config['approvedNote'],config['ufvkSha256']),{'scannedHeight':100,'tipHeight':102})
+                wallet.tip=lambda:103
+                with self.assertRaises(SourceScanBehind) as e:wallet.validate_note(config['approvedNote'],config['ufvkSha256'])
+                self.assertEqual(diagnostic_packet(e.exception,actor.STATE)['scannedHeight'],100)
+                self.assertEqual(diagnostic_packet(e.exception,actor.STATE)['tipHeight'],103)
+                for tip in (99,-1,True,'103'):
+                    wallet.tip=lambda:tip
+                    with self.assertRaisesRegex(ValueError,'SCAN_TIP_INVALID') as e:wallet.validate_note(config['approvedNote'],config['ufvkSha256'])
+                    self.assertNotIsInstance(e.exception,SourceScanBehind)
+
+    def catchup(self, mode):
+        root=tempfile.TemporaryDirectory();self.addCleanup(root.cleanup)
+        config,funding,journal=ActorTest().fixture(root.name);events=[]
+        class IO:
+            validation=0;tip_value=100
+            def tip(self): events.append('tip');return self.tip_value
+            def validate_receiver(self,_):events.append('receiver')
+            def validate_note(self,*_):
+                self.validation+=1;events.append('full-note-check')
+                if self.validation==1:
+                    if mode=='negative':actor.require_source_scan(101,100)
+                    raise SourceScanBehind(97,100)
+                if mode=='still-behind':raise SourceScanBehind(97,100)
+                if mode=='window-lost':self.tip_value=101
+            def call(self,args):
+                events.append('readonly-catchup');self.assertion=args
+                if mode=='timeout':actor.STATE.uncertain=True;raise subprocess.TimeoutExpired('PRIVATE',240)
+                if mode=='artifact':Path(str(journal)+'.result.json').write_text('{}')
+                return {}
+            def propose(self,_):events.append('propose');return 10000
+            def send(self,_):events.append('send');return {'txids':['ab'*32]}
+        value=IO();state=SourceActorState();state.command='fund';state.sequence=1;state.lock_acquired=True;state.sdk_completed=True
+        return config,funding,journal,events,value,state
+
+    def test_same_invocation_positive_lag_catches_up_once_before_proposal_and_keeps_exact_eight(self):
+        config,funding,journal,events,value,state=self.catchup('success')
+        with patch.object(actor,'STATE',state):result=fund_once(config,funding,journal,value)
+        self.assertEqual(result['state'],'BROADCAST');self.assertEqual(events.count('readonly-catchup'),1);self.assertEqual(events.count('full-note-check'),2)
+        self.assertLess(events.index('readonly-catchup'),events.index('propose'));self.assertEqual(events.count('propose'),1);self.assertEqual(events.count('send'),1)
+        self.assertEqual(value.assertion,['--server','https://testnet.zec.rocks:443','--waitsync','notes','all'])
+        self.assertEqual(json.loads(journal.read_text())['funding'],funding)
+        with patch.object(actor,'STATE',SourceActorState()),self.assertRaisesRegex(ValueError,'ORIGINAL_OPERATION_RECOVERY_REQUIRED'):fund_once(config,funding,journal,value)
+        self.assertEqual(events.count('send'),1)
+
+    def test_negative_lag_second_lag_timeout_artifact_and_late_catchup_never_propose_or_wait(self):
+        for mode in ('negative','still-behind','timeout','artifact','window-lost'):
+            config,funding,journal,events,value,state=self.catchup(mode)
+            with patch.object(actor,'STATE',state),self.assertRaises(Exception) as e:fund_once(config,funding,journal,value)
+            self.assertNotIn('propose',events);self.assertNotIn('send',events);self.assertFalse(journal.exists());self.assertIsNone(prefund_wait(e.exception,state,journal.parent))
+            self.assertEqual(events.count('readonly-catchup'),0 if mode=='negative' else 1)
+            if mode=='window-lost':self.assertEqual(str(e.exception),'G5_SOURCE_MINIMUM_EIGHT_BLOCK_WINDOW');self.assertEqual(state.phase,'PRE_PROPOSAL_FUNDING_BINDING')
+            if mode=='timeout':self.assertTrue(state.uncertain)
+
+    def test_catchup_refuses_unknown_or_already_effectful_invocations(self):
+        for field,value in [('command','sync'),('lock_acquired',False),('lock_released',True),('proposal_started',True),('intent_created',True),('uncertain',True),('sdk_active',True),('sdk_completed',False)]:
+            config,funding,journal,events,io_value,state=self.catchup('success');setattr(state,field,value)
+            with patch.object(actor,'STATE',state),self.assertRaises(SourceScanBehind):fund_once(config,funding,journal,io_value)
+            self.assertNotIn('readonly-catchup',events);self.assertNotIn('propose',events);self.assertNotIn('send',events)
+        for error in (ValueError('G5_SOURCE_SCAN_STALE'),SourceScanBehind(101,100),SourceScanBehind(100,102)):
+            config,funding,journal,events,io_value,state=self.catchup('success')
+            io_value.validate_note=lambda *_:(_ for _ in ()).throw(error)
+            with patch.object(actor,'STATE',state),self.assertRaises(ValueError):fund_once(config,funding,journal,io_value)
+            self.assertNotIn('readonly-catchup',events)
+
+    def test_actual_fund_main_retains_owned_lock_if_readonly_catchup_sdk_times_out(self):
+        with tempfile.TemporaryDirectory() as root:
+            config,funding,_=ActorTest().fixture(root);parent=Path(root)/'source-01';parent.mkdir()
+            config.update(walletPath=str(parent/'user-wallet'),preQuoteSyncFile=str(parent/'source-prequote-sync.private.json'))
+            Path(config['preQuoteSyncFile']).write_text(json.dumps({'binding':config,'state':'SYNCED','tip':100}))
+            path=Path(root)/'config.json';path.write_text(json.dumps(config));funding_path=Path(root)/'funding.json';funding_path.write_text(json.dumps(funding));journal=parent/'source-funding-intent.private.json'
+            class IO:
+                def __init__(self,_):pass
+                def tip(self):return 100
+                def validate_receiver(self,_):pass
+                def validate_note(self,*_):actor.STATE.sdk_completed=True;raise SourceScanBehind(97,100)
+                def call(self,args):actor.STATE.uncertain=True;raise subprocess.TimeoutExpired('PRIVATE_SDK',240)
+            state=SourceActorState()
+            with patch.object(actor,'ROOT',Path(root)),patch.object(actor,'STATE',state),patch.object(actor,'WalletIO',IO),patch.object(actor,'validate_run_binding'),patch.object(sys,'argv',['actor','fund','--config',str(path),'--funding',str(funding_path),'--journal',str(journal)]),redirect_stderr(io.StringIO()):
+                with self.assertRaises(subprocess.TimeoutExpired) as error:actor.main()
+                self.assertTrue(state.uncertain);self.assertFalse(state.lock_released);self.assertIsNone(prefund_wait(error.exception,state,parent))
+            self.assertTrue((parent/'source-actor.lock').exists());self.assertFalse(journal.exists());self.assertFalse(state.proposal_started)
+
+    def test_actual_sync_main_records_final_tip_with_actual_scan_and_refuses_gap_two_before_any_admission(self):
+        from contextlib import redirect_stdout
+        for final_tip in (101,102,99):
+            with tempfile.TemporaryDirectory() as root:
+                parent=Path(root)/'source-15';parent.mkdir();sync_path=parent/'source-prequote-sync.private.json'
+                sync_path.write_text('original-sync-artifact')
+                cfg={'sequence':15,'walletPath':str(parent/'user-wallet'),'preQuoteSyncFile':str(sync_path),'approvedNote':{},'ufvkSha256':'a'*64}
+                path=Path(root)/'config.json';path.write_text(json.dumps(cfg))
+                class IO:
+                    def __init__(self,_):pass
+                    def call(self,args):actor.STATE.sdk_completed=True;return {}
+                    def validate_note(self,*_):return {'scannedHeight':100,'tipHeight':100}
+                    def tip(self):return final_tip
+                state=SourceActorState();output=io.StringIO()
+                with patch.object(actor,'STATE',state),patch.object(actor,'WalletIO',IO),patch.object(actor,'validate_run_binding'),patch.object(sys,'argv',['actor','sync','--config',str(path)]),redirect_stdout(output),redirect_stderr(io.StringIO()):
+                    if final_tip==101:
+                        actor.main();saved=json.loads(sync_path.read_text());self.assertEqual(saved['scannedHeight'],100);self.assertEqual(saved['tip'],101);self.assertEqual(saved['binding'],cfg)
+                    else:
+                        with self.assertRaises(ValueError) as e:actor.main()
+                        self.assertEqual(sync_path.read_text(),'original-sync-artifact');wait=prefund_wait(e.exception,state,parent)
+                        if final_tip==102:self.assertEqual(wait['scannedHeight'],100);self.assertEqual(wait['tipHeight'],102);self.assertEqual(wait['command'],'sync')
+                        else:self.assertIsNone(wait)
+                self.assertFalse((parent/'source-actor.lock').exists());self.assertFalse(state.proposal_started)
 
 if __name__ == '__main__':
     unittest.main()
