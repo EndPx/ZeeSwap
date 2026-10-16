@@ -1,3 +1,4 @@
+import {signerFailureDiagnostic} from './base-signer-protocol.ts';
 import {baseConfirmationSqlDiagnostic,baseReceiptReadinessDiagnostic,isBaseConfirmationSqlContext} from './base-receipt-readiness.ts';
 import {physicalCaptureDiagnostic} from './g5-physical-diagnostic.ts';
 import {walletScannerDiagnostic} from './wallet-scanner-protocol.ts';
@@ -12,12 +13,13 @@ export function g5Diagnostic(error:unknown,step:string,phase:string){
   const match=line.match(/([A-Za-z0-9_-]+\.(?:ts|js)):(\d+):(\d+)/);return match?[{file:match[1],line:Number(match[2]),column:Number(match[3])}]:[];
  }).slice(0,12):[];
  const observerFrontier=observerFrontierDiagnostic(value?.diagnostic);
+ const signer=signerFailureDiagnostic(value?.signerDiagnostic);
  const scanner=walletScannerDiagnostic(value?.scannerDiagnostic);
  const baseConfirmation=baseConfirmationSqlDiagnostic(error),baseReceiptReadiness=baseReceiptReadinessDiagnostic(value?.diagnostic);
  const physicalCapture=physicalCaptureDiagnostic(value?.physicalCaptureDiagnostic);
  return {version:1,observedAt:new Date().toISOString(),step,phase,code:baseConfirmation?.code??(isBaseConfirmationSqlContext(error)?'PRIVATE_DIAGNOSTIC_ERROR':code),exceptionClass,
   ...(typeof value?.code==='string'&&/^[A-Z0-9]{5}$/.test(value.code)?{sqlState:value.code}:{}),frames,
-  ...(observerFrontier?{observerFrontier}:{}),...(scanner?{scanner}:{}),...(physicalCapture?{physicalCapture}:{}),...(baseConfirmation?{baseConfirmation}:{}),...(baseReceiptReadiness?{baseReceiptReadiness}:{})};
+  ...(observerFrontier?{observerFrontier}:{}),...(scanner?{scanner}:{}),...(signer?{signer}:{}),...(physicalCapture?{physicalCapture}:{}),...(baseConfirmation?{baseConfirmation}:{}),...(baseReceiptReadiness?{baseReceiptReadiness}:{})};
 }
 
 /** Keep only public observer headers from known internal producers. Arbitrary

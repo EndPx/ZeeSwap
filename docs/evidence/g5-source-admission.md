@@ -6,7 +6,9 @@ root subsequently reported a combined 56 TypeScript checks and typecheck passed.
 The final source-actor suite passed 21 Python checks after the supplementary
 SYNC artifact-absence hardening. Actual expiry/archive of the second unfunded
 predecessor passed at 2026-10-16 04:15:42.460 UTC, followed by an independent
-post-check. Normal testnet execution of the new admission path remains pending.
+post-check. Normal testnet execution of the new admission path subsequently
+returned BROADCAST for source13 at 04:23:45 UTC and READY at 04:31:36 UTC.
+This proves live admission/funding observation, not another settled execution.
 This document does not claim twenty completed settlements.
 
 ## Observed refusal

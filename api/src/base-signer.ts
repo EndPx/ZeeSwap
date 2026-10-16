@@ -1,3 +1,5 @@
+import {ObserverWaitError} from './observer-frontiers.ts';
+import {signerBinding,signerReadWait,signerWaitEvidence,parseSignerPackets,signerFailureDiagnostic,validSignerReply} from './base-signer-protocol.ts';
 import { spawn } from 'node:child_process';
 import { keccak256, parseTransaction, recoverTransactionAddress, recoverTypedDataAddress, getAddress, type Hex, type TransactionSerialized } from 'viem';
 import { payoutCall, payoutTypedData, type BaseRegistry, type PayoutTerms, type BasePhase } from './base-contract.ts';
@@ -10,13 +12,24 @@ export interface BaseSigner {
 export class LocalBaseSigner implements BaseSigner {
  constructor(private readonly command:string,private readonly args:string[],private readonly timeoutMs=120000){}
  protected invoke(request:unknown):Promise<any>{return new Promise((resolve,reject)=>{
-  const child=spawn(this.command,this.args,{stdio:['pipe','pipe','pipe'],windowsHide:true});let output='',error='',done=false;
-  const fail=()=>{if(!done){done=true;reject(Error('BASE_SIGNER_UNAVAILABLE'));}};
-  const timer=setTimeout(()=>{child.kill();fail();},this.timeoutMs);
-  child.on('error',fail);child.stdin.on('error',fail);
-  child.stdout.on('data',chunk=>{output+=chunk;if(output.length>32768){child.kill();fail();}});
-  child.stderr.on('data',chunk=>{error+=chunk;if(error.length>8192){child.kill();fail();}});
-  child.on('close',code=>{clearTimeout(timer);if(done)return;if(code!==0){fail();return;}try{const result=JSON.parse(output);done=true;resolve(result);}catch{fail();}});
+  const binding=signerBinding(request),child=spawn(this.command,this.args,{stdio:['pipe','pipe','pipe'],windowsHide:true});let output='',stderr='',done=false;
+  let timer:ReturnType<typeof setTimeout>;
+  const diagnostic=(code:string,exitCode:number|null=null,signal:string|null=null)=>{const packets=parseSignerPackets(stderr,binding);return signerFailureDiagnostic({version:1,...binding,code,exitCode,signal,python:packets.primary,cleanup:packets.cleanup})!;};
+  const fail=(code:string,exitCode:number|null=null,signal:string|null=null)=>{if(!done){done=true;clearTimeout(timer);const safe=diagnostic(code,exitCode,signal);try{console.error(JSON.stringify({version:1,status:'BASE_SIGNER_INVOKE_FAILED',diagnostic:safe}));}catch{}reject(Object.assign(Error('BASE_SIGNER_UNAVAILABLE'),{signerDiagnostic:safe}));}};
+  timer=setTimeout(()=>{child.kill();fail('SIGNER_TIMEOUT');},this.timeoutMs);
+  child.on('error',()=>fail('SIGNER_SPAWN_FAILED'));child.stdin.on('error',()=>fail('SIGNER_STDIN_FAILED'));
+  child.stdout.on('data',chunk=>{output=(output+chunk).slice(0,32769);if(output.length>32768){child.kill();fail('SIGNER_OUTPUT_LIMIT');}});
+  child.stderr.on('data',chunk=>{stderr=(stderr+chunk).slice(0,8193);if(stderr.length>8192){child.kill();fail('SIGNER_STDERR_LIMIT');}});
+  child.on('close',(code,signal)=>{clearTimeout(timer);if(done)return;
+   let result:any;try{result=JSON.parse(output);}catch{fail(signal?'SIGNER_SIGNAL':code===0?'SIGNER_RESPONSE_INVALID':'SIGNER_PROCESS_EXIT',code,signal);return;}
+   if((code===75&&result?.status==='BASE_SIGNER_READ_WAIT'||code===76&&result?.status==='BASE_SIGNER_FINALITY_WAIT')&&signal===null&&signerReadWait(result,binding)&&signerWaitEvidence(stderr,result,binding)){
+    done=true;const error=new ObserverWaitError({event:'base-signer-read',source:'forward-base-signer',status:'WAIT',network:'base-sepolia',reason:code===76?'RESERVE_AHEAD_OF_FINALIZED':'READ_TIMEOUT',command:binding.command,phase:binding.phase,requestDigest:binding.requestDigest,stage:result.stage});
+    Object.assign(error,{signerDiagnostic:diagnostic(code===76?'SIGNER_FINALITY_WAIT':'SIGNER_READ_WAIT',code,signal)});reject(error);return;
+   }
+   if(code!==0||signal!==null){fail(signal?'SIGNER_SIGNAL':'SIGNER_PROCESS_EXIT',code,signal);return;}
+   if(!validSignerReply(result,request)){fail('SIGNER_RESPONSE_INVALID',code,signal);return;}
+   done=true;resolve(result);
+  });
   child.stdin.end(JSON.stringify(request));
  });}
  async authorize(terms:PayoutTerms){return (await this.invoke({command:'authorize',terms,phase:'RESERVE'})).signature as Hex;}
