@@ -53,17 +53,23 @@ def validate_run_binding(config, funding_path=None, funding=None):
     digest = hashlib.sha256(json.dumps(manifest, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
     if state.get('incident') or state.get('closed') or state.get('runId') != config['runId'] or state.get('binding') != digest:
         raise ValueError('G5_SOURCE_RUN_FROZEN_OR_CHANGED')
+    require_archive_profile(state.get('archivedAttempts', []))
     if funding_path is not None:
         slots = [s for s in state.get('orders', []) if s.get('sequence') == config['sequence']]
         expected_path = funding_path_for_slot(state_path, config['sequence'], slots[0] if len(slots) == 1 else {}, state.get('archivedAttempts', []))
         if linux_path(str(funding_path)) != expected_path:
             raise ValueError('G5_SOURCE_FIXED_CORE_FUNDING_PATH')
         if slots[0].get('attempt', 1) == 2:
-            validate_archived_source_attempt(state_path, slots[0], state['archivedAttempts'][0], config)
+            validate_archived_source_attempt(state_path, slots[0], next(a for a in state['archivedAttempts'] if a.get('sequence') == config['sequence']), config)
         if (len(slots) != 1 or slots[0].get('direction') != 'ZCASH_TO_BASE'
                 or slots[0].get('orderId') != funding.get('orderId')
                 or slots[0].get('receiver') != funding.get('receiver') or slots[0].get('verified')):
             raise ValueError('G5_SOURCE_CORE_SLOT_BINDING')
+
+
+def require_archive_profile(archived):
+    if not isinstance(archived, list) or [a.get('sequence') for a in archived] not in ([], [7], [7, 13]):
+        raise ValueError('G5_SOURCE_ARCHIVED_ATTEMPT_ARTIFACT_REQUIRED')
 
 
 def funding_path_for_slot(state_path, sequence, slot, archived):
@@ -72,22 +78,26 @@ def funding_path_for_slot(state_path, sequence, slot, archived):
         raise ValueError('G5_SOURCE_FIXED_CORE_FUNDING_PATH')
     if attempt == 1:
         return Path(str(state_path) + '.funding-' + str(sequence) + '.json')
-    if sequence != 7 or len(archived) != 1:
+    profile = [a.get('sequence') for a in archived]
+    if (sequence not in (7, 13) or profile not in ([7], [7, 13]) or sequence not in profile):
         raise ValueError('G5_SOURCE_FIXED_CORE_FUNDING_PATH')
-    old = archived[0]
-    if (old.get('version') != 1 or old.get('sequence') != 7 or old.get('attempt') != 1
+    old = next(a for a in archived if a.get('sequence') == sequence)
+    if (old.get('version') != 1 or old.get('attempt') != 1
             or old.get('orderId') == slot.get('orderId') or old.get('owner') == slot.get('owner')
             or old.get('receiver') == slot.get('receiver')
-            or linux_path(old.get('fundingFile', '')) != Path(str(state_path) + '.funding-7.json')
+            or linux_path(old.get('fundingFile', '')) != Path(str(state_path) + '.funding-' + str(sequence) + '.json')
             or not re.fullmatch('[0-9a-f]{64}', old.get('fundingSha256', ''))
             or not re.fullmatch('[0-9a-f]{64}', old.get('auditSha256', ''))):
         raise ValueError('G5_SOURCE_FIXED_CORE_FUNDING_PATH')
-    return Path(str(state_path) + '.funding-7-attempt-2.json')
+    return Path(str(state_path) + '.funding-' + str(sequence) + '-attempt-2.json')
 
 
 def validate_archived_source_attempt(state_path, slot, old, config):
-    original_path = Path(str(state_path) + '.funding-7.json')
-    audit_path = Path(str(state_path) + '.source7-expired-audit.private.json')
+    sequence = config.get('sequence')
+    if sequence not in (7, 13):
+        raise ValueError('G5_SOURCE_ARCHIVED_ATTEMPT_ARTIFACT_REQUIRED')
+    original_path = Path(str(state_path) + '.funding-' + str(sequence) + '.json')
+    audit_path = Path(str(state_path) + '.source' + str(sequence) + '-expired-audit.private.json')
     if (linux_path(old.get('fundingFile', '')) != original_path or linux_path(old.get('auditFile', '')) != audit_path
             or old.get('receiver') == slot.get('receiver')):
         raise ValueError('G5_SOURCE_ARCHIVED_ATTEMPT_ARTIFACT_REQUIRED')
@@ -100,12 +110,12 @@ def validate_archived_source_attempt(state_path, slot, old, config):
     actor_audit = audit.get('actorAudit', {})
     if (original.get('orderId') != old.get('orderId') or original.get('receiver') != old.get('receiver')
             or str(original.get('cutoffHeight')) != str(old.get('cutoffHeight'))
-            or audit.get('version') != 1 or audit.get('status') != 'G5_SOURCE7_NO_EFFECT_EXPIRY_AUDIT'
-            or audit.get('runId') != config['runId'] or audit.get('sequence') != 7 or audit.get('orderId') != old.get('orderId')
+            or audit.get('version') != 1 or audit.get('status') != 'G5_SOURCE' + str(sequence) + '_NO_EFFECT_EXPIRY_AUDIT'
+            or audit.get('runId') != config['runId'] or audit.get('sequence') != sequence or audit.get('orderId') != old.get('orderId')
             or str(audit.get('cutoffHeight')) != str(old.get('cutoffHeight')) or audit.get('epoch') != old.get('epoch')
             or audit.get('fundingSha256') != old.get('fundingSha256')
             or actor_audit.get('version') != 1 or actor_audit.get('status') != 'G5_SOURCE_UNFUNDED_AUDIT'
-            or actor_audit.get('runId') != config['runId'] or actor_audit.get('sequence') != 7 or actor_audit.get('attempt') != 1
+            or actor_audit.get('runId') != config['runId'] or actor_audit.get('sequence') != sequence or actor_audit.get('attempt') != 1
             or actor_audit.get('orderId') != old.get('orderId') or actor_audit.get('fundingSha256') != old.get('fundingSha256')
             or actor_audit.get('oldFundingCutoffHeight') != str(old.get('cutoffHeight'))
             or actor_audit.get('ufvkSha256') != config['ufvkSha256'] or actor_audit.get('approvedNote') != config['approvedNote']
@@ -184,7 +194,7 @@ def fund_once(config, funding, journal, io):
     tip = io.tip()
     if sync.get('tip', -1) > tip or tip - sync.get('tip', -1) > 2:
         raise ValueError('G5_SOURCE_PREQUOTE_SYNC_STALE')
-    STATE.phase = 'FUNDING_BINDING'
+    STATE.phase = 'INITIAL_FUNDING_BINDING'
     funding_binding(funding, config, tip)
     STATE.phase = 'RECEIVER'
     io.validate_receiver(funding['receiver'])
@@ -195,7 +205,7 @@ def fund_once(config, funding, journal, io):
     if type(fee) is not int or fee != 10000:
         raise ValueError('G5_SOURCE_EXACT_FEE')
     final_tip = io.tip()
-    STATE.phase = 'FUNDING_BINDING'
+    STATE.phase = 'FINAL_FUNDING_BINDING'
     funding_binding(funding, config, final_tip)
     intent = {'version': 1, 'state': 'INTENT', 'binding': config,
               'funding': funding, 'walletPath': str(wallet), 'feeZatoshi': '10000'}
@@ -453,19 +463,26 @@ def require_unfunded_audit_notes(config, funding, status, notes, coins, export):
     return scanned, cutoff, int(match[1])
 
 
+def require_unfunded_audit_scope(state, sequence):
+    matches = [s for s in state.get('orders', []) if s.get('sequence') == sequence]
+    slot = matches[0] if len(matches) == 1 else {}
+    if (sequence not in (7, 13) or not slot or slot.get('attempt', 1) != 1
+            or [a.get('sequence') for a in state.get('archivedAttempts', [])] != ([] if sequence == 7 else [7])):
+        raise ValueError('G5_SOURCE_AUDIT_LITERAL_SEQUENCE_REQUIRED')
+    return slot
+
+
 def audit_unfunded(config, funding_path, io, private_root, view_path):
     STATE.phase = 'FUNDING_READ'
-    if config.get('sequence') != 7 or funding_path is None:
-        raise ValueError('G5_SOURCE_AUDIT_LITERAL_SEVENTH_REQUIRED')
+    sequence = config.get('sequence')
+    if sequence not in (7, 13) or funding_path is None:
+        raise ValueError('G5_SOURCE_AUDIT_LITERAL_SEQUENCE_REQUIRED')
     funding_bytes = Path(funding_path).read_bytes()
     funding = json.loads(funding_bytes)
     validate_run_binding(config, funding_path, funding)
     manifest = json.loads(linux_path(config['runConfig']).read_text())
     state = json.loads(linux_path(manifest['stateFile']).read_text())
-    matches = [s for s in state.get('orders', []) if s.get('sequence') == 7]
-    slot = matches[0] if len(matches) == 1 else {}
-    if not slot or slot.get('attempt', 1) != 1 or state.get('archivedAttempts'):
-        raise ValueError('G5_SOURCE_AUDIT_LITERAL_SEVENTH_REQUIRED')
+    require_unfunded_audit_scope(state, sequence)
     intent = private_root / 'source-funding-intent.private.json'
     result = Path(str(intent) + '.result.json')
     if not absent(intent) or not absent(result):
@@ -506,7 +523,7 @@ def audit_unfunded(config, funding_path, io, private_root, view_path):
     view_proof = audit_source_view(config, manifest, view_path, io)
     assert_no_wallet_processes(config['walletPath'], STATE.config_path)
     validate_run_binding(config, funding_path, funding)
-    proof = {'version': 1, 'status': 'G5_SOURCE_UNFUNDED_AUDIT', 'runId': config['runId'], 'sequence': 7,
+    proof = {'version': 1, 'status': 'G5_SOURCE_UNFUNDED_AUDIT', 'runId': config['runId'], 'sequence': sequence,
              'orderId': funding['orderId'], 'attempt': 1, 'fundingSha256': hashlib.sha256(funding_bytes).hexdigest(),
              'ufvkSha256': config['ufvkSha256'], 'approvedNote': config['approvedNote'],
              'scannedHeight': scanned, 'tipHeight': tip, 'tipHash': bytes(tip_block.hash)[::-1].hex(),
@@ -522,6 +539,12 @@ def audit_unfunded(config, funding_path, io, private_root, view_path):
 class SourceArgumentParser(argparse.ArgumentParser):
     def error(self, _message):
         raise ValueError('G5_SOURCE_ARGUMENTS_REQUIRED')
+
+
+def require_no_source_artifacts(private_root):
+    intent = Path(private_root) / 'source-funding-intent.private.json'
+    if not absent(intent) or not absent(str(intent) + '.result.json'):
+        raise ValueError('G5_SOURCE_ORIGINAL_OPERATION_RECOVERY_REQUIRED')
 
 
 def main():
@@ -554,22 +577,23 @@ def main():
     try:
         if args.step == 'sync':
             STATE.phase = 'SYNC_INTENT_CHECK'
-            if (private_root / 'source-funding-intent.private.json').exists():
-                raise ValueError('G5_SOURCE_ORIGINAL_OPERATION_RECOVERY_REQUIRED')
+            require_no_source_artifacts(private_root)
             STATE.phase = 'SDK_SYNC'
             io.call(['--server', 'https://testnet.zec.rocks:443', '--waitsync', 'notes', 'all'])
             io.validate_note(config['approvedNote'], config['ufvkSha256'])
             sync_path = Path(config['preQuoteSyncFile'])
-            if (private_root / 'source-funding-intent.private.json').exists():
-                raise ValueError('G5_SOURCE_ORIGINAL_OPERATION_RECOVERY_REQUIRED')
+            require_no_source_artifacts(private_root)
             if sync_path.exists():
                 # Retain every old private snapshot. Never touch a funding intent.
                 import uuid
                 sync_path.rename(str(sync_path) + '.' + str(uuid.uuid4()) + '.previous')
             STATE.phase = 'SYNC_WRITE'
             sync_tip = io.tip()
+            sync_observed_at = datetime.now(timezone.utc).isoformat()
+            STATE.phase = 'SYNC_INTENT_CHECK'
+            require_no_source_artifacts(private_root)
             STATE.phase = 'SYNC_WRITE'
-            durable(sync_path, {'state': 'SYNCED', 'binding': config, 'tip': sync_tip})
+            durable(sync_path, {'state': 'SYNCED', 'binding': config, 'tip': sync_tip, 'observedAt': sync_observed_at})
             print('{"state":"SYNCED"}')
         elif args.step == 'audit-unfunded':
             audit_proof = audit_unfunded(config, args.funding, io, private_root, args.view_config)

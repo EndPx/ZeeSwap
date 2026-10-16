@@ -1,8 +1,9 @@
+import {admitAndFundSource,sourceAdmittedPath} from '../src/g5-source-admission.ts';
 /** Explicitly invoked private live adapter. Never schedule this CLI unattended.
  * All logs are sanitized; child stdout (including private funding data) stays
  * in memory. Uncertain effects retain a fixed fsynced inflight intent. */
 import {spawn} from 'node:child_process';
-import {open,unlink} from 'node:fs/promises';
+import {open,unlink,lstat,readFile} from 'node:fs/promises';
 import {resolve,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
@@ -87,11 +88,19 @@ async function execute(sequence:number,stage:G5LiveStage|'BARRIER'|'CLOSE'){
  const actor=cfg.sourceActors.find((o:any)=>o.sequence===sequence);
  if(stage==='SYNC'){const result=await command(actor.sync);if(result.status==='SOURCE_PREFUND_WAIT'&&!sourcePrefundWait(result,sequence))throw Error('G5_LIVE_INVALID_SOURCE_SYNC_WAIT');return result;}
  if(stage==='SOURCE_FUND'){
-  const state=await read(manifest.stateFile);validateG5State(state,manifest);const artifact=g5FundingArtifact(manifest.stateFile,state,sequence),original=manifest.stateFile+'.funding-'+sequence+'.json';let fund=actor.fund;
+  const state=await read(manifest.stateFile);validateG5State(state,manifest);const slot=state.orders.find((o:any)=>o.sequence===sequence);
+  if(!slot||slot.orderId)throw Error('G5_SOURCE_ALREADY_ACCEPTED_RECONCILIATION_REQUIRED');
+  const artifact=g5FundingArtifact(manifest.stateFile,state,sequence),original=manifest.stateFile+'.funding-'+sequence+'.json',admittedFile=sourceAdmittedPath(manifest.stateFile,slot);let fund=actor.fund;
+  try{await lstat(privateLocalPath(admittedFile));throw Error('G5_SOURCE_ORIGINAL_ADMISSION_RECONCILIATION_REQUIRED');}catch(error){if((error as any).code!=='ENOENT')throw error;}
   if(artifact!==original){const index=fund.args.indexOf('--funding'),old=fund.args[index+1];if(index<0||g5PathIdentity(old)!==g5PathIdentity(original))throw Error('G5_SOURCE_FIXED_FUNDING_ARGV_REQUIRED');const current=old.slice(0,-5)+'-attempt-2.json';if(g5PathIdentity(current)!==g5PathIdentity(artifact))throw Error('G5_SOURCE_ATTEMPT_FUNDING_PATH_REQUIRED');fund={...fund,args:g5SourceFundingArgv(fund.args,old,current)};}
-  return syncAndFundG5Source({sync:()=>command(actor.sync),fund:()=>command(fund)},sequence);
+  return admitAndFundSource(sequence,{sync:()=>command(actor.sync),admit:()=>core('admit-source',sequence),
+   recordAdmitted:async(result)=>{
+    const accepted=await read(manifest.stateFile);validateG5State(accepted,manifest);const current=accepted.orders.find((o:any)=>o.sequence===sequence);
+    if(!current?.orderId||current.owner!==slot.owner||current.receiver!==slot.receiver||Number(current.attempt??1)!==Number(slot.attempt??1)||g5FundingArtifact(manifest.stateFile,accepted,sequence)!==artifact||createHash('sha256').update(await readFile(privateLocalPath(artifact))).digest('hex')!==result.fundingSha256)throw Error('G5_SOURCE_ACCEPTED_FUNDING_BINDING_CHANGED');
+    await durable(privateLocalPath(admittedFile),{version:1,status:'SOURCE_ADMITTED_PENDING_ONCE_ONLY_FUND',runId:accepted.runId,manifestBinding:accepted.binding,sequence,attempt:Number(current.attempt??1),epoch:result.epoch,fundingFile:artifact,fundingSha256:result.fundingSha256},true);
+   },authorize:()=>core('source-fund-authority',sequence),fund:()=>command(fund)});
  }
- if(stage==='START')return core('start',sequence);
+ if(stage==='START')return core(sequence%2?'prepare-source':'start',sequence);
  if(stage==='VERIFY')return core('verify',sequence);
  if(stage==='BARRIER')return core('barrier',sequence);
  if(stage==='CLOSE')return core('close',sequence);

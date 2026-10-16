@@ -1,3 +1,4 @@
+import {isSourceAdmissionWait} from './g5-source-admission.ts';
 /** Durable orchestration of the existing, independently fenced G5 operators.
  * The controller is deliberately a single writer. It never retries an unknown
  * effect; original wallet/raw journal reconciliation is an operator action. */
@@ -11,9 +12,9 @@ export interface G5LiveSnapshot {status:'G5_CONTROLLER_SNAPSHOT';runId:string;in
 export interface G5LiveState {version:2;runId:string;binding:string;slots:G5LiveSlot[];barriers:number[];cursor:number;releasedHolds:string[];incident:boolean;inflight?:{sequence:number;stage:G5LiveStage|'BARRIER'|'CLOSE'};closed:boolean;preparePriority?:G5PreparePriority;lastOutcome?:{sequence:number;stage:string;status:string;unknownStatusHash?:string};transitionFailure?:{code:'G5_LIVE_UNEXPECTED_STAGE_STATUS'|'G5_LIVE_ACTION_OR_SAVE_FAILED'};}
 export interface G5LiveResult {status:string;}
 const next:Partial<Record<G5LiveStage,G5LiveStage>>={SYNC:'START',START:'SOURCE_FUND',SOURCE_FUND:'OBSERVE_SOURCE',REVERSE_QUOTE:'FUNDING_CALL',FUNDING_CALL:'PAYER_APPROVAL',PAYER_APPROVAL:'PAYER_PREPARE',PAYER_PREPARE:'PAYER_BROADCAST',PAYER_BROADCAST:'OBSERVE_SOURCE',PREPARE_COMMIT:'BROADCAST_COMMIT',BROADCAST_COMMIT:'OBSERVE_COMMIT',OBSERVE_COMMIT:'APPROVE_WALLET',APPROVE_WALLET:'PREPARE_ZCASH',PREPARE_ZCASH:'BROADCAST_ZCASH',BROADCAST_ZCASH:'OBSERVE_ZCASH',OBSERVE_ZCASH:'PREPARE_SETTLE',PREPARE_SETTLE:'BROADCAST_SETTLE',BROADCAST_SETTLE:'OBSERVE_SETTLE',OBSERVE_SETTLE:'VERIFY',VERIFY:'DONE'};
-const done:Partial<Record<G5LiveStage,string[]>>={SYNC:['SYNCED'],START:['AWAITING_SEPARATE_ONCE_ONLY_SOURCE_FUNDING','G5_REVERSE_SLOT_READY'],SOURCE_FUND:['BROADCAST'],REVERSE_QUOTE:['AWAITING_FUNDS'],FUNDING_CALL:['FUNDING_CALL_SAVED_FOR_SEPARATE_PAYER'],PAYER_APPROVAL:['PAYER_APPROVAL_SAVED'],PAYER_PREPARE:['PREPARED'],PAYER_BROADCAST:['ORIGINAL_PAYER_BROADCAST_KNOWN'],PREPARE_COMMIT:['COMMIT_SIGNED_DURABLY'],BROADCAST_COMMIT:['AWAITING_BASE_FINALITY','COMMIT_FINALIZED','ALREADY_FINALIZED'],OBSERVE_COMMIT:['COMMIT_FINALIZED'],APPROVE_WALLET:['IMMUTABLE_PRIVATE_WALLET_APPROVAL_SAVED'],PREPARE_ZCASH:['ZCASH_SIGNED_DURABLY'],BROADCAST_ZCASH:['AWAITING_ZCASH_FINALITY','ZCASH_ALREADY_FINALIZED'],OBSERVE_ZCASH:['ZCASH_DELIVERY_FINALIZED'],PREPARE_SETTLE:['SETTLE_SIGNED_DURABLY'],BROADCAST_SETTLE:['AWAITING_BASE_FINALITY','SETTLED','ALREADY_FINALIZED'],OBSERVE_SETTLE:['SETTLED'],VERIFY:['G5_ORDER_RECEIPTS_VERIFIED']};
+const done:Partial<Record<G5LiveStage,string[]>>={SYNC:['SYNCED'],START:['SOURCE_PREPARED_FOR_ADMISSION','AWAITING_SEPARATE_ONCE_ONLY_SOURCE_FUNDING','G5_REVERSE_SLOT_READY'],SOURCE_FUND:['BROADCAST'],REVERSE_QUOTE:['AWAITING_FUNDS'],FUNDING_CALL:['FUNDING_CALL_SAVED_FOR_SEPARATE_PAYER'],PAYER_APPROVAL:['PAYER_APPROVAL_SAVED'],PAYER_PREPARE:['PREPARED'],PAYER_BROADCAST:['ORIGINAL_PAYER_BROADCAST_KNOWN'],PREPARE_COMMIT:['COMMIT_SIGNED_DURABLY'],BROADCAST_COMMIT:['AWAITING_BASE_FINALITY','COMMIT_FINALIZED','ALREADY_FINALIZED'],OBSERVE_COMMIT:['COMMIT_FINALIZED'],APPROVE_WALLET:['IMMUTABLE_PRIVATE_WALLET_APPROVAL_SAVED'],PREPARE_ZCASH:['ZCASH_SIGNED_DURABLY'],BROADCAST_ZCASH:['AWAITING_ZCASH_FINALITY','ZCASH_ALREADY_FINALIZED'],OBSERVE_ZCASH:['ZCASH_DELIVERY_FINALIZED'],PREPARE_SETTLE:['SETTLE_SIGNED_DURABLY'],BROADCAST_SETTLE:['AWAITING_BASE_FINALITY','SETTLED','ALREADY_FINALIZED'],OBSERVE_SETTLE:['SETTLED'],VERIFY:['G5_ORDER_RECEIPTS_VERIFIED']};
 const waits=new Set(['OBSERVER_WAIT','AWAITING_BASE_FINALITY','AWAITING_ZCASH_FINALITY','AWAITING_FUNDS','AWAITING_CONFIRMATIONS','CONFIRMING','NO_ELIGIBLE_JOB','READY','RESERVATION_FINALIZED']);
-const outcomeStatuses=new Set([...Object.values(done).flat(),...waits,'SETTLED','G5_BATCH_VERIFIED','G5_CLOSED','ALREADY_FINALIZED','REFUND_REQUIRED','REVIEW_REQUIRED','EXPIRED_UNFUNDED','SOURCE_PREFUND_WAIT','REORGED','REFUNDED']);
+const outcomeStatuses=new Set([...Object.values(done).flat(),...waits,'SETTLED','G5_BATCH_VERIFIED','G5_CLOSED','ALREADY_FINALIZED','REFUND_REQUIRED','REVIEW_REQUIRED','EXPIRED_UNFUNDED','SOURCE_PREFUND_WAIT','SOURCE_ADMISSION_WAIT','REORGED','REFUNDED']);
 export function g5LiveOutcome(sequence:number,stage:string,status:unknown){
  return typeof status==='string'&&outcomeStatuses.has(status)?{sequence,stage,status}:{sequence,stage,status:'UNKNOWN_STATUS',unknownStatusHash:createHash('sha256').update(typeof status==='string'?status:'NON_STRING_STATUS').digest('hex')};
 }
@@ -27,6 +28,7 @@ export function validateG5LiveState(s:G5LiveState,runId:string,binding:string){
  if(s.inflight||s.incident)throw Error('G5_LIVE_ORIGINAL_EFFECT_RECONCILIATION_REQUIRED');
 }
 export function advanceG5LiveSlot(slot:G5LiveSlot,result:G5LiveResult):G5LiveSlot{
+ if(slot.stage==='SOURCE_FUND'&&isSourceAdmissionWait(result,slot.sequence))return {...slot,stage:'START'};
  if(result.status==='SOURCE_PREFUND_WAIT'&&['SYNC','SOURCE_FUND'].includes(slot.stage)&&sourcePrefundWait(result,slot.sequence))return slot;
  if(result.status==='OBSERVER_WAIT'&&slot.stage==='START'&&slot.sequence%2)return {...slot,stage:'SYNC'};
  if(result.status==='OBSERVER_WAIT'&&slot.stage!=='SOURCE_FUND'&&!slot.stage.startsWith('PAYER_'))return slot;
@@ -86,13 +88,16 @@ export async function runG5LiveBounded(state:G5LiveState,options:{maxSteps:numbe
    const admission=active.find(o=>['SYNC','START','SOURCE_FUND','REVERSE_QUOTE','FUNDING_CALL','PAYER_APPROVAL','PAYER_PREPARE','PAYER_BROADCAST'].includes(o.stage));
    // A signer may have saved the original raw before an observer wait prevented
    // SQL import. Recover that exact order before another admission/preparation.
-   let selected=selectG5PreparePriority(state.slots,state.preparePriority)??admission;
+   const yieldedAdmission=state.lastOutcome?.status==='SOURCE_ADMISSION_WAIT'?active.find(o=>o.sequence===state.lastOutcome!.sequence):undefined;
+   const fundedWork=active.filter(o=>!['SYNC','START','SOURCE_FUND','REVERSE_QUOTE','FUNDING_CALL','PAYER_APPROVAL','PAYER_PREPARE','PAYER_BROADCAST'].includes(o.stage));
+   let selected=selectG5PreparePriority(state.slots,state.preparePriority)??(yieldedAdmission&&fundedWork.length?undefined:admission);
    if(selected&&snap.operatorRawPending&&['DISPATCH','PREPARE_COMMIT','PREPARE_SETTLE'].includes(selected.stage)&&!(selected.stage==='DISPATCH'&&snap.operatorRawSequence===selected.sequence))break;
-   if(!selected&&admit){selected={sequence:state.slots.length+1,stage:(state.slots.length+1)%2?'SYNC':'START'};state.slots.push(selected);await io.save(state);}
+   if(!selected&&admit&&!(yieldedAdmission&&fundedWork.length)){selected={sequence:state.slots.length+1,stage:(state.slots.length+1)%2?'SYNC':'START'};state.slots.push(selected);await io.save(state);}
    if(!selected){
     const ready=active.filter(o=>!options.holds?.includes(`${o.sequence}:${o.stage}`)||state.releasedHolds.includes(`${o.sequence}:${o.stage}`));
     // New operator raw preparation is serialized against every original raw.
-    const unblocked=ready.filter(o=>!snap.operatorRawPending||!['DISPATCH','PREPARE_COMMIT','PREPARE_SETTLE'].includes(o.stage)||(o.stage==='DISPATCH'&&snap.operatorRawSequence===o.sequence));
+    const eligible=yieldedAdmission&&fundedWork.length?ready.filter(o=>o.sequence!==yieldedAdmission.sequence):ready;
+    const unblocked=eligible.filter(o=>!snap.operatorRawPending||!['DISPATCH','PREPARE_COMMIT','PREPARE_SETTLE'].includes(o.stage)||(o.stage==='DISPATCH'&&snap.operatorRawSequence===o.sequence));
     if(!unblocked.length)break;
     selected=unblocked[state.cursor%unblocked.length];state.cursor++;
    }

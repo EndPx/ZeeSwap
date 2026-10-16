@@ -116,6 +116,31 @@ class ActorTest(unittest.TestCase):
                 fund_once(config, funding, journal, IO())
             self.assertFalse(journal.exists())
 
+    def test_ten_block_admission_buffer_never_weakens_post_proposal_minimum_eight(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config, funding, journal = self.fixture(directory)
+            funding['cutoffHeight'] = '110'
+            class IO:
+                reads = 0
+                proposals = 0
+                def tip(self):
+                    self.reads += 1
+                    return 100 if self.reads == 1 else 103
+                def validate_receiver(self, _): pass
+                def validate_note(self, *_): pass
+                def propose(self, _): self.proposals += 1; return 10000
+                def send(self, _): raise AssertionError('post-proposal guard must block send')
+            io_value = IO()
+            with patch.object(actor, 'STATE', SourceActorState()):
+                actor.STATE.command = 'fund'
+                with self.assertRaisesRegex(ValueError, 'MINIMUM_EIGHT_BLOCK_WINDOW') as error:
+                    fund_once(config, funding, journal, io_value)
+                self.assertEqual(actor.STATE.phase, 'FINAL_FUNDING_BINDING')
+                self.assertTrue(actor.STATE.proposal_started)
+                self.assertIsNone(prefund_wait(error.exception, actor.STATE, directory))
+            self.assertEqual(io_value.proposals, 1)
+            self.assertFalse(journal.exists())
+
     def test_core_slot_and_fixed_funding_path_cannot_cross_wire_orders(self):
         with tempfile.TemporaryDirectory() as directory:
             config, funding, _ = self.fixture(directory)
@@ -173,6 +198,46 @@ class DiagnosticAndAuditTest(unittest.TestCase):
         self.assertNotIn('SECRET', text); self.assertNotIn('secret', text); self.assertIn('SOURCE_ACTOR_REFUSED', text)
         self.assertEqual(diagnostic_packet(ValueError('G5_SOURCE_BINARY_PIN'), state)['code'], 'G5_SOURCE_BINARY_PIN')
 
+    def run_sync_fixture(self, root, fake_io):
+        parent = Path(root) / 'source-07'; parent.mkdir(exist_ok=True)
+        cfg = {'sequence': 7, 'approvedNote': {}, 'ufvkSha256': 'a' * 64, 'walletPath': str(parent / 'user-wallet'), 'preQuoteSyncFile': str(parent / 'source-prequote-sync.private.json')}
+        path = Path(root) / 'config.json'; path.write_text(json.dumps(cfg))
+        output = io.StringIO()
+        with patch.object(actor, 'STATE', SourceActorState()), patch.object(actor, 'WalletIO', fake_io), patch.object(actor, 'validate_run_binding'), patch.object(sys, 'argv', ['source', 'sync', '--config', str(path)]), redirect_stderr(output):
+            with self.assertRaisesRegex(ValueError, 'ORIGINAL_OPERATION_RECOVERY_REQUIRED'):
+                actor.main()
+        self.assertFalse((parent / 'source-prequote-sync.private.json').exists())
+        self.assertFalse((parent / 'source-actor.lock').exists())
+
+    def test_sync_refuses_orphan_result_and_dangling_intent_before_any_sdk_call(self):
+        for kind in ('orphan-result', 'dangling-intent'):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as root:
+                parent = Path(root) / 'source-07'; parent.mkdir()
+                if kind == 'orphan-result':
+                    (parent / 'source-funding-intent.private.json.result.json').write_text('{}')
+                else:
+                    (parent / 'source-funding-intent.private.json').symlink_to(parent / 'missing')
+                class FakeIO:
+                    def __init__(self, _): pass
+                    def call(self, _): raise AssertionError('No SDK or proposal command may run')
+                self.run_sync_fixture(root, FakeIO)
+
+    def test_sync_refuses_funding_artifacts_appearing_during_notes_or_final_tip_read(self):
+        for phase in ('notes', 'final-tip'):
+            with self.subTest(phase=phase), tempfile.TemporaryDirectory() as root:
+                parent = Path(root) / 'source-07'; parent.mkdir()
+                class FakeIO:
+                    def __init__(self, _): pass
+                    def call(self, _):
+                        if phase == 'notes':
+                            (parent / 'source-funding-intent.private.json.result.json').write_text('{}')
+                        return {}
+                    def validate_note(self, *_): pass
+                    def tip(self):
+                        (parent / 'source-funding-intent.private.json').symlink_to(parent / 'missing')
+                        return 100
+                self.run_sync_fixture(root, FakeIO)
+
     def test_actual_main_retains_owned_lock_on_uncertain_sdk_timeout(self):
         with tempfile.TemporaryDirectory() as root:
             parent = Path(root) / 'source-07'; parent.mkdir()
@@ -217,20 +282,46 @@ class DiagnosticAndAuditTest(unittest.TestCase):
         self.assertEqual(str(actor.funding_path_for_slot('/tmp/state.json', 7, {}, [])), '/tmp/state.json.funding-7.json')
 
     def test_attempt_two_rechecks_real_original_and_fixed_audit_artifacts_before_spending(self):
+        self.check_attempt_artifacts(7)
+
+    def test_source13_artifact_gate_uses_its_own_original_and_fixed_audit(self):
+        self.check_attempt_artifacts(13)
+
+    def test_source13_literal_audit_scope_and_ordered_archives_preserve_source7_compatibility(self):
+        for profile in ([], [{'sequence': 7}], [{'sequence': 7}, {'sequence': 13}]):
+            actor.require_archive_profile(profile)
+        for profile in ([{'sequence': 13}], [{'sequence': 13}, {'sequence': 7}], [{'sequence': 7}, {'sequence': 13}, {'sequence': 15}]):
+            with self.assertRaises(ValueError): actor.require_archive_profile(profile)
+        state = {'orders': [{'sequence': 13, 'attempt': 1}], 'archivedAttempts': [{'sequence': 7}]}
+        self.assertEqual(actor.require_unfunded_audit_scope(state, 13)['sequence'], 13)
+        self.assertEqual(actor.require_unfunded_audit_scope({'orders': [{'sequence': 7}]}, 7)['sequence'], 7)
+        for altered in ({**state, 'archivedAttempts': []}, {**state, 'archivedAttempts': [{'sequence': 13}]},
+                        {**state, 'orders': [{'sequence': 13, 'attempt': 2}]}, {**state, 'archivedAttempts': [{'sequence': 7}, {'sequence': 13}]}):
+            with self.assertRaises(ValueError): actor.require_unfunded_audit_scope(altered, 13)
+        old7 = {'version': 1, 'sequence': 7, 'attempt': 1, 'orderId': 'old7', 'owner': 'old7', 'receiver': 'old7',
+                'fundingFile': '/tmp/state.funding-7.json', 'fundingSha256': 'a' * 64, 'auditSha256': 'b' * 64}
+        old13 = {**old7, 'sequence': 13, 'orderId': 'old13', 'fundingFile': '/tmp/state.funding-13.json'}
+        current = {'attempt': 2, 'orderId': 'new', 'owner': 'new', 'receiver': 'new'}
+        self.assertEqual(str(actor.funding_path_for_slot('/tmp/state', 13, current, [old7, old13])), '/tmp/state.funding-13-attempt-2.json')
+        self.assertEqual(str(actor.funding_path_for_slot('/tmp/state', 7, current, [old7, old13])), '/tmp/state.funding-7-attempt-2.json')
+        for profile in ([old13], [old13, old7], [old7, {**old13, 'sequence': 15}]):
+            with self.assertRaises(ValueError): actor.funding_path_for_slot('/tmp/state', 13, current, profile)
+
+    def check_attempt_artifacts(self, sequence):
         with tempfile.TemporaryDirectory() as root:
             cfg, funding, _ = ActorTest().fixture(root)
-            cfg.update(sequence=7, walletPath=str(actor.ROOT / 'source-07/user-wallet'), runId='run')
+            cfg.update(sequence=sequence, walletPath=str(actor.ROOT / ('source-' + str(sequence).zfill(2)) / 'user-wallet'), runId='run')
             state = Path(root) / 'state.json'
-            original = Path(str(state) + '.funding-7.json'); original.write_text(json.dumps(funding))
+            original = Path(str(state) + '.funding-' + str(sequence) + '.json'); original.write_text(json.dumps(funding))
             funding_sha = hashlib.sha256(original.read_bytes()).hexdigest()
-            actor_audit = {'version': 1, 'status': 'G5_SOURCE_UNFUNDED_AUDIT', 'runId': 'run', 'sequence': 7, 'attempt': 1,
+            actor_audit = {'version': 1, 'status': 'G5_SOURCE_UNFUNDED_AUDIT', 'runId': 'run', 'sequence': sequence, 'attempt': 1,
                            'orderId': funding['orderId'], 'fundingSha256': funding_sha, 'oldFundingCutoffHeight': '108',
                            'ufvkSha256': cfg['ufvkSha256'], 'approvedNote': cfg['approvedNote'], 'pendingCalculatedTransactions': 0,
                            'spendableZatoshi': '110000', 'notes': [cfg['approvedNote']], 'intentAbsent': True, 'resultAbsent': True,
                            'lockReleased': True, 'processesAbsent': True, 'viewNonconfirmed': 0}
-            audit = {'version': 1, 'status': 'G5_SOURCE7_NO_EFFECT_EXPIRY_AUDIT', 'runId': 'run', 'sequence': 7,
+            audit = {'version': 1, 'status': 'G5_SOURCE' + str(sequence) + '_NO_EFFECT_EXPIRY_AUDIT', 'runId': 'run', 'sequence': sequence,
                      'orderId': funding['orderId'], 'cutoffHeight': '108', 'epoch': '8', 'fundingSha256': funding_sha, 'actorAudit': actor_audit}
-            path = Path(str(state) + '.source7-expired-audit.private.json'); path.write_text(json.dumps(audit))
+            path = Path(str(state) + '.source' + str(sequence) + '-expired-audit.private.json'); path.write_text(json.dumps(audit))
             old = {'fundingFile': str(original), 'auditFile': str(path), 'fundingSha256': funding_sha,
                    'auditSha256': hashlib.sha256(path.read_bytes()).hexdigest(), 'orderId': funding['orderId'],
                    'receiver': funding['receiver'], 'cutoffHeight': '108', 'epoch': '8'}

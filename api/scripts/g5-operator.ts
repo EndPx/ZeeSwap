@@ -1,3 +1,4 @@
+import {prepareSourceAdmission,runSourcePreparation,requirePreparedSource,sourceActorConfigPath,sourcePreparedPath,sourceAdmittedPath,admitPreparedSource,requireSourceFundingAuthority,isSourceAdmissionWait} from '../src/g5-source-admission.ts';
 /** Twenty explicit alternating PUBLIC-TESTNET orders. Every invocation ends paused.
  * Funding is performed separately by the operator; this script cannot mint or
  * source-fund. Durable attempts and independent signer journals retain identity.
@@ -36,9 +37,9 @@ import {requireG5NonceReady} from '../src/g5-nonce.ts';
 import {g5Diagnostic} from '../src/g5-diagnostic.ts';
 import {transaction} from '../src/db.ts';
 const [step,path,rawSequence]=process.argv.slice(2),sequence=Number(rawSequence);
-if(!['start','observe','dispatch','verify','barrier','roundtrip-checkpoint','recover-empty-opening','recover-completed-roundtrip','recover-f3-scanner','recover-unfunded-r4-quote','recover-r4-source-finality-wait','recover-r4-precommit-startup','recover-r4-verify-binding','status','diagnose','close'].includes(step)||!path||process.argv.length>5)throw Error('G5_EXPLICIT_STEP_CONFIG_SEQUENCE_REQUIRED');
+if(!['prepare-source','admit-source','source-fund-authority','start','observe','dispatch','verify','barrier','roundtrip-checkpoint','recover-empty-opening','recover-completed-roundtrip','recover-f3-scanner','recover-unfunded-r4-quote','recover-r4-source-finality-wait','recover-r4-precommit-startup','recover-r4-verify-binding','status','diagnose','close'].includes(step)||!path||process.argv.length>5)throw Error('G5_EXPLICIT_STEP_CONFIG_SEQUENCE_REQUIRED');
 const c=await g5Context(path),repository=new Repository(c.api,c.r.keys);
-const r4QuoteRecovery=step==='recover-unfunded-r4-quote',r4PrecommitStartupRecovery=step==='recover-r4-precommit-startup',r4VerifyBindingRecovery=step==='recover-r4-verify-binding',r4FundingWaitRecovery=step==='recover-r4-source-finality-wait'||r4PrecommitStartupRecovery||r4VerifyBindingRecovery,readOnly=step==='status'||step==='diagnose'||r4QuoteRecovery||r4FundingWaitRecovery;let phase='startup';let controllerLock:Awaited<ReturnType<typeof open>>|undefined,controllerLockPath:string|undefined;
+const r4QuoteRecovery=step==='recover-unfunded-r4-quote',r4PrecommitStartupRecovery=step==='recover-r4-precommit-startup',r4VerifyBindingRecovery=step==='recover-r4-verify-binding',r4FundingWaitRecovery=step==='recover-r4-source-finality-wait'||r4PrecommitStartupRecovery||r4VerifyBindingRecovery,readOnly=step==='source-fund-authority'||step==='status'||step==='diagnose'||r4QuoteRecovery||r4FundingWaitRecovery;let phase='startup';let controllerLock:Awaited<ReturnType<typeof open>>|undefined,controllerLockPath:string|undefined;
 async function requireAbsent(path:string){
  try{await access(privateLocalPath(path));}catch(error){if((error as any).code==='ENOENT')return;throw error;}
  throw Error('G5_PRIOR_SIGNING_OR_FUNDING_ARTIFACT_REQUIRES_RECONCILIATION');
@@ -144,7 +145,7 @@ async function verifyReceipts(slot:typeof c.state.orders[number]){
 
 try{
  if(!readOnly&&!['recover-empty-opening','recover-completed-roundtrip','recover-f3-scanner'].includes(step))requireG5Operational(c.state);
- phase='base-preflight';await c.base.preflight();if(!readOnly&&!['recover-empty-opening','recover-completed-roundtrip','recover-f3-scanner'].includes(step))await c.admin.query('UPDATE zee.runtime_control SET accepting_orders=false,dispatch_enabled=false');
+ phase='base-preflight';if(!['prepare-source','admit-source','source-fund-authority'].includes(step))await c.base.preflight();if(!readOnly&&!['recover-empty-opening','recover-completed-roundtrip','recover-f3-scanner'].includes(step))await c.admin.query('UPDATE zee.runtime_control SET accepting_orders=false,dispatch_enabled=false');
  let result:unknown;
  if(step==='status'){
   const rows=await assertRunDatabase();result={status:'G5_PAUSED',incident:!!c.state.incident,slots:c.state.orders.length,verified:c.state.orders.filter(o=>o.verified).length,
@@ -406,6 +407,45 @@ try{
   // unchanged. This is one two-direction milestone within the twenty-order run.
   await durable(c.config.stateFile+'.roundtrip-checkpoint.json',{version:1,runId:c.state.runId,throughSequence:2,...summary,g5Complete:false,batchBarrierAdvanced:false});
   result={status:'G5_ROUNDTRIP_CHECKPOINT',...summary,g5Complete:false,batchBarrierAdvanced:false};
+ }else if(['prepare-source','admit-source','source-fund-authority'].includes(step)){
+  let slot=requireG5Next(c.state,sequence);
+  if(!slot){
+   if(step!=='prepare-source')throw Error('G5_SOURCE_PREPARATION_BINDING_REQUIRED');
+   await assertRunDatabase();slot={sequence,direction:g5Direction(sequence),owner:randomBytes(32).toString('base64url')};c.state.orders.push(slot);await c.save();
+  }
+  if(slot.direction!=='ZCASH_TO_BASE'||c.config.branchId!=='br-twilight-heart-ao6cx6pg'||sequence<3)throw Error('G5_SOURCE_SPLIT_ADMISSION_REQUIRED');
+  const actor=await read(sourceActorConfigPath(sequence)),preparedPath=sourcePreparedPath(c.config.stateFile,slot),admittedPath=sourceAdmittedPath(c.config.stateFile,slot),fundingFile=g5FundingArtifact(c.config.stateFile,c.state,sequence);
+  if(step==='prepare-source'){
+   phase='source-readonly-preparation';if(slot.orderId)throw Error('G5_SOURCE_ALREADY_ACCEPTED_RECONCILIATION_REQUIRED');
+   await requireAbsent(admittedPath);await requireAbsent(fundingFile);await assertRunDatabase();
+   if((await c.admin.query('SELECT count(*)::text AS n FROM zee.quotes WHERE access_hash=$1',[accessHash(slot.owner)])).rows[0].n!=='0')throw Error('G5_SOURCE_ALREADY_ACCEPTED_RECONCILIATION_REQUIRED');
+   const refund=c.config.forwardOrders.find((x:any)=>x.sequence===sequence)?.refundRecipient;
+   const {basePreflightObservedAt}=await runSourcePreparation({
+    validateRefund:async()=>{if(await c.r.wallet.validate(refund)!==refund)throw Error('G5_SOURCE_PREPARATION_BINDING_REQUIRED');},
+    allocateReceiver:async()=>{if(!slot!.receiver){slot!.receiver=await c.r.wallet.allocate();await c.save();}return slot!.receiver!;},
+    basePreflight:async()=>{await c.base.preflight();return new Date().toISOString();},refresh});
+   await assertRunDatabase();
+   const control=(await c.admin.query('SELECT epoch::text,reconciliation_required FROM zee.runtime_control WHERE singleton')).rows[0];if(control.reconciliation_required)throw Error('G5_EXPLICIT_RECONCILIATION_REQUIRED');
+   const prepared=prepareSourceAdmission(c.config,c.state,slot,actor,privateLocalPath(path),c.base.registry.contracts.ZeeSwapSettlement.address,control.epoch,basePreflightObservedAt);
+   try{requirePreparedSource(c.config,c.state,slot,actor,privateLocalPath(path),c.base.registry.contracts.ZeeSwapSettlement.address,await read(preparedPath));}catch(error){if((error as any).code!=='ENOENT')throw error;}
+   await durable(preparedPath,prepared);result={status:'SOURCE_PREPARED_FOR_ADMISSION',sequence};
+  }else if(step==='admit-source'){
+   phase='source-thin-sql-admission';await requireAbsent(admittedPath);await assertRunDatabase();
+   const admitted=await admitPreparedSource(c.admin,c.r.keys,c.config,c.state,slot,actor,privateLocalPath(path),c.base.registry.contracts.ZeeSwapSettlement.address,await read(preparedPath),await read(actor.preQuoteSyncFile));
+   if(isSourceAdmissionWait(admitted,sequence))result=admitted;
+   else{
+    if(!('funding' in admitted))throw Error('G5_SOURCE_ADMISSION_RESULT_INVALID');
+    slot.orderId=admitted.funding.orderId;await c.save();
+    try{if(!isDeepStrictEqual(await read(fundingFile),admitted.funding))throw Error('G5_IMMUTABLE_QUOTE_MISMATCH');}catch(error){if((error as any).code!=='ENOENT')throw error;await durable(fundingFile,admitted.funding,true);}
+    result={status:admitted.status,sequence,epoch:admitted.epoch,fundingSha256:createHash('sha256').update(await readFile(privateLocalPath(fundingFile))).digest('hex')};
+   }
+  }else{
+   phase='source-admitted-authority';await assertRunDatabase();
+   const prepared=await read(preparedPath),intent=await read(admittedPath),funding=await read(fundingFile);
+   requirePreparedSource(c.config,c.state,slot,actor,privateLocalPath(path),c.base.registry.contracts.ZeeSwapSettlement.address,prepared);
+   if(intent.version!==1||intent.status!=='SOURCE_ADMITTED_PENDING_ONCE_ONLY_FUND'||intent.runId!==c.state.runId||intent.manifestBinding!==c.state.binding||intent.sequence!==sequence||intent.attempt!==Number(slot.attempt??1)||intent.epoch!==prepared.epoch||intent.fundingFile!==fundingFile||intent.fundingSha256!==createHash('sha256').update(await readFile(privateLocalPath(fundingFile))).digest('hex'))throw Error('G5_SOURCE_ACCEPTED_FUNDING_BINDING_CHANGED');
+   result=await requireSourceFundingAuthority(c.worker,c.r.keys,slot,intent.epoch,funding);
+  }
  }else if(step==='start'){
   const existing=requireG5Next(c.state,sequence);
   let openingBoundary=false;
@@ -427,6 +467,7 @@ try{
   }
   if(slot.direction==='BASE_TO_ZCASH')result={status:'G5_REVERSE_SLOT_READY',sequence};
   else{
+   if(c.config.branchId==='br-twilight-heart-ao6cx6pg'&&sequence>=3)throw Error('G5_SOURCE_SPLIT_ADMISSION_REQUIRED');
    await refresh();await assertRunDatabase();
    const refundRecipient=c.state.batchSize?c.config.forwardOrders.find((o:any)=>o.sequence===sequence).refundRecipient:c.config.forward.refundRecipient;
    if(!slot.receiver){slot.receiver=await c.r.wallet.allocate();await c.save();}
