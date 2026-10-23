@@ -1,0 +1,19 @@
+# Private UFVK-derived observations. Never expose this schema through a public API.
+# blockHeight's index is part of the immutable project/schema identity.
+type ReadableNote {
+  id: ID!
+  network: String!
+  txid: String!
+  pool: String!
+  outputIndex: Int!
+  blockHeight: Int! @index
+  blockHash: String!
+  blockTime: Int!
+  valueZat: BigInt!
+  receiverBytes: String!
+  memoHex: String!
+  accountFingerprint: String!
+  scope: String!
+  origin: String!
+  coinbase: Boolean!
+}

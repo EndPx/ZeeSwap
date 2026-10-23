@@ -1,0 +1,25 @@
+type SettlementEvent {
+  id: ID!
+  contract: String!
+  contractVersion: String!
+  token: String!
+  txHash: String!
+  transactionIndex: Int!
+  logIndex: Int!
+  blockNumber: Int!
+  blockHash: String!
+  blockParentHash: String!
+  blockTimestamp: Int!
+  eventName: String!
+  settlementId: String
+  amountAtomic: BigInt
+  decodedJson: String!
+}
+
+# A block-handler visit includes blocks with zero selected events. It deliberately
+# asserts no canonical hash, undo floor, finality or source liveness certificate.
+type BlockVisit {
+  id: ID!
+  blockNumber: Int!
+  coverageComplete: Boolean!
+}

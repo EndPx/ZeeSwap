@@ -1,0 +1,5 @@
+.envio/
+generated/
+persisted-state.envio/
+docker-compose.yaml
+docker-compose.yml

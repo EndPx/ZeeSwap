@@ -1,0 +1,16 @@
+{
+  "name": "@zeeswap/private-chef-shadow",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24.14.0" },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "codegen": "zeer codegen --config chef.config.ts",
+    "migrate:private": "zeer migrate --config chef.config.ts",
+    "sync:private": "zeer sync --config chef.config.ts --follow",
+    "serve:private": "zeer serve --config chef.config.ts --listen 127.0.0.1 --port 39375"
+  },
+  "dependencies": { "@zeer-dev/chef": "0.6.1" },
+  "devDependencies": { "typescript": "7.0.2", "@types/node": "24.19.2", "tsx": "4.23.15" }
+}

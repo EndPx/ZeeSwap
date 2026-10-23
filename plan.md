@@ -123,6 +123,14 @@ The user funding path starts with a shielded payment request/QR and a tested ext
 
 ### Integration design baseline (23 October 2026)
 
+Implementation update: the user authorized the integration work, preparation of
+new Chef/Envio project configurations, and a polished frontend with creative
+assets on 23 October. Frontend work may proceed alongside the local integration
+gates despite the earlier historical G5 sequencing restriction; the stopped G5
+soak is not resumed or marked complete. See the timestamped
+[local implementation evidence](docs/evidence/integration-implementation-local.md)
+for implemented components, actual checks and the remaining live activation gates.
+
 The detailed [settlement integration design](docs/design/README.md) specifies the
 [Zeer/Envio observation contract](docs/design/observation-adapters.md),
 [NEAR EVM quote policy](docs/design/near-evm-quote-policy.md), and

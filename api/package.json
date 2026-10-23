@@ -10,6 +10,8 @@
     "test:db": "tsx scripts/test-live.ts test/database.test.ts",
     "test:api": "tsx scripts/test-live.ts test/api.test.ts",
     "test:integration": "tsx scripts/test-live.ts",
+    "test:integration:local": "tsx --test test/integrations/*.test.ts",
+    "observation:shadow": "tsx src/integrations/observation/shadow-cli.ts",
     "start": "tsx scripts/serve.ts",
     "observe": "tsx scripts/observe.ts",
     "base:preflight": "tsx scripts/base-preflight.ts",
@@ -17,6 +19,7 @@
     "test:settlement": "tsx scripts/test-live.ts test/base-integration.test.ts"
   },
   "dependencies": {
+    "@defuse-protocol/one-click-sdk-typescript": "0.1.26",
     "pg": "8.23.1",
     "viem": "2.57.5"
   },

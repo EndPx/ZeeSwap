@@ -1,0 +1,42 @@
+# yaml-language-server: $schema=./node_modules/envio/evm.schema.json
+name: zeeswap-base-sepolia-shadow
+description: Public settlement observations only; no financial dispatch or coherent coverage assertion.
+ecosystem: evm
+rollback_on_reorg: true
+disable_default_cross_chain: true
+field_selection:
+  transaction_fields: [hash, transactionIndex]
+  # number/hash/timestamp are always present; only extra fields belong here.
+  block_fields: [parentHash]
+contracts:
+  - name: ZeeSwapSettlement
+    events:
+      - event: InventoryDeposited(address indexed from, uint256 amount)
+      - event: InventoryWithdrawn(address indexed to, uint256 amount)
+      - event: PayoutReserved(bytes32 indexed id, address indexed recipient, uint256 amount)
+      - event: Paid(bytes32 indexed id, address indexed recipient, uint256 amount)
+      - event: SettlementCancelled(bytes32 indexed id)
+      - event: Funded(bytes32 indexed id, address indexed payer, uint256 amount, uint256 cancellationAvailableAt)
+      - event: PayoutCommitted(bytes32 indexed id)
+      - event: EscrowSettled(bytes32 indexed id, uint256 amount)
+      - event: Refunded(bytes32 indexed id, address indexed recipient, uint256 amount)
+  # Compiled for a separately approved V2 deployment. No chain references it by default.
+  - name: ZeeSwapSettlementV2
+    events:
+      - event: InventoryDeposited(address indexed from, uint256 amount)
+      - event: InventoryWithdrawn(address indexed to, uint256 amount)
+      - event: PayoutReserved(bytes32 indexed id, address indexed recipient, uint256 amount)
+      - event: Paid(bytes32 indexed id, address indexed recipient, uint256 amount)
+      - event: SettlementCancelled(bytes32 indexed id)
+      - event: Funded(bytes32 indexed id, address indexed payer, uint256 amount, uint256 cancellationAvailableAt)
+      - event: PayoutCommitted(bytes32 indexed id)
+      - event: EscrowSettled(bytes32 indexed id, uint256 amount)
+      - event: Refunded(bytes32 indexed id, address indexed recipient, uint256 amount)
+      - event: EscrowAborted(bytes32 indexed id, address indexed refundRecipient, uint256 amount, uint256 nonce, bytes32 recoveryProofDigest)
+chains:
+  - id: 84532
+    start_block: 48078599
+    max_reorg_depth: 200
+    contracts:
+      - name: ZeeSwapSettlement
+        address: '0xe99aC648F85450B8ddEAEA088Aa99749C5e16DA3'

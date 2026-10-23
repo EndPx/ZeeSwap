@@ -1,0 +1,22 @@
+{
+  "mode": "SHADOW",
+  "policy": {
+    "adapter": "zeer-chef",
+    "network": "zcash-testnet",
+    "registryDigest": "REPLACE_WITH_REVIEWED_64_LOWERCASE_HEX_REGISTRY_DIGEST",
+    "projectionDigest": "REPLACE_WITH_REVIEWED_64_LOWERCASE_HEX_SCHEMA_HANDLER_FILTER_DIGEST",
+    "canonicalSourceId": "REPLACE_WITH_PINNED_INDEPENDENT_ZCASHD_SOURCE_ID",
+    "accountFingerprint": "REPLACE_WITH_INSPECTED_UFVK_FINGERPRINT",
+    "birthday": 0,
+    "maxBlocks": 1000,
+    "maxObservations": 1000,
+    "maxHistory": 10000
+  },
+  "storePath": "REPLACE_WITH_ABSOLUTE_PROTECTED_PATH/.deploy-local/observation-shadow/chef-mirror.json",
+  "sourceUrl": "http://127.0.0.1:39375",
+  "tokenEnv": "ZEESWAP_SHADOW_CHEF_TOKEN",
+  "project": "zeeswap_shadow_REPLACE_WITH_SAME_FRESH_NAMESPACE",
+  "canonicalRpcUrl": "http://127.0.0.1:18232",
+  "canonicalAuthorizationEnv": "ZEESWAP_ZCASH_RPC_AUTHORIZATION",
+  "consensusBranchId": "REPLACE_WITH_CURRENT_TESTNET_8_HEX_BRANCH_ID"
+}

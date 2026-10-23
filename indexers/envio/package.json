@@ -1,0 +1,15 @@
+{
+  "name": "@zeeswap/envio-shadow-project",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.21.0",
+  "engines": { "node": ">=24 <25" },
+  "scripts": {
+    "codegen": "envio codegen",
+    "typecheck": "tsc --noEmit",
+    "validate": "pnpm codegen && pnpm typecheck",
+    "dev": "envio dev"
+  },
+  "dependencies": { "envio": "3.14.0" },
+  "devDependencies": { "@types/node": "24.19.2", "typescript": "7.0.2" }
+}

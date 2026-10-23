@@ -1,0 +1,179 @@
+# Private Chef observation project
+
+This is a new, isolated Zcash **testnet** watch-only project for the observation
+integration. It projects exact Orchard/Ironwood received-note bytes and block
+metadata, then an independently configured canonical reader checks them before
+publishing a private **SHADOW** mirror. Nothing here imports the accepted-order
+database, wallet SDK, payout signer or dispatcher. No running private Chef project
+or live note comparison has been established by these local tests.
+
+`@zeer-dev/chef` is pinned to `0.6.1`; `package-lock.json` records the installed
+registry tarball integrity. Its inspected source is Zeer commit
+`e850cdd1472d05d8f551c2ecea7685a7aa8a5a19`, MIT, Copyright 2026 EndPx.
+The installed package was also exercised through its real GraphQL server and
+HMAC cursors against this schema. That test uses an in-memory store, not a live
+Chef/PostgreSQL deployment or native UFVK scanner.
+
+## Files and local verification
+
+`schema.graphql` indexes `blockHeight` and preserves block hash/time, account
+fingerprint, exact integer note value, receiver component and all 512 memo bytes.
+`chef.config.ts` uses a fresh `zeeswap_shadow_*` project and explicit birthday,
+UFVK fingerprint and scanner paths. `projection.ts` binds receipts to their
+block/account and refuses unsupported pools or malformed bytes. The projection
+does not infer sender identity, classify fully shielded funding, decode a Unified
+Address or parse the ZeeSwap memo instruction.
+
+From the repository root:
+
+```powershell
+npm --prefix indexers/zeer ci --ignore-scripts
+npm --prefix indexers/zeer run typecheck
+npm --prefix indexers/zeer test
+pnpm --dir api exec tsx --test test/integrations/observation-adapters.test.ts
+pnpm --dir api typecheck
+```
+
+The project tests include the installed Chef `createChefServer`, the actual
+indexed schema and three real HMAC-cursor pages for 205 notes at one height. API
+tests cover A01–A14 locally, including authenticated HTTP and a complete
+CLI/RPC/private-file publication/replay. Mocked PostgreSQL exporter tests verify
+the SQL transaction and keyset contract; they do not prove a deployed Envio
+integration's rollback or repeatable-read behavior under concurrent writes.
+
+## Private setup
+
+Create a protected private environment file from `.env.example`. Provide a
+dedicated private Chef PostgreSQL database; do not reuse a financial database,
+another Chef namespace or any of the existing stopped G5 runtime files.
+Choose a new project name, explicit account ID, inspected testnet UFVK fingerprint
+and wallet birthday at or before the earliest retained receiver. The adapter's
+`birthday` must equal that configured Chef scan start. Never use `latest` as a
+recovery birthday. Reusing the project after a schema, key, account or birthday
+change requires a reviewed rebuild, not a live configuration edit.
+
+The maintained native `zeer-scanner` executable and an operator-owned UFVK file
+are external setup inputs. Build/pin the scanner from the inspected Zeer source
+and verify its identity and network. Keep the UFVK outside Git and outside the
+public example directory. No seed, spending key, faucet request, scanner launch,
+wallet sync or database migration was performed to prepare this scaffold.
+
+Private memo/receiver data remains plaintext in the private Chef database and
+shadow mirror. Protect those locations with owner-only permissions and disk
+encryption where required. POSIX mode checks are enforced for the shadow path;
+on Windows the operator must create an owner-only ACL on the private parent
+**before** supplying real viewing data. Node's `0600` mode does not establish a
+Windows ACL. The mirror rejects symlink/junction paths, but it is not an encrypted
+vault or a defense against a hostile user who can replace its parent directory.
+
+The next commands are explicit setup steps for that new private project. They
+change only its dedicated Chef database when the operator runs them; they have
+not been run as part of the local implementation. Replace the environment path:
+
+```powershell
+Set-Location indexers/zeer
+node --env-file=C:/protected/zeeswap-chef.env node_modules/@zeer-dev/chef/dist/cli.js codegen --config chef.config.ts
+node --env-file=C:/protected/zeeswap-chef.env node_modules/@zeer-dev/chef/dist/cli.js migrate --config chef.config.ts
+node --env-file=C:/protected/zeeswap-chef.env node_modules/@zeer-dev/chef/dist/cli.js sync --config chef.config.ts --follow
+```
+
+Run a separately supervised authenticated reader when explicitly ready:
+
+```powershell
+node --env-file=C:/protected/zeeswap-chef.env node_modules/@zeer-dev/chef/dist/cli.js serve --config chef.config.ts --listen 127.0.0.1 --port 39375
+```
+
+Current schema fingerprint from actual Chef codegen:
+`a44c9dc52e89665416fa9a7d21aa45b13da0509a2dc4560740d682ae459c82da`.
+The adapter's `projectionDigest` must bind the reviewed schema, handler version,
+filter/config, network, account and scanner identity. It is not merely this
+schema fingerprint. `registryDigest` must bind the reviewed integration registry.
+Fill both after reviewing those concrete private deployment settings; this
+example does not invent their deployed identities.
+
+## One-shot shadow consumption
+
+Copy `shadow.config.example.json` into an absolute protected path beneath
+`.deploy-local/observation-shadow/`. Replace **every** placeholder and set the
+explicit numeric birthday (the template `0` is not a recommended scan start).
+Point `storePath` to a separate `.json` mirror in the same protected subtree.
+Set the private Chef token environment variable and the zcashd Basic
+authorization environment variable. Use a maintained canonical zcashd testnet
+RPC with its current consensus branch ID pinned in the config. A branch/network
+mismatch blocks the read; the adapter never bypasses TLS validation.
+
+From the repository root, with the private environment already loaded:
+
+```powershell
+pnpm observation:shadow C:/protected/.deploy-local/observation-shadow/chef.config.json
+```
+
+Alternatively load the environment without copying secrets into command flags:
+
+```powershell
+node --env-file=C:/protected/zeeswap-chef.env --import ./api/node_modules/tsx/dist/loader.mjs api/src/integrations/observation/shadow-cli.ts C:/protected/.deploy-local/observation-shadow/chef.config.json
+```
+
+The CLI reads `/status`, traverses complete height windows with every opaque
+cursor, checks status again, verifies headers with the independent RPC and
+atomically publishes the entire mutable tail plus checkpoint. The source cached
+sample and upstream sample must both be fresh. A 409 discards staging; three
+restarts or the 30-second budget produces `WAIT_RANGE_UNSTABLE` with a suggested
+5–6 second retry delay. A 503 is a wait and never an empty range. The CLI exits
+after one attempt; a supervisor must honor `retryAfterMs` rather than spin.
+
+Canonical header methods are allowlisted read RPCs only. The default CLI has no
+transaction-structure privacy classifier, so every note remains
+`sourcePrivacy: "unknown"`. It cannot become financially eligible through a
+successful shadow run. The reusable adapter accepts a separately reviewed
+classifier callback, but that callback must parse complete raw transactions,
+recompute txids, pin the branch and enforce the existing single-pool policy.
+Wallet-aware receiver/memo binding and existing-order comparison are also still
+external gates before any future financial bridge.
+
+The mirror retains orphaned occurrences, deduplicates output value independently
+of receipt ID/key fingerprint, and reports exposure from an explicitly supplied
+local journal snapshot through the library. It never erases or repeats customer
+payments. The CLI does not read a financial journal. Unknown keys/generation
+changes, recovery-floor regression, sealed-history forks and capacity exhaustion
+block processing. Its current maximum is 1,000 headers/observations per range
+and 10,000 retained occurrences; it stops rather than silently truncating.
+
+Publication uses an exclusive directory lock, checkpoint compare-and-swap,
+file fsync and atomic rename. POSIX also fsyncs the containing directory. Windows
+atomic rename provides whole-file visibility, but power-loss durability depends
+on the filesystem/platform. A process killed while holding the lock leaves it
+in place: inspect its process and last complete mirror before a manual recovery.
+Never automatically clear a stale lock or reset a blocked generation.
+
+## Envio coherent-export boundary
+
+The separate consumer in `api/src/integrations/observation/envio.ts` accepts the
+ZeeSwap-owned `zee-envio-export-v1` protocol, not arbitrary paged GraphQL rows.
+It checks an expiring snapshot token, complete range digest, independent
+canonical headers and a fresh RPC finalized header. Its
+`exportEnvioRange` producer is a reusable SELECT-only PostgreSQL exporter using
+one `REPEATABLE READ READ ONLY` transaction, keyset ordering and 30-second SQL
+statement/idle transaction timeouts.
+
+The configured views/tables must supply all of the following **in the same
+producer transaction as HyperIndex state/rollback**, using an explicit schema,
+table names and stream ID. None are assumed to be built-in HyperIndex tables:
+
+| Table/view | Required columns and meaning |
+| --- | --- |
+| Checkpoint | `stream_id`, `payload` with `generation`, decimal `revision`, `through` Header, verified `recoveryFloor`, `sourceSampledAt`, `sourceHead` Header, `projectionDigest`, `registryDigest`, `complete: true`. The checkpoint covers every processed block, including empty blocks. |
+| Headers | `stream_id`, `block_height`, `payload` Header for every covered height, canonical branch only. |
+| Events | `stream_id`, stable string `id`, `block_height`, `transaction_index`, `log_index`, `payload` strict BaseEvent DTO; order is `(block_height, transaction_index, log_index, id)`. |
+
+A dedicated SELECT-only principal serves exports; no network request occurs
+while this export transaction holds its snapshot. The adapter executes no DDL or
+producer write. A deployed, pinned HyperIndex producer still needs a reviewed
+checkpoint/rollback bridge and a private authenticated export HTTP service.
+Event handlers or a YAML deployment alone do not meet that gate. Unknown
+coverage/recovery floor or a service offering only live GraphQL keeps I2 blocked.
+`max(event.blockHeight)` cannot establish processed coverage or safe absence.
+
+V1 event decoding stays strict. `EscrowAborted` is recognized only with an
+explicit V2 policy, pinned V2 ABI digest and V2 registry/contract address. This
+does not imply the separate V2 contract is deployed.
