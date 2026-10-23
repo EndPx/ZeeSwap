@@ -5,6 +5,26 @@ ZeeSwap is building bidirectional swaps, constrained intents and a backed-token 
 
 Real testnet swaps are verified in both directions: **0.001 shielded TAZ → 0.1 mockUSDC** and **0.1 mockUSDC → 0.001 shielded TAZ**. After the initial G4 experiments, the first same-user circle also passed: both orders SETTLED, original receipts verified, exact final user balances and a reconciled twelve-wallet checkpoint. These use bounded operator harnesses and fixture pricing. The full product remains under construction.
 
+The [web application](apps/web/README.md) now provides a responsive swap interface,
+wallet connection, private order activity and local Zcash payment QR generation.
+It connects to the existing quote/order API when configured and displays an
+explicit preview state while the service is offline. Browser tests use synthetic
+API responses; the screenshot below is the offline testnet preview, not a new
+cross-chain settlement. Reverse public API funding remains gated.
+
+![ZeeSwap testnet web preview](docs/assets/zeeswap-web.png)
+
+```sh
+pnpm install --frozen-lockfile
+pnpm web:dev
+```
+
+See the web README for API origin/CORS configuration, production build, privacy
+settings and verification commands. The separate [integration implementation](docs/evidence/integration-implementation-local.md)
+includes prepared [Chef](indexers/zeer/README.md) and [Envio](indexers/envio/README.md)
+projects, route accounting, isolated PostgreSQL persistence and the undeployed
+V2 recovery contract. Their live activation gates remain explicit.
+
 - [Implementation plan](plan.md): scope, decisions and acceptance gates.
 - [Zcash wallet tooling](workers/zcash-wallet/README.md) and [live G1 evidence](docs/evidence/g1-feasibility.md).
 - [Database module](api/README.md) and [live Neon evidence](docs/evidence/g2-database.md): encrypted quotes, guarded order/deposit transitions, reservations, balanced journals and fenced jobs.

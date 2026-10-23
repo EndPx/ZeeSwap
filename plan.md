@@ -130,6 +130,11 @@ gates despite the earlier historical G5 sequencing restriction; the stopped G5
 soak is not resumed or marked complete. See the timestamped
 [local implementation evidence](docs/evidence/integration-implementation-local.md)
 for implemented components, actual checks and the remaining live activation gates.
+The [web application](apps/web/README.md) now implements the existing API client,
+responsive swap/review/activity flows, wallet connection and local payment QR.
+[Web acceptance evidence](docs/evidence/web-local-acceptance.md) records synthetic
+browser tests, visual checks and the live-service boundaries; this does not close
+the reverse public API, indexer deployment or funded end-to-end gates.
 
 The detailed [settlement integration design](docs/design/README.md) specifies the
 [Zeer/Envio observation contract](docs/design/observation-adapters.md),

@@ -1,6 +1,10 @@
 {
   "name": "zeeswap", "private": true, "packageManager": "pnpm@10.21.0",
   "scripts": {
+    "web:dev": "pnpm --filter @zeeswap/web dev",
+    "web:build": "pnpm --filter @zeeswap/web build",
+    "web:preview": "pnpm --filter @zeeswap/web preview",
+    "web:test": "pnpm --filter @zeeswap/web test",
     "typecheck": "pnpm --filter @zeeswap/api typecheck",
     "test": "pnpm --filter @zeeswap/api test",
     "db:preflight": "pnpm --filter @zeeswap/api db:preflight",
