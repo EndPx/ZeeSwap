@@ -1,6 +1,6 @@
 # ZeeSwap implementation plan
 
-Last updated: 2026-10-23 (Asia/Jakarta), for the EVM routing decision. Execution evidence below retains its recorded dates.
+Last updated: 2026-10-23 (Asia/Jakarta), for the EVM routing and settlement integration design. Execution evidence below retains its recorded dates.
 
 Status: Both initial public-testnet swap directions, the first same-user circle and both full-principal source refund experiments passed. G5 retry now has twelve SQL SETTLED and eleven ordinarily receipt-verified executions, with barriers [5,10]. The separate Source15 scan refusal was followed by a fully audited third no-effect expiry; its successor is unaccepted and unfunded. Root's independent2026-10-16 07:24:00.392 UTC postcheck passed with all original financial files unchanged, healthy paused epoch11 controls, and exact archives [7,13,15]. The first expiry attempt refused before financial mutation; its history and the corrected fresh retry are retained. Twenty funded settlements, all four barriers, close and broader G5 acceptance remain incomplete. Future0015/0016 remain unwired/unapplied to this fourteen-migration run.
 
@@ -120,6 +120,27 @@ The API, relayer, and wallet services run on a persistent Linux-capable host wit
 Use maintained Rust Zcash wallet libraries behind a narrow scanner/signer boundary. G1 initially built the official `zcash-devtool` (backed by `zcash_client_backend` / `zcash_client_sqlite`), but its locked `zcash_protocol 0.10.5` does not recognize the live NU7 branch `77190ad9`. G1 therefore evaluates pinned zingolib `0243894aee9b615c091cf27499c58cdfe325d05f` with `zcash_protocol 0.11.0-pre.0` in separate wallet stores. Do not combine two independent wallet engines over one wallet database. A test CLI plus feasibility helpers is not the production service.
 
 The user funding path starts with a shielded payment request/QR and a tested external testnet wallet. An injected Noir integration is optional after its separate testnet build passes G1. Do not use its RHEA aggregation or WalletConnect path as a shortcut: the documented cross-chain path uses transparent deposits. [Wallet adapter source](https://github.com/NoirWallet/zcash-wallet-adapter/blob/main/README.md).
+
+### Integration design baseline (23 October 2026)
+
+The detailed [settlement integration design](docs/design/README.md) specifies the
+[Zeer/Envio observation contract](docs/design/observation-adapters.md),
+[NEAR EVM quote policy](docs/design/near-evm-quote-policy.md), and
+[route recovery/accounting contract](docs/design/evm-route-recovery.md).
+It preserves native shielded Zcash handling, the two-way Base-first pair, exact
+integer accounting and the existing finality requirements. Provider execution
+uses reserved operator inventory with operator-controlled EVM endpoints; a
+separate ZeeSwap payout completes the customer obligation. Customer terms remain
+fixed after acceptance, with full source-principal refund under the specified
+failure conditions rather than silent repricing.
+
+These are future implementation contracts, not deployed features. I0-I6 describe
+dependencies within that future work and do not replace G1-G7. The current
+TAZ/mockUSDC baseline does not call NEAR Intents. Envio's coherent export,
+provider fee/net-output semantics, new contract capabilities and production asset
+activation require their stated acceptance gates. This design does not resume
+the intentionally stopped G5 soak or alter any accepted order. Documentation
+validation is recorded in [the integration review](docs/evidence/integration-design-review.md).
 
 ### mockUSDC boundary
 
