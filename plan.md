@@ -1,6 +1,6 @@
 # ZeeSwap implementation plan
 
-Last updated: 2026-10-16 (Asia/Jakarta).
+Last updated: 2026-10-23 (Asia/Jakarta), for the EVM routing decision. Execution evidence below retains its recorded dates.
 
 Status: Both initial public-testnet swap directions, the first same-user circle and both full-principal source refund experiments passed. G5 retry now has twelve SQL SETTLED and eleven ordinarily receipt-verified executions, with barriers [5,10]. The separate Source15 scan refusal was followed by a fully audited third no-effect expiry; its successor is unaccepted and unfunded. Root's independent2026-10-16 07:24:00.392 UTC postcheck passed with all original financial files unchanged, healthy paused epoch11 controls, and exact archives [7,13,15]. The first expiry attempt refused before financial mutation; its history and the corrected fresh retry are retained. Twenty funded settlements, all four barriers, close and broader G5 acceptance remain incomplete. Future0015/0016 remain unwired/unapplied to this fourteen-migration run.
 
@@ -35,6 +35,7 @@ Actual healthy watcher checkpoint at 20:12:08.082 UTC: ACTUAL_ARCHIVED_SOURCE_WA
 | Prototype swap asset | **TAZ ↔ mockUSDC on Base Sepolia**. Deploy a project-owned mock token with 6 decimals; do not use Circle test USDC. |
 | Product capabilities | Swaps, bridges, and intents are the overall target; each must work in both directions |
 | Development networks | Zcash testnet (TAZ) and Base Sepolia; clearly label test assets |
+| NEAR Intents boundary | Confirmed 2026-10-23: optional execution for EVM-to-EVM legs only. ZeeSwap handles shielded Zcash intake and payout itself; do not route ZEC deposits or withdrawals through NEAR Intents. Base remains the first EVM chain. |
 | Database | Neon PostgreSQL for application and settlement state |
 | Selected Neon target | Project `raspy-truth-63998651` (ZeeSwap), branch `br-empty-meadow-aowxzfl5` (`production`), database `neondb`. Selected by the user on 2026-10-14. |
 | Neon integration branch | `br-solitary-flower-ao8ccjex` (`zeeswap-g2-database`): preserves the real testnet incoming-payment experiment; destination inventory is an explicit fixture. Never run fixture-reset tests against it. |
@@ -54,6 +55,7 @@ These design decisions govern implementation. Gate-specific evidence below estab
 - One operator supplies inventory and takes custody of received source funds during fulfillment. Separate observation, quote, payout, and administrative authority. Do not label this prototype trustless, non-custodial, or atomic.
 - Deliver the two-direction swap and constrained intent flow first, followed by the two-direction backed-token bridge. This is implementation order, not permission to remove bridge from the overall scope.
 - CRE is not a dependency of the first implementation. Add it only through a recorded decision that identifies a verification or confidentiality benefit beyond executing the same trusted backend logic.
+- NEAR Intents belongs only to the EVM execution adapter. Zcash deposit observation uses the planned private Zeer observer, and Zcash payout remains with ZeeSwap's restricted signer. NEAR execution is funded from explicitly reserved operator EVM inventory, not by forwarding the user's ZEC. An EVM provider refund does not itself discharge ZeeSwap's obligation to a user who paid ZEC. This is an architecture decision, not evidence of an implemented provider integration or authorization to change active orders.
 - Use ordinary mockUSDC transfers on Base Sepolia for the prototype. Their public recipient and amount remain visible. The privacy promise concerns the Zcash leg and minimizing application disclosure.
 - No custom wallet custody for users, no browser seed import, and no new proving circuit. Integrate an existing wallet and maintained Zcash libraries.
 
