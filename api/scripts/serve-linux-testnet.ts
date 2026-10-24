@@ -7,6 +7,7 @@ import {LocalWalletAdapter} from '../src/wallet-adapter.ts';
 import {LocalReverseBaseSigner} from '../src/base-signer.ts';
 import {BaseContract} from '../src/base-contract.ts';
 import {createApi} from '../src/http-api.ts';
+import {loadContinuationApi} from '../src/continuation-api.ts';
 const path=process.argv[2];if(process.argv.length!==3||!path)throw Error('Explicit Linux API profile required');
 const configBytes=await readFile(path),config=JSON.parse(configBytes.toString());
 if(config.version!==1||config.mode!=='LINUX_NATIVE_TESTNET_API'||path!=='/opt/zeeswap-testnet/secrets/api-profile.private.json')throw Error('LINUX_API_EXPLICIT_PROFILE_REQUIRED');
@@ -25,6 +26,7 @@ const api=connect(runtime.apiUrl),worker=connect(runtime.workerUrl),keys=new Pri
 const base=new BaseContract({...registry,rpcUrl:config.baseRpcUrl});
 const wallet=new LocalWalletAdapter(config.walletPython,[config.walletScript,'--config',config.walletConfig]);
 const signer=new LocalReverseBaseSigner(config.walletPython,[config.fundingAuthorizer,'--config',config.fundingSignerConfig]);
-const server=createApi({pool:api,keys,wallet,base,quoteBounds:{inputAmountAtomic:'100000',maxAcceptedPerDirection:1},baseFeeBudget:'100000000000000',allowedOrigin:config.allowedOrigin,escrow:{pool:worker,authorize:terms=>signer.authorizeFunding(terms)}});
+const continuation=await loadContinuationApi(process.env,{profileSha256:verified.profileSha256,handoffSha256:linuxRawSha256(handoffBytes),openingProofSha256:profile.immutable.openingProof.sha256},async()=>{const c=(await worker.query('SELECT epoch::text,accepting_orders,dispatch_enabled,reconciliation_required FROM zee.runtime_control WHERE singleton')).rows[0];if(!c||c.epoch!=='6'||!c.accepting_orders||!c.dispatch_enabled||c.reconciliation_required)throw Error('LINUX_CONTINUATION_ACTIVE_EPOCH_REQUIRED');});
+const server=createApi({pool:api,keys,wallet,base,...(continuation?{continuation,quoteBounds:{inputAmountAtomic:'100000' as const,maxAcceptedByDirection:{ZCASH_TO_BASE:2 as const,BASE_TO_ZCASH:1 as const},newForwardCutoffBlocks:40 as const,continuationSha256:continuation.sha256}}:{quoteBounds:{inputAmountAtomic:'100000' as const,maxAcceptedPerDirection:1 as const}}),baseFeeBudget:'100000000000000',allowedOrigin:config.allowedOrigin,escrow:{pool:worker,authorize:terms=>signer.authorizeFunding(terms)}});
 server.listen(3031,'127.0.0.1',()=>console.log(JSON.stringify({status:'LINUX_TESTNET_API_LISTENING',port:3031,branchId:profile.identity.branchId,profileSha256:verified.profileSha256,controlActivation:false})));
 let stopping=false;const stop=()=>{if(stopping)return;stopping=true;server.close(()=>{void Promise.all([api.end(),worker.end()]);});};process.on('SIGINT',stop);process.on('SIGTERM',stop);

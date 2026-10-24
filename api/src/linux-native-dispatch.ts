@@ -79,7 +79,7 @@ export function validateLinuxCapitalApproval(p:LinuxOperatorProfile,purpose:Nati
  const directory=nativeOrderDirectory(p,purpose,id);
  need(approval.version===1&&approval.orderId===id&&approval.sourceFingerprint===p.identity.sourceFingerprint
   &&approval.openingProofSha256===p.immutable.chefOpeningProof.sha256&&Array.isArray(approval.sources)&&approval.sources.length<=99,'LINUX_CAPITAL_APPROVAL_IDENTITY');
- for(const source of approval.sources as CapitalSource[]){need(['settled-source','confirmed-own-change',...(purpose==='refund'?['refund-source']:[])].includes(source.kind)
+ for(const source of approval.sources as CapitalSource[]){need(['settled-source','confirmed-own-change',...(purpose==='reverse'?['confirmed-refund-own-change','discharged-refund-residual']:[]),...(purpose==='refund'?['refund-source']:[])].includes(source.kind)
   &&inside(source.path,directory+'/proofs')&&/^[0-9a-f]{64}$/.test(source.sha256),'LINUX_CAPITAL_EXPLICIT_PROOF_SCOPE');}
  if(purpose==='refund')need(approval.sources.some((source:CapitalSource)=>source.kind==='refund-source'&&source.orderId===id),'LINUX_REFUND_OWN_SOURCE_REQUIRED');
 }

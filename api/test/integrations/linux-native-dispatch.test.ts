@@ -33,3 +33,5 @@ test('Linux financial CLI rejects typos/duplicates/unbounded retries before load
  assert.throws(()=>parseLinuxNativeArgs('refund',['/profile','--once']));
  await assert.rejects(loadLinuxNativeDispatch('/wrong','reverse'),/LINUX_NATIVE_EXACT_PROFILE/);
 });
+
+test('completed refund provenance kinds remain explicit per-order reverse proofs and cannot relax active refund-source scope',()=>{for(const kind of ['confirmed-refund-own-change','discharged-refund-residual']){const approval={version:1,orderId:id,sourceFingerprint:hash,openingProofSha256:hash,sources:[{kind,path:nativeOrderDirectory(p,'reverse',id)+'/proofs/refund.json',sha256:hash,orderId:'22222222-3333-4444-8555-666666666666'}]};assert.doesNotThrow(()=>validateLinuxCapitalApproval(p,'reverse',id,approval));assert.throws(()=>validateLinuxCapitalApproval(p,'refund',id,{...approval,sources:[{...approval.sources[0],path:nativeOrderDirectory(p,'refund',id)+'/proofs/refund.json'}]}),/EXPLICIT_PROOF_SCOPE/);assert.throws(()=>validateLinuxCapitalApproval(p,'reverse',id,{...approval,sources:[{...approval.sources[0],path:base+'/state/refund-orders/old/proof.json'}]}));}});

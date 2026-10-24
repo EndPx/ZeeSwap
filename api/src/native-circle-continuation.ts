@@ -1,0 +1,132 @@
+/** Separate, single-session authority after the original late deposit is refunded.
+ * No signing, ledger writes, asset toggles, or prefunding-history bypass. */
+import {createHash} from 'node:crypto';
+import {lstat,readFile,realpath} from 'node:fs/promises';
+import type pg from 'pg';
+import {PrivateData} from './private-data.ts';
+import {refundContext} from './source-refunds.ts';
+import type {PreparedBaseTransaction} from './base-signer.ts';
+import {type SourceIdentity,type SourceWindow,type WindowSample,type ControlRow,type Journal,requireConnected,readCurrent} from './linux-control.ts';
+export const CONTINUATION_ACCEPTANCE_FUNCTION_SHA256='b42da08d64d3a873950b0f28c87d5cc588dfd06a55da5dd45a03057de0748454';
+export const CONTINUATION_PINS={profileSha256:'76711023c2313cf7e1e30382ea1591f5ff7721b56f68b3094ad7dd0f92ff8251',handoffSha256:'394b2f41bafe98a7e165a8e33ce94232ad8726e160852deaf4e1e877b4d13b57',openingProofSha256:'9e2141e85105d881c82710a7f859545b6d8702666086bddeb247e71f887ab3c3'} as const;
+function need(v:unknown,c:string):asserts v{if(!v)throw Error('LINUX_CONTINUATION_'+c);}
+const hash=(v:unknown)=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v)&&v!=='0'.repeat(64);
+const amount=(v:unknown)=>typeof v==='string'&&/^(0|[1-9][0-9]*)$/.test(v);
+const fresh=(v:string,now:number)=>Number.isFinite(Date.parse(v))&&now-Date.parse(v)>=-5000&&now-Date.parse(v)<=60000;
+/** Same single Root-owned authority consumed by the service. Captures remain
+ * separately private; neither service nor its group can modify this directory. */
+export async function readRootContinuationAuthority(path:string){
+ const directory='/opt/zeeswap-testnet/state/continuation';
+ need(process.platform==='linux'&&process.getuid?.()===0&&typeof path==='string'&&/^\/opt\/zeeswap-testnet\/state\/continuation\/[a-zA-Z0-9._-]+\.private\.json$/.test(path),'ROOT_AUTHORITY_PATH');
+ const [s,d]=await Promise.all([lstat(path),lstat(directory)]);
+ need(s.isFile()&&!s.isSymbolicLink()&&s.uid===0&&s.gid===978&&(s.mode&0o777)===0o640&&s.size>0&&s.size<=262144&&d.isDirectory()&&!d.isSymbolicLink()&&d.uid===0&&d.gid===978&&(d.mode&0o777)===0o750,'ROOT_SERVICE_READ_ONLY_AUTHORITY');
+ need(await realpath(path)===path&&await realpath(directory)===directory,'AUTHORITY_REALPATH');return readFile(path);
+}
+export interface ContinuationApproval{
+ version:1;status:'ROOT_POST_REFUND_ONE_CIRCLE_APPROVED';armed:true;verifiedAt:string;expiresAt:string;
+ profileSha256:string;handoffSha256:string;openingProofSha256:string;openingEventId:string;oldOrderId:string;
+ paused:{epoch:'5';xmin:string};resumedEpoch:'6';ownerHashes:{ZCASH_TO_BASE:string;BASE_TO_ZCASH:string};
+ actors:{basePayer:'0x4FFfdacf016B4fD1f0E9f3a77c3C1943540b055d';nativePayerReceiver:string};
+ caps:{forward:2;reverse:1;amount:'100000';newForwardCutoffBlocks:40;minLeadBlocks:12};sourceIdentity:SourceIdentity;
+ postRefundSnapshotSha256:string;proofs:{cancelReceiptSha256:string;nativeRefundReceiptSha256:string;nativeCapitalSha256:string;baseCapitalSha256:string};
+ nativeCaptureScriptSha256:string;nativeNotesDigest:string;baseCancelFeeWei:string;acceptanceFunctionSha256:string;
+}
+export function validateContinuationApproval(value:unknown,now=Date.now()):asserts value is ContinuationApproval{
+ const p=value as ContinuationApproval;need(p?.version===1&&p.status==='ROOT_POST_REFUND_ONE_CIRCLE_APPROVED'&&p.armed===true,'ARMED_ROOT_APPROVAL');
+ for(const [k,v]of Object.entries(CONTINUATION_PINS))need(p[k as keyof typeof CONTINUATION_PINS]===v,'R9_'+k);
+ need(Number.isFinite(Date.parse(p.verifiedAt))&&Date.parse(p.verifiedAt)<=now+5000&&Date.parse(p.expiresAt)>now&&Date.parse(p.expiresAt)>Date.parse(p.verifiedAt)&&Date.parse(p.expiresAt)-Date.parse(p.verifiedAt)<=86400000,'APPROVAL_TIME');
+ need(p.paused?.epoch==='5'&&p.paused.xmin==='311173'&&p.resumedEpoch==='6','EXACT_PAUSED_VERSION');
+ need(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(p.oldOrderId)&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(p.openingEventId),'EXACT_HISTORY_IDS');
+ need(hash(p.ownerHashes?.ZCASH_TO_BASE)&&hash(p.ownerHashes?.BASE_TO_ZCASH)&&p.ownerHashes.ZCASH_TO_BASE!==p.ownerHashes.BASE_TO_ZCASH,'OWNER_HASHES');
+ need(p.caps?.forward===2&&p.caps.reverse===1&&p.caps.amount==='100000'&&p.caps.newForwardCutoffBlocks===40&&p.caps.minLeadBlocks===12,'EXACT_CAPS');
+ need(p.actors?.basePayer==='0x4FFfdacf016B4fD1f0E9f3a77c3C1943540b055d'&&typeof p.actors.nativePayerReceiver==='string'&&/^utest1[0-9a-z]{100,500}$/.test(p.actors.nativePayerReceiver),'EXACT_ACTORS');
+ need(hash(p.postRefundSnapshotSha256)&&hash(p.nativeCaptureScriptSha256)&&hash(p.nativeNotesDigest)&&p.acceptanceFunctionSha256===CONTINUATION_ACCEPTANCE_FUNCTION_SHA256&&p.proofs&&Object.keys(p.proofs).sort().join(',')==='baseCapitalSha256,cancelReceiptSha256,nativeCapitalSha256,nativeRefundReceiptSha256'&&Object.values(p.proofs).every(hash),'ACTUAL_PROOF_DIGESTS');
+ need(amount(p.baseCancelFeeWei)&&BigInt(p.baseCancelFeeWei)>0n&&BigInt(p.baseCancelFeeWei)<500000000000000n,'ACTUAL_CANCEL_FEE');
+ const s=p.sourceIdentity;need(s&&s.chefProject==='zeeswap_shadow_app_20261023'&&hash(s.chefFingerprint)&&hash(s.envioProjectionDigest)&&s.chefCanonicalSourceId&&s.envioCanonicalSourceId&&s.chefGeneration&&s.envioGeneration,'SOURCE_IDENTITY');
+}
+export function requireContinuationPaused(row:ControlRow,p:ContinuationApproval){need(row&&!row.accepting_orders&&!row.dispatch_enabled&&!row.reconciliation_required&&row.epoch===p.paused.epoch&&row.xmin===p.paused.xmin,'EXACT_PAUSED_CONTROL');}
+export function continuationCancelFee(receipt:{gasUsed:bigint;effectiveGasPrice:bigint;l1Fee?:unknown}){need(typeof receipt.gasUsed==='bigint'&&receipt.gasUsed>0n&&typeof receipt.effectiveGasPrice==='bigint'&&receipt.effectiveGasPrice>0n&&typeof receipt.l1Fee==='bigint'&&receipt.l1Fee>=0n,'COMPLETE_CANCEL_FEE_REQUIRED');return receipt.gasUsed*receipt.effectiveGasPrice+receipt.l1Fee;}
+/** PostgreSQL JSON encodes encrypted bytea and lookup HMACs as \\x hex.
+ * The lookup value is not a public transaction identity. */
+export function decodeContinuationCancel(keys:PrivateData,row:{base_payload:unknown;base_hash:unknown},orderId:string):PreparedBaseTransaction{
+ const bytes=(value:unknown)=>{need(typeof value==='string'&&/^\\x(?:[0-9a-f]{2})+$/.test(value),'REFUND_BYTEA_JSON');return Buffer.from(value.slice(2),'hex');};
+ const signed=keys.open(bytes(row.base_payload),refundContext(orderId,'CANCEL')) as PreparedBaseTransaction;
+ need(signed&&typeof signed.hash==='string'&&/^0x[0-9a-f]{64}$/.test(signed.hash)&&signed.hash!=='0x'+'0'.repeat(64)&&keys.lookup('base-tx',signed.hash).equals(bytes(row.base_hash)),'CANCEL_LOOKUP_BINDING');return signed;
+}
+export function validateContinuationApiHealth(value:unknown,approvalSha256:string){const v=value as any,b=v?.quoteBounds;need(hash(approvalSha256)&&v?.status==='ok'&&v.integrationOnly===false&&b&&Object.keys(b).sort().join(',')==='continuationSha256,inputAmountAtomic,maxAcceptedByDirection,newForwardCutoffBlocks'&&b.continuationSha256===approvalSha256&&b.inputAmountAtomic==='100000'&&b.newForwardCutoffBlocks===40&&b.maxAcceptedByDirection&&Object.keys(b.maxAcceptedByDirection).sort().join(',')==='BASE_TO_ZCASH,ZCASH_TO_BASE'&&b.maxAcceptedByDirection.ZCASH_TO_BASE===2&&b.maxAcceptedByDirection.BASE_TO_ZCASH===1,'CONTINUATION_API_NOT_READY');}
+export async function requireContinuationApiHealth(approvalSha256:string){const r=await fetch('http://127.0.0.1:3031/health',{signal:AbortSignal.timeout(10000),redirect:'error'});need(r.ok,'CONTINUATION_API_UNAVAILABLE');validateContinuationApiHealth(await r.json(),approvalSha256);}
+export function validateContinuationSqlInstallation(value:unknown,p:ContinuationApproval){const v=value as any;need(v&&typeof v.prosrc==='string'&&createHash('sha256').update(v.prosrc).digest('hex')===CONTINUATION_ACCEPTANCE_FUNCTION_SHA256&&p.acceptanceFunctionSha256===CONTINUATION_ACCEPTANCE_FUNCTION_SHA256&&v.language==='plpgsql'&&v.return_type==='uuid'&&v.argument_types_verified===true&&v.argument_count===4&&Array.isArray(v.proconfig)&&v.proconfig.length===1&&typeof v.proconfig[0]==='string'&&/^search_path=pg_catalog,\s*zee$/.test(v.proconfig[0])&&v.prosecdef===true&&v.owner==='zee_app_admin_20261023'&&Array.isArray(v.acl)&&v.acl.length===2&&v.acl.every((a:any)=>a.privilege==='EXECUTE'&&a.grantable===false&&['zeeswap_api','zee_app_admin_20261023'].includes(a.grantee))&&new Set(v.acl.map((a:any)=>a.grantee)).size===2,'EXACT_CONTINUATION_SQL_INSTALLATION');}
+export async function requireContinuationSqlInstallation(c:Pick<pg.PoolClient,'query'>,p:ContinuationApproval){const installation=(await c.query(`SELECT p.prosrc,p.prosecdef,p.proconfig,l.lanname AS language,p.prorettype::regtype::text AS return_type,(p.proargtypes[0]='uuid'::regtype AND p.proargtypes[1]='uuid'::regtype AND p.proargtypes[2]='bigint'::regtype AND p.proargtypes[3]='zee.digest'::regtype) AS argument_types_verified,p.pronargs AS argument_count,pg_get_userbyid(p.proowner) AS owner,(SELECT jsonb_agg(jsonb_build_object('grantee',CASE WHEN a.grantee=0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,'privilege',a.privilege_type,'grantable',a.is_grantable)) FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a) AS acl FROM pg_proc p JOIN pg_language l ON l.oid=p.prolang WHERE p.oid=to_regprocedure('zee.accept_post_refund_circle(uuid,uuid,bigint,zee.digest)')`)).rows[0];validateContinuationSqlInstallation(installation,p);}
+
+function canonical(value:any):any{if(Array.isArray(value))return value.map(canonical);if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().map(k=>[k,canonical(value[k])]));return value;}
+export const continuationDigest=(value:unknown)=>createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
+export const continuationNotesDigest=(notes:unknown[])=>continuationDigest([...notes].map(canonical).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b),'en')));
+export const continuationTables=['assets','inventory_accounts','quotes','orders','deposits','obligations','operations','reservations','ledger_entries','chain_transactions','outbox_jobs','base_bindings','base_attempts','escrow_bindings','escrow_commits','reverse_payouts','escrow_settlements','source_refunds','order_events'] as const;
+/** Private rows remain in memory. Only the digest belongs in source samples. */
+export async function readContinuationSnapshot(c:Pick<pg.PoolClient,'query'>){
+ const bound=128,parts=continuationTables.map(table=>`'${table}',(SELECT COALESCE(jsonb_agg(row ORDER BY row::text),'[]'::jsonb) FROM (SELECT to_jsonb(t) AS row FROM zee.${table} t ORDER BY to_jsonb(t)::text LIMIT ${bound+1}) bounded)`);
+ const result=(await c.query(`SELECT jsonb_build_object(${parts.join(',')}) AS snapshot`)).rows[0]?.snapshot as Record<string,any[]>;
+ need(result&&continuationTables.every(t=>Array.isArray(result[t])&&result[t]!.length<=bound),'BOUNDED_COHERENT_BOOKS');return result;
+}
+export function validatePostRefundSnapshot(s:Record<string,any[]>,p:ContinuationApproval){
+ need(continuationDigest(s)===p.postRefundSnapshotSha256,'HISTORICAL_SNAPSHOT_CHANGED');
+ const one=(t:string)=>{need(s[t]?.length===1,'EXACT_ONE_'+t);return s[t]![0];};
+ const o=one('orders'),d=one('deposits'),b=one('obligations'),op=one('operations'),r=one('source_refunds'),job=one('outbox_jobs');
+ const q=s.quotes?.find(x=>x.id===o.id);need(q&&q.direction==='ZCASH_TO_BASE'&&String(q.input_amount)==='100000'&&String(q.output_amount)==='100000'&&q.execution_mode==='base-settlement-v1','ORIGINAL_FORWARD_QUOTE');
+ need(o.id===p.oldOrderId&&o.state==='REFUNDED'&&String(o.funding_cutoff_height)==='4536773','OLD_ORDER_FULLY_REFUNDED');
+ need(d.order_id===o.id&&d.id===r.deposit_id&&String(d.amount)==='100000'&&d.classification==='LATE'&&String(d.block_height)==='4536778'&&d.confirmed_at,'LATE_DEPOSIT');
+ need(b.deposit_id===d.id&&b.state==='DISCHARGED'&&String(b.source_amount)==='100000'&&op.order_id===o.id&&op.deposit_id===d.id&&op.kind==='REFUND'&&op.state==='CONFIRMED'&&job.operation_id===op.id&&job.status==='DONE'&&String(job.fence)==='1'&&job.lease_owner===null&&job.lease_until===null,'DISCHARGED_REFUND');
+ need(r.order_id===o.id&&r.base_phase==='CANCEL'&&r.base_confirmed===true&&r.confirmed===true&&String(r.base_fee)===p.baseCancelFeeWei&&String(r.zcash_fee)==='10000'&&r.base_receipt&&r.receipt_payload,'ACTUAL_CONFIRMED_RECEIPTS');
+ need(s.base_bindings?.length===0&&s.base_attempts?.length===0&&['escrow_bindings','escrow_commits','reverse_payouts','escrow_settlements','chain_transactions'].every(t=>s[t]?.length===0),'NO_OTHER_FINANCIAL_ATTEMPTS');
+ need(s.reservations?.length===3&&s.reservations.every(x=>x.order_id===o.id&&x.released_at),'RELEASED_RESERVATIONS');
+ const expected=[['TAZ','principal','200000'],['mockUSDC','principal','200000'],['TAZ','fee','10000'],['baseETH','fee',(500000000000000n-BigInt(p.baseCancelFeeWei)).toString()]];
+ need(s.inventory_accounts?.length===4&&expected.every(([asset,purpose,balance])=>s.inventory_accounts!.some(x=>x.asset===asset&&x.purpose===purpose&&String(x.balance)===balance&&String(x.reserved)==='0')),'REMAINING_CAPITAL');
+ need(s.assets?.length===3&&s.assets.every(x=>x.live_enabled===(x.id==='TAZ'||x.id==='mockUSDC')),'ASSETS_UNCHANGED');need(s.assets.some(x=>x.id==='TAZ'&&x.decimals===8&&x.network==='zcash-testnet'&&x.contract_address===null)&&s.assets.some(x=>x.id==='mockUSDC'&&x.decimals===6&&x.network==='base-sepolia'&&x.contract_address?.toLowerCase()==='0xd64c116352cef2adc9484098ae332fd9ba339a63')&&s.assets.some(x=>x.id==='baseETH'&&x.decimals===18&&x.network==='base-sepolia'&&x.contract_address===null),'IMMUTABLE_ASSET_IDENTITIES');
+ const opening=s.ledger_entries?.filter(x=>x.event_id===p.openingEventId);need(opening?.length===8&&opening.every(x=>x.order_id===null),'OPENING_ROWS_PRESERVED');
+ const original=[['TAZ','principal','200000'],['mockUSDC','principal','200000'],['TAZ','fee','20000'],['baseETH','fee','500000000000000']];
+ const wanted:{event_id?:string;asset:string;bucket:string;amount:string;order_id:string|null}[]=[];
+ for(const [asset,purpose,balance]of original)for(const [suffix,n]of [['available',balance],['operator-capital','-'+balance]])wanted.push({event_id:p.openingEventId,asset:asset!,bucket:purpose+':'+suffix,amount:n!,order_id:null});
+ for(const reservation of s.reservations!){const a=String(reservation.amount),spent=reservation.asset==='TAZ'&&reservation.purpose==='fee'?10000n:reservation.asset==='baseETH'?BigInt(p.baseCancelFeeWei):0n;need(BigInt(a)>=spent,'RESERVATION_FEE');
+  for(const [suffix,n]of [['available','-'+a],['reserved',a]])wanted.push({event_id:o.id,asset:reservation.asset,bucket:reservation.purpose+':'+suffix,amount:n,order_id:o.id});
+  wanted.push({asset:reservation.asset,bucket:reservation.purpose+':reserved',amount:'-'+a,order_id:o.id});
+  if(spent>0n)wanted.push({asset:reservation.asset,bucket:reservation.purpose+':spent',amount:String(spent),order_id:o.id});
+  if(BigInt(a)>spent)wanted.push({asset:reservation.asset,bucket:reservation.purpose+':available',amount:String(BigInt(a)-spent),order_id:o.id});
+ }
+ for(const [bucket,n]of [['customer:held','100000'],['customer:liability','-100000']])wanted.push({event_id:d.id,asset:'TAZ',bucket,amount:n,order_id:o.id});
+ for(const [bucket,n]of [['customer:held','-100000'],['customer:refunded','100000'],['customer:liability','100000'],['refund:source','-100000']])wanted.push({asset:'TAZ',bucket,amount:n,order_id:o.id});
+ const remaining=[...s.ledger_entries!];for(const expected of wanted){const index=remaining.findIndex(row=>Object.entries(expected).every(([k,v])=>String(row[k])===String(v)));need(index>=0,'EXACT_REFUND_LEDGER');remaining.splice(index,1);}need(remaining.length===0,'NO_OTHER_LEDGER_ROWS');
+}
+export interface ContinuationWindow extends Omit<SourceWindow,'version'|'status'|'samples'>{version:1;status:'ROOT_POST_REFUND_SOURCE_WINDOW_VERIFIED';approvalSha256:string;samples:(Omit<WindowSample,'control'> & {control:ControlRow;postRefundSnapshotSha256:string})[]}
+/** Canonical checks match linux-control.ts, without fabricating empty books or
+ * reconciliation state. Every actual sample carries its exact history digest. */
+export function validateContinuationWindow(w:ContinuationWindow,p:ContinuationApproval,approvalSha256:string,now=Date.now()){
+ validateContinuationApproval(p,now);need(w?.status==='ROOT_POST_REFUND_SOURCE_WINDOW_VERIFIED'&&w.version===1&&w.approvalSha256===approvalSha256&&hash(approvalSha256)&&w.profileSha256===p.profileSha256&&w.handoffSha256===p.handoffSha256&&w.sourceReset===false,'WINDOW_AUTHORITY');
+ need(Date.parse(w.startedAt)>=Date.parse(p.verifiedAt),'WINDOW_AFTER_REFUND_AUTHORITY');
+ need(w.samplingIntervalMs>=1000&&w.samplingIntervalMs<=10000&&w.maxGapMs>=w.samplingIntervalMs&&w.maxGapMs<=w.samplingIntervalMs*2&&w.maxGapMs<=20000,'WINDOW_SAMPLING_BOUND');
+ const start=Date.parse(w.startedAt),end=Date.parse(w.completedAt);need(Number.isFinite(start)&&end-start>=300000&&fresh(w.completedAt,now)&&Array.isArray(w.samples)&&w.samples.length>=16,'COMPLETE_FIVE_MINUTE_WINDOW');
+
+ let previous=start;const lastHeights=new Map<string,bigint>();
+ for(let index=0;index<w.samples.length;index++){const s=w.samples[index]!,at=Date.parse(s.at),nextAt=index+1<w.samples.length?Date.parse(w.samples[index+1]!.at):end;need(Number.isFinite(at)&&at>=previous&&at-previous<=w.maxGapMs&&at<=end&&nextAt>=at,'WINDOW_GAP');previous=at;
+  requireContinuationPaused(s.control,p);need(s.postRefundSnapshotSha256===p.postRefundSnapshotSha256,'WINDOW_FINANCIAL_HISTORY_CHANGED');need(s.counts?.orders==='1'&&s.counts.deposits==='1'&&s.counts.obligations==='1'&&s.counts.operations==='1'&&/^[1-9][0-9]*$/.test(s.counts.quotes),'WINDOW_ACTUAL_BOOK_COUNTS');
+
+  need(s.sql?.length===2&&new Set(s.sql.map(x=>x.network)).size===2,'BOTH_SQL_SOURCES');
+  for(const row of s.sql){need(['base-sepolia','zcash-testnet'].includes(row.network)&&/^[0-9]+$/.test(row.scannedHeight)&&/^[0-9]+$/.test(row.finalizedHeight)&&/^[0-9a-f]{64}$/.test(row.tipHash)&&fresh(row.observedAt,at)&&nextAt-Date.parse(row.observedAt)<=60000&&BigInt(row.scannedHeight)>=BigInt(row.finalizedHeight),'SQL_CHECKPOINT_FRESHNESS');need(row.canonical?.sourceId===(row.network==='zcash-testnet'?p.sourceIdentity.chefCanonicalSourceId:p.sourceIdentity.envioCanonicalSourceId)&&row.canonical.height===Number(row.scannedHeight)&&row.canonical.hash.replace(/^0x/,'')===row.tipHash&&fresh(row.canonical.checkedAt,at),'INDEPENDENT_SQL_CANONICAL_IDENTITY');const old=lastHeights.get(row.network);need(old===undefined||BigInt(row.scannedHeight)>=old,'SQL_FRONTIER_REGRESSION');lastHeights.set(row.network,BigInt(row.scannedHeight));}
+  need(s.chef.generation===p.sourceIdentity.chefGeneration&&s.chef.project===p.sourceIdentity.chefProject&&s.chef.fingerprint===p.sourceIdentity.chefFingerprint&&s.envio.generation===p.sourceIdentity.envioGeneration&&s.envio.projectionDigest===p.sourceIdentity.envioProjectionDigest,'WINDOW_SOURCE_IDENTITY_CHANGED');
+  for(const [source,id,lag] of [[s.chef,p.sourceIdentity.chefCanonicalSourceId,6],[s.envio,p.sourceIdentity.envioCanonicalSourceId,40]] as const){
+   need(Number.isSafeInteger(source.through)&&Number.isSafeInteger(source.sourceHead)&&source.through>=(id===p.sourceIdentity.chefCanonicalSourceId?4532047:49128651)&&source.sourceHead>=source.through&&source.sourceHead-source.through<=lag&&fresh(source.sampledAt,at)&&nextAt-Date.parse(source.sampledAt)<=60000,'SAMPLED_SOURCE_LAG_OR_AGE');
+   need(source.canonical?.sourceId===id&&source.canonical.height===source.through&&source.canonical.hash===source.throughHash&&/^(?:0x)?[0-9a-f]{64}$/.test(source.throughHash)&&fresh(source.canonical.checkedAt,at),'INDEPENDENT_CANONICAL_IDENTITY');
+  }
+ }
+ need(end-previous>=0&&end-previous<=w.maxGapMs&&Date.parse(w.samples[0]!.at)-start<=w.maxGapMs&&Date.parse(w.samples.at(-1)!.at)-Date.parse(w.samples[0]!.at)>=300000,'WINDOW_COVERAGE');
+ for(const network of ['zcash-testnet','base-sepolia'])need(BigInt(w.samples.at(-1)!.sql.find(x=>x.network===network)!.scannedHeight)>BigInt(w.samples[0]!.sql.find(x=>x.network===network)!.scannedHeight),'WINDOW_NO_ACTUAL_PROGRESS');
+}
+export interface ContinuationPreflight{version:1;status:'ROOT_POST_REFUND_PREFLIGHT_VERIFIED';verifiedAt:string;nativeObservedAt:string;baseObservedAt:string;approvalSha256:string;postRefundSnapshotSha256:string;nativeCapitalSha256:string;baseCapitalSha256:string;nativeNotesDigest:string;latestNonce:1;pendingNonce:1;onlyCanonicalCancelNonceZero:true;nativePhysicalZatoshi:'12490000';nativeTenConfirmations:true;baseCodeHashesVerified:true;financialWorkersStopped:true}
+export function validateContinuationPreflight(f:ContinuationPreflight,p:ContinuationApproval,approvalSha256:string,now=Date.now()){
+ need(f?.version===1&&f.status==='ROOT_POST_REFUND_PREFLIGHT_VERIFIED'&&fresh(f.verifiedAt,now)&&fresh(f.nativeObservedAt,now)&&fresh(f.baseObservedAt,now)&&f.approvalSha256===approvalSha256&&f.postRefundSnapshotSha256===p.postRefundSnapshotSha256,'FRESH_POST_REFUND_PREFLIGHT');
+ need(hash(f.nativeCapitalSha256)&&hash(f.baseCapitalSha256)&&f.nativeNotesDigest===p.nativeNotesDigest&&f.latestNonce===1&&f.pendingNonce===1&&f.onlyCanonicalCancelNonceZero===true&&f.nativePhysicalZatoshi==='12490000'&&f.nativeTenConfirmations===true&&f.baseCodeHashesVerified===true&&f.financialWorkersStopped===true,'ACTUAL_POST_REFUND_CAPITAL');
+}
+export async function checkContinuationDatabase(c:pg.PoolClient,p:ContinuationApproval){await requireConnected(c);await requireContinuationSqlInstallation(c,p);const row=(await c.query('SELECT accepting_orders,dispatch_enabled,reconciliation_required,epoch::text,xmin::text FROM zee.runtime_control WHERE singleton FOR UPDATE')).rows[0] as ControlRow;requireContinuationPaused(row,p);validatePostRefundSnapshot(await readContinuationSnapshot(c),p);const sources=(await c.query("SELECT network,observed_at BETWEEN clock_timestamp()-interval '60 seconds' AND clock_timestamp()+interval '5 seconds' AS fresh,scanned_height>=finalized_height AS valid FROM zee.scanner_checkpoints")).rows;need(sources.length===2&&new Set(sources.map(x=>x.network)).size===2&&sources.every(x=>['zcash-testnet','base-sepolia'].includes(x.network)&&x.fresh===true&&x.valid===true),'CURRENT_SOURCES');return row;}
+export type ContinuationIntent={transactionId:string;expectedXmin:string;before:ControlRow;approvalSha256:string};
+export function classifyContinuationOutcome(intent:ContinuationIntent,status:unknown,row:ControlRow){if(status==='aborted')return 'ABORTED_DO_NOT_REPLAY';if(status!=='committed')return 'UNKNOWN_RECONCILE_REQUIRED';return row?.xmin===intent.expectedXmin&&row.epoch==='6'&&row.accepting_orders&&row.dispatch_enabled&&!row.reconciliation_required?'CONTINUATION_CONFIRMED':'COMMITTED_BUT_INTERVENED_OR_PAUSED';}
+export async function reconcileContinuation(pool:pg.Pool,intent:ContinuationIntent,journal:Journal){const c=await pool.connect();try{await requireConnected(c);const row=await readCurrent(c),status=(await c.query('SELECT pg_xact_status($1::xid8) AS status',[intent.transactionId])).rows[0]?.status,outcome=classifyContinuationOutcome(intent,status,row);await journal.append({event:'RECONCILED',outcome,control:row,transactionId:intent.transactionId});return{outcome,control:row};}finally{c.release();}}
+export async function resumeContinuation(pool:pg.Pool,p:ContinuationApproval,approvalSha256:string,journal:Journal,evidence:()=>Promise<void>){const c=await pool.connect();let intent:ContinuationIntent|undefined,commitSent=false;try{await requireConnected(c);await c.query('BEGIN');validateContinuationApproval(p);await evidence();const before=await checkContinuationDatabase(c,p),xid=String((await c.query('SELECT pg_current_xact_id()::text AS id')).rows[0].id);need(/^[1-9][0-9]*$/.test(xid)&&(await c.query('SELECT pg_xact_status($1::xid8) AS status',[xid])).rows[0]?.status==='in progress','XID_STATUS_REQUIRED');intent={transactionId:xid,expectedXmin:(BigInt(xid)%4294967296n).toString(),before,approvalSha256};await journal.append({event:'TX_INTENT',...intent});await evidence();await requireContinuationSqlInstallation(c,p);const changed=await c.query('UPDATE zee.runtime_control SET accepting_orders=true,dispatch_enabled=true,epoch=epoch+1 WHERE singleton AND epoch=5 AND xmin::text=$1 AND NOT accepting_orders AND NOT dispatch_enabled AND NOT reconciliation_required RETURNING xmin::text',[p.paused.xmin]);need(changed.rows.length===1&&changed.rows[0].xmin===intent.expectedXmin,'RESUME_CAS');await journal.append({event:'COMMIT_INTENT',transactionId:xid});commitSent=true;await c.query('COMMIT');await journal.append({event:'COMMIT_ACK',transactionId:xid});}catch(e){if(!commitSent)await c.query('ROLLBACK').catch(()=>{});await journal.append({event:commitSent?'COMMIT_UNKNOWN':'TRANSACTION_REFUSED',transactionId:intent?.transactionId??null});if(!intent)throw e;}finally{c.release(commitSent?Error('NEW_CONNECTION_REQUIRED'):undefined);}need(intent,'DURABLE_INTENT');return reconcileContinuation(pool,intent,journal);}

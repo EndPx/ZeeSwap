@@ -9,9 +9,10 @@ import type { WalletAdapter } from './wallet-adapter.ts';
 import type { BaseContract } from './base-contract.ts';
 import { authorizeEscrow, observeEscrowFunding, fundingCall, type FundingTerms } from './base-escrow.ts';
 import { receiptContext } from './base-settlement.ts';
+import {assertContinuationOwner,assertContinuationQuote,type ContinuationApi} from './continuation-api.ts';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-type Options={pool:pg.Pool;keys:PrivateData;wallet:WalletAdapter;integrationOnly?:boolean;baseFeeBudget?:string;allowedOrigin?:string;base?:BaseContract;quoteBounds?:{inputAmountAtomic:'100000';maxAcceptedPerDirection:1};escrow?:{pool:pg.Pool;authorize:(terms:FundingTerms)=>Promise<Hex>}};
+type Options={pool:pg.Pool;keys:PrivateData;wallet:WalletAdapter;integrationOnly?:boolean;baseFeeBudget?:string;allowedOrigin?:string;base?:BaseContract;quoteBounds?:{inputAmountAtomic:'100000';maxAcceptedPerDirection:1}|{inputAmountAtomic:'100000';maxAcceptedByDirection:{ZCASH_TO_BASE:2;BASE_TO_ZCASH:1};newForwardCutoffBlocks:40;continuationSha256:string};continuation?:ContinuationApi;escrow?:{pool:pg.Pool;authorize:(terms:FundingTerms)=>Promise<Hex>}};
 class HttpError extends Error {constructor(readonly status:number,readonly code:string){super(code);}}
 function bearer(req:IncomingMessage){const value=req.headers.authorization?.match(/^Bearer ([A-Za-z0-9_-]{43})$/)?.[1];if(!value)throw new HttpError(401,'AUTH_REQUIRED');return value;}
 async function body(req:IncomingMessage):Promise<Record<string,unknown>> {
@@ -36,6 +37,8 @@ export function serializeFundingCutoffHeight(value:unknown):number|null{
 
 export function createApi(options:Options){
  const {pool,keys,wallet}=options;const repo=new Repository(pool,keys);
+ if(options.continuation){const b=options.quoteBounds;if(!b||!('maxAcceptedByDirection'in b)||b.inputAmountAtomic!=='100000'||b.maxAcceptedByDirection.ZCASH_TO_BASE!==2||b.maxAcceptedByDirection.BASE_TO_ZCASH!==1||b.newForwardCutoffBlocks!==40||b.continuationSha256!==options.continuation.sha256)throw Error('CONTINUATION_BOUNDS_AUTHORITY_MISMATCH');}
+ else if(options.quoteBounds&&'maxAcceptedByDirection'in options.quoteBounds)throw Error('CONTINUATION_AUTHORITY_REQUIRED');
  if(options.integrationOnly && !['ep-small-resonance-aom8dm9z-pooler.','ep-polished-hill-ao5ulo5g-pooler.','ep-broad-math-aoxcd482-pooler.','ep-winter-frog-ao0z5ayy-pooler.'].some(prefix=>pool.options.host?.startsWith(prefix)))throw new Error('Integration mode requires a dedicated development database');
  async function enabled(){
   if(!options.integrationOnly){
@@ -100,11 +103,13 @@ export function createApi(options:Options){
     const direction=input.direction as 'ZCASH_TO_BASE'|'BASE_TO_ZCASH';
     const amount=string(input.inputAmount);try{fixtureOutput(amount,direction);}catch{throw new HttpError(400,'INVALID_AMOUNT');}
     if(options.quoteBounds&&amount!==options.quoteBounds.inputAmountAtomic)throw new HttpError(400,'BOUNDED_AMOUNT_REQUIRED');
+    if(options.continuation){await options.continuation.recheck();assertContinuationOwner(options.continuation.approval,token,direction);}
     const key=req.headers['idempotency-key'];if(typeof key!=='string'||!UUID.test(key))throw new HttpError(400,'IDEMPOTENCY_KEY_REQUIRED');
     await enabled();
     const recipient=direction==='ZCASH_TO_BASE'?evm(input.recipient):await wallet.validate(string(input.recipient));
     const refundRecipient=direction==='ZCASH_TO_BASE'?await wallet.validate(string(input.refundRecipient)):evm(input.refundRecipient);
     const normalized={direction,inputAmount:amount,recipient,refundRecipient,...(direction==='BASE_TO_ZCASH'?{payer:evm(input.payer)}:{})};
+    if(options.continuation)assertContinuationQuote(options.continuation.approval,token,normalized);
     const executionMode=direction==='BASE_TO_ZCASH'?'base-escrow-v1':'base-settlement-v1';
     const requestHash=keys.lookup('http-request',`${token}:${key}`),bodyHash=keys.lookup('http-body',JSON.stringify(normalized));
     const existing=await pool.query('SELECT quote_id,body_hash FROM zee.api_quote_requests WHERE request_hash=$1 AND owner_hash=$2',[requestHash,accessHash(token)]);
@@ -143,7 +148,10 @@ export function createApi(options:Options){
    if(req.method==='POST'&&match[1]==='orders'&&match[3]){
     exact(await body(req),[]);await enabled();
     if(options.base){const q=await repo.privateQuote(id,token) as any;if(q.executionMode!==(q.direction==='BASE_TO_ZCASH'?'base-escrow-v1':'base-settlement-v1')||q.baseContract?.toLowerCase()!==options.base.registry.contracts.ZeeSwapSettlement.address.toLowerCase())throw new HttpError(409,'QUOTE_MODE_MISMATCH');}
-    if(options.quoteBounds){await transaction(pool,async c=>{await c.query('SELECT pg_advisory_xact_lock(2026102301)');const r=new Repository(c,keys),q=await r.privateQuote(id,token) as any;if(q.inputAmount!==options.quoteBounds!.inputAmountAtomic)throw new HttpError(400,'BOUNDED_AMOUNT_REQUIRED');const exists=(await c.query('SELECT 1 FROM zee.orders WHERE id=$1',[id])).rowCount;if(!exists){const n=(await c.query('SELECT count(*) FROM zee.orders o JOIN zee.quotes q USING(id) WHERE q.direction=$1',[q.direction])).rows[0].count;if(BigInt(n)>=BigInt(options.quoteBounds!.maxAcceptedPerDirection))throw new HttpError(409,'BOUNDED_ACCEPTANCE_LIMIT');await r.accept(id,token);}});}else await repo.accept(id,token);reply(200,await view(id,token,true));return;
+    if(options.quoteBounds){await transaction(pool,async c=>{await c.query('SELECT pg_advisory_xact_lock(2026102301)');const r=new Repository(c,keys),q=await r.privateQuote(id,token) as any;if(q.inputAmount!==options.quoteBounds!.inputAmountAtomic)throw new HttpError(400,'BOUNDED_AMOUNT_REQUIRED');
+     if(options.continuation){await options.continuation.recheck();const a=options.continuation.approval;assertContinuationQuote(a,token,q);await c.query('SELECT zee.accept_post_refund_circle($1,$2,$3,$4)',[id,a.oldOrderId,a.resumedEpoch,Buffer.from(a.ownerHashes[q.direction as 'ZCASH_TO_BASE'|'BASE_TO_ZCASH'],'hex')]);}
+     else{const exists=(await c.query('SELECT 1 FROM zee.orders WHERE id=$1',[id])).rowCount;if(!exists){const n=(await c.query('SELECT count(*) FROM zee.orders o JOIN zee.quotes q USING(id) WHERE q.direction=$1',[q.direction])).rows[0].count;const bounds=options.quoteBounds!;if(!('maxAcceptedPerDirection'in bounds))throw new HttpError(503,'CONTINUATION_AUTHORITY_REQUIRED');if(BigInt(n)>=BigInt(bounds.maxAcceptedPerDirection))throw new HttpError(409,'BOUNDED_ACCEPTANCE_LIMIT');await r.accept(id,token);}}
+    });}else await repo.accept(id,token);reply(200,await view(id,token,true));return;
    }
    throw new HttpError(404,'NOT_FOUND');
   }catch(error){

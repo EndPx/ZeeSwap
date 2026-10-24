@@ -101,6 +101,17 @@ type mismatch; the original accepted terms were retained while the API serialize
 was corrected. The original native payer transaction has broadcast acknowledgment,
 with canonical inclusion, confirmations and the new circle still pending. See
 [first-circle funding wire evidence](docs/evidence/native-first-circle-cutoff-wire.md).
+That original transaction subsequently mined after its immutable cutoff. Chef
+and SQL correctly selected LATE / REFUND_REQUIRED. Root paused epoch five,
+finalized the original Base cancellation, and completed the native refund;
+independent recipient SDK evidence verified the full shielded 100000-zatoshi
+return. SQL recorded REFUNDED / DISCHARGED with all reservations released.
+The source fee and operator cancellation/refund fees remain recorded. A reviewed
+post-refund continuation is being prepared with explicit total caps of two
+forward acceptances and one reverse acceptance, preserving this failed attempt
+and restricting a future forward order to a longer forty-block window. Existing
+accepted terms and original R9 provenance remain unchanged. No new successful
+circle is claimed. See [confirmed first-attempt refund](docs/evidence/native-first-circle-refund.md).
 Historical live-app checkpoint (23 October): an isolated Neon branch hosts separate
 application, Chef and Envio databases. Native Chef and Envio observers have
 published verified checkpoints to the new application; the connected local frontend uses the
