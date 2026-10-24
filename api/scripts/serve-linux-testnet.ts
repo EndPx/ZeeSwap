@@ -1,3 +1,4 @@
+import {requireRootAdmissionAuthorization} from '../src/native-circle-reconciled.ts';
 /** Linux-only API transport. Existing createApi and its financial rules remain unchanged. */
 import {readFile,lstat,realpath} from 'node:fs/promises';
 import {verifyLinuxOperatorProfile,linuxRawSha256} from '../src/linux-testnet-profile.ts';
@@ -26,7 +27,7 @@ const api=connect(runtime.apiUrl),worker=connect(runtime.workerUrl),keys=new Pri
 const base=new BaseContract({...registry,rpcUrl:config.baseRpcUrl});
 const wallet=new LocalWalletAdapter(config.walletPython,[config.walletScript,'--config',config.walletConfig]);
 const signer=new LocalReverseBaseSigner(config.walletPython,[config.fundingAuthorizer,'--config',config.fundingSignerConfig]);
-const continuation=await loadContinuationApi(process.env,{profileSha256:verified.profileSha256,handoffSha256:linuxRawSha256(handoffBytes),openingProofSha256:profile.immutable.openingProof.sha256},async approval=>{const c=(await worker.query('SELECT epoch::text,accepting_orders,dispatch_enabled,reconciliation_required FROM zee.runtime_control WHERE singleton')).rows[0];if(!c||c.epoch!==approval.resumedEpoch||!c.accepting_orders||!c.dispatch_enabled||c.reconciliation_required)throw Error('LINUX_CONTINUATION_ACTIVE_EPOCH_REQUIRED');});
+const continuation=await loadContinuationApi(process.env,{profileSha256:verified.profileSha256,handoffSha256:linuxRawSha256(handoffBytes),openingProofSha256:profile.immutable.openingProof.sha256},async approval=>{const c=(await worker.query('SELECT epoch::text,accepting_orders,dispatch_enabled,reconciliation_required FROM zee.runtime_control WHERE singleton')).rows[0];if(!c||c.epoch!==approval.resumedEpoch||!c.accepting_orders||!c.dispatch_enabled||c.reconciliation_required)throw Error('LINUX_CONTINUATION_ACTIVE_EPOCH_REQUIRED');if(approval.version===3)await requireRootAdmissionAuthorization(worker,approval,process.env.ZEESWAP_CIRCLE_CONTINUATION_SHA256!);});
 const server=createApi({pool:api,keys,wallet,base,...(continuation?{continuation,quoteBounds:continuationQuoteBounds(continuation.approval,continuation.sha256)}:{quoteBounds:{inputAmountAtomic:'100000' as const,maxAcceptedPerDirection:1 as const}}),baseFeeBudget:'100000000000000',allowedOrigin:config.allowedOrigin,escrow:{pool:worker,authorize:terms=>signer.authorizeFunding(terms)}});
 server.listen(3031,'127.0.0.1',()=>console.log(JSON.stringify({status:'LINUX_TESTNET_API_LISTENING',port:3031,branchId:profile.identity.branchId,profileSha256:verified.profileSha256,controlActivation:false})));
 let stopping=false;const stop=()=>{if(stopping)return;stopping=true;server.close(()=>{void Promise.all([api.end(),worker.end()]);});};process.on('SIGINT',stop);process.on('SIGTERM',stop);

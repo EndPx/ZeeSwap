@@ -15,6 +15,17 @@ Continue through explicit audited monotonic recovery and fresh readiness gates,
 preserving closed sessions and the unused replacement session. See
 [observer reconciliation checkpoint](docs/evidence/native-observer-reconciliation-recovery.md).
 
+The Chef correction was subsequently installed and ordinary observation resumed
+from the existing cursor, with fresh checkpoints and the same paused epoch-seven
+version. Its VPS checks passed 24 focused tests and typechecking. The separately
+reviewed 0019 implementation introduces immutable Root-issued admission rows
+bound to an exact monotonic activation transaction, preserving all closed history
+and the original migration bytes. Root verification passed 40 focused tests,
+typechecking and two actual isolated PostgreSQL cases. Live 0019 installation,
+authority issuance, fresh source/capital gates, activation and the funded circle
+remain open at this code checkpoint. See
+[reconciled admission](docs/evidence/native-reconciled-admission.md).
+
 Public deployment checkpoint (24 October): the raccoon frontend and native API
 are reachable at `https://zeeswap.endpx.cloud/`; HTTPS `/health` returned 200.
 The restricted operator state has been relocated to the isolated Hostinger VPS.

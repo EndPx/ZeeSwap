@@ -20,8 +20,9 @@ export function continuationQuoteBounds(p:ContinuationApproval,sha256:string){
  validateContinuationApproval(p);need(/^[a-f0-9]{64}$/.test(sha256),'AUTHORITY_HASH');
  return{inputAmountAtomic:'100000' as const,maxAcceptedByDirection:{ZCASH_TO_BASE:p.caps.forward,BASE_TO_ZCASH:1 as const},newForwardCutoffBlocks:40 as const,continuationSha256:sha256};
 }
-export function continuationAdmission(p:ContinuationApproval,id:string,token:string,direction:string){
+export function continuationAdmission(p:ContinuationApproval,id:string,token:string,direction:string,authoritySha256?:string){
  validateContinuationApproval(p);assertContinuationOwner(p,token,direction);const owner=Buffer.from(p.ownerHashes[direction as 'ZCASH_TO_BASE'|'BASE_TO_ZCASH'],'hex');
+ if(p.version===3){need(typeof authoritySha256==='string'&&/^[a-f0-9]{64}$/.test(authoritySha256)&&authoritySha256!=='0'.repeat(64),'EXACT_LOADED_AUTHORITY_HASH');return{sql:'SELECT zee.accept_root_authorized_replacement($1,$2)',args:[id,Buffer.from(authoritySha256,'hex')]};}
  return p.version===2?{sql:'SELECT zee.accept_post_refund_replacement($1,$2,$3,$4,$5)',args:[id,p.oldOrderId,p.expiredOrderId,p.resumedEpoch,owner]}:
   {sql:'SELECT zee.accept_post_refund_circle($1,$2,$3,$4)',args:[id,p.oldOrderId,p.resumedEpoch,owner]};
 }
