@@ -1,6 +1,25 @@
 # ZeeSwap implementation plan
 
-Last updated: 2026-10-23 (Asia/Jakarta), for the EVM routing and settlement integration design. Execution evidence below retains its recorded dates.
+Last updated: 2026-10-24 (Asia/Jakarta), for the isolated native Linux deployment. Execution evidence below retains its recorded dates.
+
+Public deployment checkpoint (24 October): the raccoon frontend and native API
+are reachable at `https://zeeswap.endpx.cloud/`; HTTPS `/health` returned 200.
+The restricted operator state has been relocated to the isolated Hostinger VPS.
+Independent handoff checks verified original wallet bytes, UFVK identity, four
+capital accounts, eight opening ledger rows and operator nonce zero. User-payer
+and deployer keys remain local. A prefunding metadata rebind corrected one
+Windows-versus-Git source hash while preserving encrypted admission journals,
+application checkpoints and all financial books. Forward and reverse worker
+entry checks passed in their waiting states, without financial action.
+
+The application remains paused at epoch 0 with zero customer books. Chef core
+catch-up encountered a verified HTTP 413 response-size limit; an unmodified
+finite CLI run advanced eight consecutive blocks successfully. Envio's default
+5000-callback batch delayed publication despite fast SQL writes. A separately
+reviewed cap100 scheduling artifact has passed its focused tests; application,
+actual catch-up capacity and a sustained freshness window remain distinct gates.
+No new VPS-funded circle is claimed. See
+[native Linux live checkpoint](docs/evidence/native-linux-live-checkpoint.md).
 
 Current live-app work (23 October): an isolated Neon branch now hosts separate
 application, Chef and Envio databases. Native Chef and Envio observers have

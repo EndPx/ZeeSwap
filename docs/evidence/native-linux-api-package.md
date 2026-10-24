@@ -48,3 +48,48 @@ verify the unit on the selected VPS, and confirm recovery publication before
 starting it. The runtime poll interval is explicitly five seconds. Static source
 inspection and scoped whitespace checks passed; this addition does not establish
 a running observer or a passing live freshness window.
+
+## Runtime schema packaging correction
+
+Parent's actual VPS API startup from the `f429211dde6d92aa3764bd4911a374bc53962b87`
+release refused with ENOENT for `workers/zcash-wallet/snapshot.schema.json`. The
+schema exists in that Git revision, but the public worker allowlist admitted
+source extensions without this JSON asset. `api/src/observer.ts` reads the schema
+at module initialization, so source typechecking and isolated business tests did
+not prove that the release package could initialize the API. Parent stopped the
+API retry before preparing a separately hash-verified public schema adjunct; this
+correction does not change the frozen release, profiles, keys or financial gates.
+
+The packager now admits that exact public schema path. Arbitrary worker JSON,
+private JSON and operator files remain excluded. A real package integration test
+extracts module-relative JSON dependencies from the actual observer source, builds
+a temporary Git repository using the actual observer/schema bytes, and confirms
+that packaging inventories and preserves those dependencies. It checks the
+packaged schema's testnet identity and required outputs contract. Test Git commits
+exist only inside the temporary fixture repository; no project commit is made.
+
+The runtime-resource inspection found no other required worker JSON schema.
+`snapshot.golden.json` is a unit-test fixture, and `base-signer/config.example.json`
+is an example. The default contract registry is read inside an explicit helper;
+native Linux runners instead supply their protected pinned registry. These paths
+are distinct from the missing observer import and are not added to this allowlist.
+
+`node --test deploy/linux/package-release.test.mjs deploy/linux/verify-release.test.mjs`
+passed **4/4**, including actual schema packaging, private-path exclusion, corrupt
+file and manifest-inventory checks. This is local package evidence; parent still
+verifies actual API initialization separately on the VPS. No new settlement or
+control activation is claimed.
+
+Parent's production browser check subsequently found the header raccoon present
+but the hero image broken: the literal `/brand/zee-mascot.webp` in `App.tsx` was
+excluded because the package allowlist lacked WebP. The minimal correction admits
+WebP only under `apps/web/`, after the existing private/path guards. UI source,
+brand artwork, frozen profiles and runtime pins are unchanged. Parent handles the
+separately verified asset adjunct to the existing public and built frontend paths.
+
+The package integration test now discovers every literal `/brand/...` reference
+in the actual `App.tsx`, adds the original public assets to its temporary Git
+fixture, and checks their manifest presence and exact packaged bytes alongside
+the observer schema. Private WebP paths and WebP outside the web application
+remain rejected. Package/verifier checks passed **4/4**. This covers source bundle
+completeness; actual production image loading remains a separate browser check.

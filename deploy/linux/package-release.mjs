@@ -10,6 +10,8 @@ export function publicReleasePath(path) {
   if (/(^|\/)(node_modules|target|__pycache__|state|secrets|\.deploy-local)(\/|$)/.test(path)
       || /(^|\/)(\.env[^/]*|[^/]*\.private\.[^/]+|[^/]*wallet[^/]*\.(db|dat)|[^/]*\.(pem|key|sqlite))$/i.test(path)) return false;
   if (['package.json','pnpm-lock.yaml','pnpm-workspace.yaml'].includes(path)) return true;
+  if (path==='workers/zcash-wallet/snapshot.schema.json') return true;
+  if (path.startsWith('apps/web/')&&path.endsWith('.webp')) return true;
   if (/^(api|apps\/web|indexers\/(envio|zeer))\//.test(path))
     return /\.(ts|tsx|js|mjs|json|yaml|yml|graphql|html|css|svg|png|woff2|sql)$/.test(path) && !path.endsWith('.env.example');
   if (/^workers\//.test(path)) return /\.(py|rs|toml|lock|patch)$/.test(path);
