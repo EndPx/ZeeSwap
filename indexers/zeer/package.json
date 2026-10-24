@@ -5,7 +5,7 @@
   "engines": { "node": ">=24.14.0" },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test test/*.test.ts",
+    "test": "tsx --test test/*.test.ts test/*.test.mjs",
     "codegen": "zeer codegen --config chef.config.ts",
     "migrate:private": "zeer migrate --config chef.config.ts",
     "sync:private": "zeer sync --config chef.config.ts --follow",

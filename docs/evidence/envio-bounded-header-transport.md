@@ -49,3 +49,41 @@ Only actual provider responses, recurring atomic commits, positive backlog
 reduction and a subsequent five-minute canonical freshness window can close
 source readiness. Customer intake and financial dispatch remain paused during
 these operator steps.
+
+## Actual isolated VPS application and Base window
+
+Root applied the published transport after stopping the isolated engine and
+verifying its empty process group. Both installed hashes matched the reviewed
+artifacts. The original producer generation, configuration, projection, schema,
+birthday and rollback state were retained; no reset or database migration ran.
+The engine resumed and its real provider responses formed twelve-header cohorts.
+
+A read-only interval from 08:16:39.694 to 08:17:40.349 UTC measured 700 newly
+committed blocks while the sampled source head advanced 309 blocks. Backlog fell
+from 2226 to 1835, a reduction of 391 blocks in about 60.65 seconds. Seven storage
+writes committed during that interval. A single observed HTTP 429 at
+08:14:15.254 was followed by a verified cohort at 08:14:16.718 and continued
+progress. This is measured provider behavior, not a quota or throughput guarantee.
+
+After catch-up, a separate Base-specific window ran from 08:26:48.723 to
+08:31:54.563 UTC on 24 October 2026. The UTC endpoint span was 305.840 seconds;
+the monitor's separately bounded monotonic sample interval was 304.685 seconds.
+Both exceeded five minutes. Its 62 samples passed the existing source and SQL
+freshness gates. Maximum sampled producer-head lag was 13 blocks;
+maximum observed application SQL age was 41.026 seconds, with a conservative
+between-sample upper bound of 46.028 seconds. Thirteen new canonical observer
+publications succeeded, with no observer waiting result during the window.
+The header transport separately refused one eight-job cohort as
+`INVALID_OR_ABORTED_COHORT`; its underlying cause was not established. A verified
+cohort followed approximately 1.795 seconds later without a reset. That transport
+refusal is distinct from the zero observer waiting results. Producer and consumer
+progress remained monotonic; generation, profiles and process identities
+were stable. A later independently sampled head is recorded separately as a
+latency diagnostic, rather than conflated with the earlier source-sample lag.
+
+This closes the measured **Base-only** catch-up/freshness checkpoint for that
+runtime interval. Chef was still catching up. Epoch remained zero, intake and
+dispatch remained disabled, reconciliation remained required and customer books
+were empty. The window is not simultaneous two-source readiness, activation or a
+new cross-chain settlement. Any later service/profile intervention requires a new
+relevant readiness window before financial activation.

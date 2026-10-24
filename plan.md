@@ -13,15 +13,16 @@ application checkpoints and all financial books. Forward and reverse worker
 entry checks passed in their waiting states, without financial action.
 
 The application remains paused at epoch 0 with zero customer books. Chef core
-catch-up encountered a verified HTTP 413 response-size limit; an unmodified
-finite CLI run advanced eight consecutive blocks successfully. Envio's default
-5000-callback batch delayed publication despite fast SQL writes. A separately
-reviewed cap100 scheduling artifact has passed its focused tests; application,
-actual catch-up capacity and a sustained freshness window remain distinct gates.
-No new VPS-funded circle is claimed. See
+catch-up encountered verified HTTP 413 response-size limits on dense ranges;
+bounded one-block finite CLI steps preserve the original configuration and
+durable source identity. Envio's reviewed cap100 scheduling and bounded header
+transport are applied. Actual catch-up reduced backlog, and its Base-specific
+five-minute window passed on 24 October with 62 samples and 13 canonical observer
+publications. Chef catch-up, simultaneous source freshness and native activation
+checks remain open. No new VPS-funded circle is claimed. See
 [native Linux live checkpoint](docs/evidence/native-linux-live-checkpoint.md).
 
-Current live-app work (23 October): an isolated Neon branch now hosts separate
+Historical live-app checkpoint (23 October): an isolated Neon branch hosts separate
 application, Chef and Envio databases. Native Chef and Envio observers have
 published verified checkpoints to the new application; the connected local frontend uses the
 new API and raccoon mark. The six new Base capital setup transactions are
@@ -32,7 +33,7 @@ balance by asset. Intake/dispatch remain disabled at epoch 0 pending the bounded
 worker and refund checks. No new customer order or settlement is claimed. This
 work does not resume or close the historical G5 run described below. Docker and
 local PostgreSQL are prohibited on this laptop; NEAR Intents is outside this
-native testnet run. Continuous Base observer freshness remains an open gate:
+native testnet run. At that checkpoint, continuous Base observer freshness was an open gate:
 earlier five-minute windows failed during RPC pressure and growing historical
 anchor reads. Required financial-anchor selection and bounded RPC pacing are
 implemented; successful unit checks do not replace a passing live window.
