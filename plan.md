@@ -119,6 +119,14 @@ and values matched. The strict identity-set fix passed seven WSL tests. The
 unchanged twelve-block lead guard then refused preparation with eleven blocks
 remaining. Root paused epoch 6; no new transaction or fee exists. Official
 unfunded expiry and a separately reviewed continuation are open.
+Official expiry subsequently closed that unfunded candidate after the fresh
+canonical application checkpoint reached 4537249. All six reservations are
+released; the actual 39-row ledger retains the original 27-row history unchanged,
+with no additional transaction cost. A separate replacement implementation
+retains both closed orders, all-history caps of three forward/one reverse, and
+unchanged amount/cutoff/lead policies. Its 29 local checks and two actual isolated
+PostgreSQL cases passed. Live installation and the funded circle remain open;
+see [unfunded replacement evidence](docs/evidence/native-unfunded-replacement.md).
 Historical live-app checkpoint (23 October): an isolated Neon branch hosts separate
 application, Chef and Envio databases. Native Chef and Envio observers have
 published verified checkpoints to the new application; the connected local frontend uses the
