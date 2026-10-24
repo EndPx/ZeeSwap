@@ -28,7 +28,7 @@ confirmed canonical source progress and the stopped application consumer. This
 source repair intentionally left the application's old checkpoint and cursor
 unchanged pending the separate application repair.
 
-The proposed application repair is restricted to this unfunded single-tip case.
+The implemented application repair is restricted to this unfunded single-tip case.
 It archives the approved before-state and exact old cursor, creates a durable
 transaction intent, and uses two compare-and-set metadata updates through the
 restricted application worker role. Original reorg/rewind triggers remain active;
@@ -59,10 +59,9 @@ Validation checkpoint:
   canonical anchor, lost-COMMIT-acknowledgment readback and rejection of a later
   equal-value intervention. This test did not write the live application.
 - Root focused metadata, legacy-authority and V2-authority tests passed 24/24 with zero skips. Independent review passed 15 focused checks and found no blocking defect in the final design. API typecheck and diff checks passed.
-- Application repair, new prefunding authority issuance, simultaneous source
-  readiness and the first new two-way funded circle remain pending at this
-  checkpoint. No customer payment or payout is claimed by these implementation
-  tests.
+- Continuous simultaneous source readiness and the first new
+  two-way funded circle remain pending. No customer payment or payout is claimed
+  by these implementation tests.
 
 The first deployed read-only inspection refused before application mutation
 because it incorrectly bounded chain headers by the wallet's note birthday.
@@ -73,5 +72,51 @@ note scanning: it retains every stored height, bounds safe integer heights to
 focused metadata suite passed 8/8 after this correction. The two production SQL
 updates were unchanged. This refusal is not counted as successful application
 repair.
+
+Actual application execution subsequently passed at approximately 15:09 UTC.
+Root first let the existing Base recovery child finish and verified normal lock
+release, preserving all 422 proofs and the original SQL/admission baseline. Root
+issued an approval after fresh original-note and Base capital checks and briefly
+quiesced application writers. The repair committed through the worker role,
+advanced the original triggers from epoch one to three, rewound SQL and the same
+cursor to 4536136, and set finalized height/time to 4536127. Independent readback
+confirmed empty customer books, unchanged opening rows and the transaction's exact
+runtime version. A separate reconcile invocation confirmed the same committed
+result and receipt without replaying the SQL updates.
+
+Root then reverified canonical history and fresh physical capital and issued an
+explicit V2 authority binding that metadata receipt, actual epoch/transaction
+version, original handoff and all 422 retained Base proofs. The same Chef app
+consumer resumed and published checkpoint 4536283 with an 8.3-second SQL observation
+age at the subsequent check. The new bounded Base driver verified 21 published
+runtime hashes and continued the existing prefix. This is source/application
+recovery evidence; intake and dispatch remain disabled, and no funded circle is
+claimed.
+
+Full Base recovery subsequently completed with 542 retained proofs. Root verified
+its completed receipt against the durable publication intent, the full journal
+digest, original admission hash and the production complete-gap validator. The
+publication advanced the original application Base checkpoint from 49553618 to
+49672405, with finalized height 49665152 and recorded observation time
+2026-10-24T15:39:12.018Z. The recovery marker was cleared and the normal Base
+observer started. A later read-only check showed advancing Base and Zcash
+checkpoints, observation ages 23.8 and 7.8 seconds, unchanged paused epoch three
+and zero orders. A continuous simultaneous five-minute window is a separate gate
+and was not claimed from that snapshot.
+
+An independent read-only audit also verified the application repair receipt,
+archived intent/cursor digests, committed transaction identity, original opening
+ledger/inventory, all sixteen empty financial child tables, enabled original
+triggers, unchanged handoff/profile/opening identity and the authorized Base
+prefix. It performed no wallet, signing, service or database mutation.
+
+During continued observation, a later Chef follower exit reported
+`INVALID_RESPONSE_JSON`. Prep remained at epoch 29 and the stored checkpoint at
+4536305 independently matched the chain. Root retained the failure evidence,
+captured a fresh canonical proof with the frozen helper and resumed the same
+bounded follower. No application rollback, epoch reset or financial mutation was
+needed for this transient source-response failure. This operator recovery is
+separate from unattended service resilience.
+
 Private approvals, raw receipts, full memos, wallet files, viewing keys, detailed
 order mappings and RPC credentials are excluded from public Git history.

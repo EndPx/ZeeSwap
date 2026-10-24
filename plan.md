@@ -60,13 +60,20 @@ A second source epoch change replaced the already published unfinalized tip at
 common ancestor 4536136 and old finalized anchor 4536128 remained canonical.
 Root completed official source-only rollback/replay and verification at 14:51 UTC,
 then resumed the same bounded source follower under Prep epoch 29. At 14:59 UTC
-its ready checkpoint was one block behind head. The application consumer remains
-stopped until its orphaned SQL checkpoint/cursor are repaired. The separate
-application metadata repair preserves original financial books, keeps both
-reconciliation triggers active, and requires an exact new prefunding authority.
-Local implementation tests and one actual isolated PostgreSQL test passed;
-application execution and a new funded circle remain pending. See
+its ready checkpoint was one block behind head. Actual application metadata
+reconciliation then passed, preserving all financial books and the old observation
+time while the original triggers advanced epoch one to three. Root independently
+confirmed the exact transaction version and issued a version-two authority for
+the retained 422 Base proofs. The existing Chef consumer resumed and refreshed
+application SQL. Base recovery subsequently closed its full original gap with
+542 retained proofs and a verified transactional publication at 49672405, then
+started its normal observer. Both SQL checkpoints were fresh in the subsequent
+read-only check. A continuous simultaneous source window and a new funded circle
+remain pending; a fresh snapshot does not close those gates.
+Local implementation checks and one actual isolated PostgreSQL test are distinct
+from these successful source/application operator executions. See
 [published-tip application reconciliation](docs/evidence/native-published-tip-app-reconciliation.md).
+
 Historical live-app checkpoint (23 October): an isolated Neon branch hosts separate
 application, Chef and Envio databases. Native Chef and Envio observers have
 published verified checkpoints to the new application; the connected local frontend uses the
