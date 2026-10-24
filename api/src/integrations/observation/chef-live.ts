@@ -1,7 +1,7 @@
 import type pg from "pg";
 import type { PrivateData } from "../../private-data.ts";
 import { ingestSnapshot, observerCheckHeights,validateSnapshot,type Snapshot } from "../../observer.ts";
-import { ChefAdapter, ChefCanonicalHeadChanged, requireChefCanonicalHead, type ChefConfig } from "./chef.ts";
+import { ChefAdapter, ChefCanonicalHeadChanged, SourceCheckpointMismatch, requireChefCanonicalHead, type ChefConfig } from "./chef.ts";
 import { ChefWalletBridge } from "./chef-wallet-bridge.ts";
 import { height, requireThat,parseHeader,stable,type ReplaceRange } from "./types.ts";
 
@@ -72,8 +72,11 @@ export async function readChefPersistedState(db:Pick<pg.Pool,'query'>):Promise<C
 }
 /** A wait is permitted only after independently checking every persisted hash,
  * then rereading the exact captured state. Failure never becomes a wait. */
-export async function chefHeadChangeCanWait(error:unknown,publicationAttempted:boolean,before:ChefPersistedState,cursor:{processedThrough:number;tipHash:string},canonical:ChefConfig['canonical']&{prefetchPersisted?:(heights:number[],signal:AbortSignal)=>Promise<void>},unchanged:()=>Promise<boolean>,signal:AbortSignal){
- if(publicationAttempted||!(error instanceof ChefCanonicalHeadChanged)||!before.checkpoint||error.actual.height!==error.expected.height)return false;
+export async function chefHeadChangeCanWait(error:unknown,publicationAttempted:boolean,before:ChefPersistedState,cursor:{processedThrough:number;tipHash:string},canonical:ChefConfig['canonical']&{prefetchPersisted?:(heights:number[],signal:AbortSignal)=>Promise<void>},unchanged:()=>Promise<boolean>,signal:AbortSignal,cyclePhase?:string,verifiedDiagnostic?:()=>Promise<void>){
+ const headChange=error instanceof ChefCanonicalHeadChanged,checkpointChange=error instanceof SourceCheckpointMismatch;
+ if(publicationAttempted||!headChange&&!checkpointChange||!before.checkpoint)return false;
+ const expectedHeight=headChange?error.expected.height:error.expectedCore.height,actualHeight=headChange?error.actual.height:error.actualHeader.height;
+ if(actualHeight!==expectedHeight||checkpointChange&&(cyclePhase!=='TRAVERSE'||!error.freshCanonicalHeader||error.freshCanonicalHeader.height!==expectedHeight||error.freshCanonicalFailure!==undefined))return false;
  requireThat(before.headers.length<=10004,'CHEF_PERSISTED_STATE_BOUND');
  const headers=new Map(before.headers.map(x=>[Number(x.height),x.block_hash]));
  if(headers.has(cursor.processedThrough)&&headers.get(cursor.processedThrough)!==cursor.tipHash)return false;
@@ -82,11 +85,11 @@ export async function chefHeadChangeCanWait(error:unknown,publicationAttempted:b
  if(headers.get(scanned)!==cp.tip_hash||!headers.has(finalized))return false;
  const financial=before.financial as Record<string,any[]>;
  for(const [table,key]of [['deposits','block_height'],['reverse_payouts','block_height'],['source_refunds','height']] as const)for(const row of financial[table]??[]){if(row[key]==null&&row.block_hash==null)continue;const h=Number(row[key]);if(!Number.isSafeInteger(h)||headers.get(h)!==row.block_hash)return false;}
- if(![...headers.keys(),scanned,finalized].every(h=>Number.isSafeInteger(h)&&h>=0&&h<error.expected.height))return false;
+ if(![...headers.keys(),scanned,finalized].every(h=>Number.isSafeInteger(h)&&h>=0&&h<expectedHeight))return false;
  try{
  await canonical.prefetchPersisted?.([...headers.keys()],signal);
  for(const [h,hash]of headers){signal.throwIfAborted();const current=await canonical.header(h,signal);if(current.height!==h||current.hash!==hash)return false;}
- signal.throwIfAborted();let onAbort:()=>void=()=>{};const aborted=new Promise<never>((_,reject)=>{onAbort=()=>reject(signal.reason);signal.addEventListener('abort',onAbort,{once:true});});try{const result=await Promise.race([unchanged(),aborted]);signal.throwIfAborted();return result;}finally{signal.removeEventListener('abort',onAbort);}
+ signal.throwIfAborted();let onAbort:()=>void=()=>{};const aborted=new Promise<never>((_,reject)=>{onAbort=()=>reject(signal.reason);signal.addEventListener('abort',onAbort,{once:true});});try{const result=await Promise.race([unchanged(),aborted]);signal.throwIfAborted();if(result&&verifiedDiagnostic){await verifiedDiagnostic();signal.throwIfAborted();}return result;}finally{signal.removeEventListener('abort',onAbort);}
  }catch(recheckFailure){error.recheckFailure=recheckFailure;throw error;}
 }
 export const chefDiagnosticCodes=['CANONICAL_HEAD_CHANGED','OBSERVER_EPOCH_CHANGED','CHEF_LIVE_CURSOR_REORG','CHEF_LIVE_GENERATION_CHANGED','CHEF_RECOVERY_TARGET_REORG','CHEF_RECOVERY_OVERLAP_REORG','CHEF_LIVE_CURSOR_IDENTITY','CHEF_LIVE_SOURCE_REGRESSION','CHEF_RECOVERY_IDENTITY_CHANGED','CANONICAL_CHECKPOINT_MISMATCH','HEADER_GAP_OR_FORK','CANONICAL_NOTE_MISMATCH','CHEF_HTTP_ERROR','CHEF_CANONICAL_HEADER_FAILED','CANONICAL_RPC_HTTP_ERROR','CHEF_PERSISTED_STATE_BOUND'] as const;
@@ -105,4 +108,13 @@ export function chefPersistedCanonical(factory:(range:{fromHeight:number;through
 export function chefFailureMetadata(error:unknown,publicationAttempted:boolean,phase:string){
  const code=chefDiagnosticCode(error),allowed=['INITIALIZE','READ_PERSISTED','READ_SOURCE','TRAVERSE','VERIFY_ANCHORS','AFTER_PUBLICATION'];
  return {caller:'chef',source:code==='OBSERVER_EPOCH_CHANGED'?'shared-runtime-control':'chef',code,phase:publicationAttempted?'AFTER_PUBLICATION':allowed.includes(phase)?phase:'INITIALIZE'};
+}
+
+/** Fresh uncached evidence is diagnostic only: it never repairs a batch header. */
+export async function diagnoseSourceCheckpointMismatch(error:SourceCheckpointMismatch,read:(height:number,signal:AbortSignal)=>Promise<Awaited<ReturnType<ChefConfig['canonical']['header']>>>,signal:AbortSignal){
+ try{const header=await read(error.expectedCore.height,signal);requireThat(header.height===error.expectedCore.height,'CANONICAL_CHECKPOINT_MISMATCH');error.freshCanonicalHeader=header;return header;}catch(failure){error.freshCanonicalFailure=failure;throw error;}
+}
+
+export function chefCheckpointSourceUnchanged(error:SourceCheckpointMismatch,expected:{project:string;generation:string;configIdentity:string},current:{project:string;generation:string;configIdentity:string}){
+ return error.expectedCore.project===expected.project&&error.expectedCore.generation===expected.generation&&current.project===expected.project&&current.generation===expected.generation&&current.configIdentity===expected.configIdentity;
 }

@@ -9,6 +9,12 @@ export class ChefCanonicalHeadChanged extends ObservationError {
 export function requireChefCanonicalHead(expected:Header,actual:Header,phase:'traversal'|'anchor-recheck'){
  if(stable(actual)!==stable(expected))throw new ChefCanonicalHeadChanged(expected,actual,phase);
 }
+export type CanonicalHeaderOrigin={kind:'prefetch-cache'|'fresh'|'unknown';fromHeight?:number;throughHeight?:number;sampledHeadHeight?:number};
+/** A comparison witness, not an attribution of which source is wrong. */
+export class SourceCheckpointMismatch extends ObservationError {
+ readonly phase='traversal';recheckFailure?:unknown;freshCanonicalHeader?:Header;freshCanonicalFailure?:unknown;
+ constructor(readonly expectedCore:{height:number;hash:string;generation:string;revision:string;project:string},readonly actualHeader:Header,readonly origin:CanonicalHeaderOrigin){super('CANONICAL_CHECKPOINT_MISMATCH');this.name='SourceCheckpointMismatch';}
+}
 export type CanonicalSample = { sourceId: string; checkedAt: string; head: Header; finalized?: Header };
 /** Implement with an independently configured canonical RPC/header source. No signing methods. */
 export interface CanonicalReader {
@@ -16,6 +22,7 @@ export interface CanonicalReader {
   header(height: number, signal: AbortSignal): Promise<Header>;
   headers?(heights: readonly number[], signal: AbortSignal): Promise<Header[]>;
   readonly headerBatchSize?:number;
+  headerOrigin?(height:number):CanonicalHeaderOrigin;
 }
 export type PrivacyClassifier = (note: Readonly<ZcashNote>, signal: AbortSignal) => Promise<Pick<ZcashNote, "sourcePrivacy" | "privacyEvidenceDigest">>;
 export type ChefConfig = {
@@ -145,7 +152,7 @@ export class ChefAdapter {
         const headers: Header[] = [];
         for (let h = fromHeight; h <= throughHeight; h++) headers.push(parseHeader(await this.config.canonical.header(h, signal), this.config.policy.network));
         const checkpoint=throughHeight===after.checkpoint.height?headers.at(-1)!:parseHeader(await this.config.canonical.header(after.checkpoint.height,signal),this.config.policy.network);
-        requireThat(checkpoint.height===after.checkpoint.height&&checkpoint.hash === after.checkpoint.hash, "CANONICAL_CHECKPOINT_MISMATCH");
+        if(checkpoint.height!==after.checkpoint.height||checkpoint.hash!==after.checkpoint.hash)throw new SourceCheckpointMismatch({height:after.checkpoint.height,hash:after.checkpoint.hash,generation:after.generation,revision:after.revision,project:after.project},checkpoint,this.config.canonical.headerOrigin?.(after.checkpoint.height)??{kind:'unknown'});
         requireChefCanonicalHead(head,await this.config.canonical.header(head.height, signal),'traversal');
         const notes: ZcashNote[] = [];
         for (const value of rows) {

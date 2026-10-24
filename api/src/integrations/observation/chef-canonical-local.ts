@@ -16,6 +16,7 @@ export function localChefCanonical(command: string, args: string[], sourceId: st
   child.stdin.end(JSON.stringify(request));
  });
  return {
+  headerOrigin(height){return {kind:height!==sampledHead&&cached.has(height)?'prefetch-cache':'fresh',...(prefetch??{}),...(sampledHead<0?{}:{sampledHeadHeight:sampledHead})};},
   async sample(signal): Promise<CanonicalSample> {
    const result = await invoke({command: "sample"}, signal) as CanonicalSample;
    requireThat(result.sourceId === sourceId, "WRONG_CANONICAL_SOURCE"); utc(result.checkedAt);

@@ -2,7 +2,20 @@
 
 Last updated: 2026-10-25 (Asia/Jakarta), for the isolated native Linux deployment. Execution evidence below retains its recorded dates.
 
-Latest reconciliation checkpoint (25 October): migration 0018 was explicitly
+Latest operator checkpoint (25 October): new diagnostics recorded three later
+prepublication source-checkpoint mismatches and runtime reached epoch ten. A
+second actual audit matched all 1,376 retained native and 119 Base header hashes,
+cursor, checkpoints and financial anchors, with the complete 39-row ledger
+snapshot unchanged. Root explicitly installed 0019 and verified committed
+readback, metadata and zero authorization rows. Controls remain paused. The
+reviewed typed-checkpoint correction discards an unpublished batch only after
+strict independent persisted-state and source-identity checks; it does not repair
+or publish that batch. Root checks passed 31 focused tests and typechecking.
+Guard deployment, a newly bound authority, fresh readiness, activation and the
+funded two-way circle remain open. See
+[unpublished checkpoint guard](docs/evidence/native-unpublished-checkpoint-guard.md).
+
+Earlier reconciliation checkpoint (25 October): migration 0018 was explicitly
 installed and its stored source and privileges verified. No replacement quote
 was accepted. One passing source window aged before activation; a separately
 journaled one-shot window then stopped when controls entered reconciliation at
