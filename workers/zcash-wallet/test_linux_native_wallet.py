@@ -80,7 +80,8 @@ class LinuxNativeScope(unittest.TestCase):
         add('openingProof', {'version': 1, 'branchId': identity['branchId'], 'database': identity['database'], 'binding': {'sourceFingerprint': fp, 'registrySha256': p['immutable']['registry']['sha256']}})
         add('chefOpeningProof', {'fixture': True}); add('runtime', {})
         def binding():
-            add('operatorBinding', {'ledgerOpeningProofSha256': p['immutable']['openingProof']['sha256'], 'chefOpeningProofSha256': p['immutable']['chefOpeningProof']['sha256'], 'sourceFingerprint': fp, 'ufvkSha256': p['immutable']['operatorUfvk']['sha256'], 'chefAccountId': identity['chefAccountId']})
+            add('operatorBinding', {'version': 1, 'purpose': 'logical-prefunding-operator-relocation-binding', 'originalOpeningProofRewritten': False,
+                                   'ledgerOpeningProofSha256': p['immutable']['openingProof']['sha256'], 'chefOpeningProofSha256': p['immutable']['chefOpeningProof']['sha256'], 'sourceFingerprint': fp, 'ufvkSha256': p['immutable']['operatorUfvk']['sha256'], 'chefAccountId': identity['chefAccountId']})
         binding()
         def execute():
             raw = json.dumps(p).encode(); files[profiles.PROFILE] = raw
@@ -96,6 +97,26 @@ class LinuxNativeScope(unittest.TestCase):
         # that the original application opening binds.
         add('operatorUfvk', b'different-fixture-ufvk\n'); binding()
         with self.assertRaisesRegex(ValueError, 'ACTUAL_UFVK_IDENTITY'): execute()
+
+    def test_actual_eight_field_binding_rejects_changed_identity_metadata_and_extra_fields(self):
+        profile = {'immutable': {key: {'sha256': H} for key in ('openingProof', 'chefOpeningProof', 'operatorUfvk')},
+                   'identity': {'sourceFingerprint': H, 'chefAccountId': 'fixture-account'}}
+        binding = {'version': 1, 'purpose': 'logical-prefunding-operator-relocation-binding', 'originalOpeningProofRewritten': False,
+                   'ledgerOpeningProofSha256': H, 'chefOpeningProofSha256': H, 'ufvkSha256': H,
+                   'sourceFingerprint': H, 'chefAccountId': 'fixture-account'}
+        profiles.validate_operator_binding(binding, profile)
+        for key in ('ledgerOpeningProofSha256', 'chefOpeningProofSha256', 'ufvkSha256', 'sourceFingerprint', 'chefAccountId'):
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, 'BINDING_IDENTITY'):
+                profiles.validate_operator_binding({**binding, key: 'changed'}, profile)
+        for key, value in [('version', True), ('version', 2), ('purpose', 'different'),
+                           ('originalOpeningProofRewritten', True), ('originalOpeningProofRewritten', 0)]:
+            with self.subTest(key=key, value=value), self.assertRaisesRegex(ValueError, 'BINDING_METADATA'):
+                profiles.validate_operator_binding({**binding, key: value}, profile)
+        with self.assertRaisesRegex(ValueError, 'BINDING_SHAPE'):
+            profiles.validate_operator_binding({**binding, 'extra': True}, profile)
+        legacy = {key: value for key, value in binding.items() if key not in ('version', 'purpose', 'originalOpeningProofRewritten')}
+        with self.assertRaisesRegex(ValueError, 'BINDING_SHAPE'):
+            profiles.validate_operator_binding(legacy, profile)
 
     def test_reverse_and_refund_exact_relocated_boundary_preserve_kernel(self):
         for purpose in ('reverse', 'refund'):

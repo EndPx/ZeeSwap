@@ -1,0 +1,78 @@
+/** First-circle policy only. No signer, wallet operation or ledger mutation. */
+import type pg from 'pg';
+import {validateLiveOpeningRows} from './live-testnet-opening.ts';
+export const CONTROL_SCOPE={projectId:'raspy-truth-63998651',branchId:'br-broad-pine-ao79wemx',database:'zee_app_20261023',host:'ep-red-thunder-aosp0w70.c-2.ap-southeast-1.aws.neon.tech',role:'zee_app_admin_20261023'} as const;
+function need(v:unknown,c:string):asserts v{if(!v)throw Error('LINUX_CONTROL_'+c);}
+const hash=(v:unknown)=>typeof v==='string'&&/^[0-9a-f]{64}$/.test(v);
+const fresh=(iso:string,now:number)=>Number.isFinite(Date.parse(iso))&&now-Date.parse(iso)>=-5000&&now-Date.parse(iso)<=60000;
+export type ControlRow={accepting_orders:boolean;dispatch_enabled:boolean;reconciliation_required:boolean;epoch:string;xmin:string};
+export type SourceIdentity={chefCanonicalSourceId:string;chefGeneration:string;chefProject:string;chefFingerprint:string;envioCanonicalSourceId:string;envioGeneration:string;envioProjectionDigest:string};
+export interface ActivationEvidence {version:1;status:'ROOT_LINUX_FIRST_ACTIVATION_PREFLIGHT';verifiedAt:string;branchId:string;database:string;profileSha256:string;handoffSha256:string;openingEventId:string;openingProofSha256:string;sourceIdentity:SourceIdentity;native:{pythonProfileLoaderVerified:true;groupReaped:true;loaderSha256:string;captureScriptSha256:string;proofSha256:string;walletProcessUid:986;walletProcessGid:978;supplementaryGroupsDropped:true;observedAt:string;physicalZatoshi:'12500000';noteIdentityMatchesOpening:true};base:{codeHashesVerified:true;latestNonce:0;pendingNonce:0;gasWei:'500000000000000';inventory:string;available:string;reserved:string;liability:string};boundedApiVerified:true;nativeProfilesVerified:true;financialWorkersStopped:true}
+export interface WindowSample {at:string;control:{accepting_orders:false;dispatch_enabled:false;reconciliation_required:true;epoch:'0'};counts:Record<'quotes'|'orders'|'deposits'|'obligations'|'operations',string>;sql:{network:'zcash-testnet'|'base-sepolia';scannedHeight:string;finalizedHeight:string;tipHash:string;observedAt:string;canonical:{sourceId:string;height:number;hash:string;checkedAt:string}}[];chef:{generation:string;project:string;fingerprint:string;sampledAt:string;through:number;sourceHead:number;throughHash:string;canonical:{sourceId:string;height:number;hash:string;checkedAt:string}};envio:{generation:string;projectionDigest:string;sampledAt:string;through:number;sourceHead:number;throughHash:string;canonical:{sourceId:string;height:number;hash:string;checkedAt:string}}}
+export interface SourceWindow {version:1;status:'ROOT_LINUX_SOURCE_WINDOW_VERIFIED';profileSha256:string;handoffSha256:string;startedAt:string;completedAt:string;samplingIntervalMs:number;maxGapMs:number;sourceReset:false;samples:WindowSample[]}
+export function validateAdminTarget(admin:any){
+ need(admin?.projectId===CONTROL_SCOPE.projectId&&admin.branchId===CONTROL_SCOPE.branchId&&admin.database===CONTROL_SCOPE.database,'ADMIN_METADATA');
+ const u=new URL(admin.adminUrl);need(['postgres:','postgresql:'].includes(u.protocol)&&u.hostname===CONTROL_SCOPE.host&&u.pathname==='/'+CONTROL_SCOPE.database&&decodeURIComponent(u.username)===CONTROL_SCOPE.role,'ADMIN_ROLE_AND_TARGET');return admin.adminUrl as string;
+}
+export function validateActivationEvidence(p:ActivationEvidence,expected:{profileSha256:string;handoffSha256:string;openingProofSha256:string;captureScriptSha256:string;base:Record<'inventory'|'available'|'reserved'|'liability',string>},now=Date.now()){
+ need(p?.version===1&&p.status==='ROOT_LINUX_FIRST_ACTIVATION_PREFLIGHT'&&p.branchId===CONTROL_SCOPE.branchId&&p.database===CONTROL_SCOPE.database,'PREFLIGHT_SCOPE');
+ need(fresh(p.verifiedAt,now)&&p.profileSha256===expected.profileSha256&&p.handoffSha256===expected.handoffSha256&&p.openingProofSha256===expected.openingProofSha256,'FRESH_BOUND_PREFLIGHT');
+ need(p.native?.pythonProfileLoaderVerified===true&&p.native.groupReaped===true&&hash(p.native.loaderSha256)&&hash(expected.captureScriptSha256)&&p.native.captureScriptSha256===expected.captureScriptSha256&&hash(p.native.proofSha256)&&p.native.walletProcessUid===986&&p.native.walletProcessGid===978&&p.native.supplementaryGroupsDropped===true&&fresh(p.native.observedAt,now)&&p.native.physicalZatoshi==='12500000'&&p.native.noteIdentityMatchesOpening===true,'ACTUAL_NATIVE_CAPITAL');
+ need(p.base?.codeHashesVerified===true&&p.base.latestNonce===0&&p.base.pendingNonce===0&&p.base.gasWei==='500000000000000','ACTUAL_BASE_CAPITAL');
+ for(const key of ['inventory','available','reserved','liability'] as const)need(/^(0|[1-9][0-9]*)$/.test(expected.base[key])&&p.base[key]===expected.base[key],'EXACT_BASE_PHYSICAL_'+key);
+ need(BigInt(p.base.available)>=200000n&&p.boundedApiVerified===true&&p.nativeProfilesVerified===true&&p.financialWorkersStopped===true,'BOUNDED_WORKERS');
+ const i=p.sourceIdentity;need(i&&i.chefProject==='zeeswap_shadow_app_20261023'&&hash(i.chefFingerprint)&&hash(i.envioProjectionDigest)&&i.chefCanonicalSourceId&&i.envioCanonicalSourceId&&i.chefGeneration&&i.envioGeneration,'SOURCE_IDENTITIES');
+}
+export function validateSourceWindow(w:SourceWindow,p:Pick<ActivationEvidence,'profileSha256'|'handoffSha256'|'sourceIdentity'>,now=Date.now()){
+ need(w?.version===1&&w.status==='ROOT_LINUX_SOURCE_WINDOW_VERIFIED'&&w.profileSha256===p.profileSha256&&w.handoffSha256===p.handoffSha256&&w.sourceReset===false,'WINDOW_IDENTITY');
+ need(w.samplingIntervalMs>=1000&&w.samplingIntervalMs<=10000&&w.maxGapMs>=w.samplingIntervalMs&&w.maxGapMs<=w.samplingIntervalMs*2&&w.maxGapMs<=20000,'WINDOW_SAMPLING_BOUND');
+ const start=Date.parse(w.startedAt),end=Date.parse(w.completedAt);need(Number.isFinite(start)&&end-start>=300000&&fresh(w.completedAt,now)&&Array.isArray(w.samples)&&w.samples.length>=16,'COMPLETE_FIVE_MINUTE_WINDOW');
+ let previous=start;const lastHeights=new Map<string,bigint>();
+ for(let index=0;index<w.samples.length;index++){const s=w.samples[index]!,at=Date.parse(s.at),nextAt=index+1<w.samples.length?Date.parse(w.samples[index+1]!.at):end;need(Number.isFinite(at)&&at>=previous&&at-previous<=w.maxGapMs&&at<=end&&nextAt>=at,'WINDOW_GAP');previous=at;
+  need(s.control?.epoch==='0'&&s.control.accepting_orders===false&&s.control.dispatch_enabled===false&&s.control.reconciliation_required===true,'WINDOW_PAUSED_EPOCH');
+  need(s.counts&&Object.keys(s.counts).sort().join(',')==='deposits,obligations,operations,orders,quotes'&&Object.values(s.counts).every(x=>x==='0'),'WINDOW_CUSTOMER_BOOKS');
+  need(s.sql?.length===2&&new Set(s.sql.map(x=>x.network)).size===2,'BOTH_SQL_SOURCES');
+  for(const row of s.sql){need(['base-sepolia','zcash-testnet'].includes(row.network)&&/^[0-9]+$/.test(row.scannedHeight)&&/^[0-9]+$/.test(row.finalizedHeight)&&/^[0-9a-f]{64}$/.test(row.tipHash)&&fresh(row.observedAt,at)&&nextAt-Date.parse(row.observedAt)<=60000&&BigInt(row.scannedHeight)>=BigInt(row.finalizedHeight),'SQL_CHECKPOINT_FRESHNESS');need(row.canonical?.sourceId===(row.network==='zcash-testnet'?p.sourceIdentity.chefCanonicalSourceId:p.sourceIdentity.envioCanonicalSourceId)&&row.canonical.height===Number(row.scannedHeight)&&row.canonical.hash.replace(/^0x/,'')===row.tipHash&&fresh(row.canonical.checkedAt,at),'INDEPENDENT_SQL_CANONICAL_IDENTITY');const old=lastHeights.get(row.network);need(old===undefined||BigInt(row.scannedHeight)>=old,'SQL_FRONTIER_REGRESSION');lastHeights.set(row.network,BigInt(row.scannedHeight));}
+  need(s.chef.generation===p.sourceIdentity.chefGeneration&&s.chef.project===p.sourceIdentity.chefProject&&s.chef.fingerprint===p.sourceIdentity.chefFingerprint&&s.envio.generation===p.sourceIdentity.envioGeneration&&s.envio.projectionDigest===p.sourceIdentity.envioProjectionDigest,'WINDOW_SOURCE_IDENTITY_CHANGED');
+  for(const [source,id,lag] of [[s.chef,p.sourceIdentity.chefCanonicalSourceId,6],[s.envio,p.sourceIdentity.envioCanonicalSourceId,40]] as const){
+   need(Number.isSafeInteger(source.through)&&Number.isSafeInteger(source.sourceHead)&&source.through>=(id===p.sourceIdentity.chefCanonicalSourceId?4532047:49128651)&&source.sourceHead>=source.through&&source.sourceHead-source.through<=lag&&fresh(source.sampledAt,at)&&nextAt-Date.parse(source.sampledAt)<=60000,'SAMPLED_SOURCE_LAG_OR_AGE');
+   need(source.canonical?.sourceId===id&&source.canonical.height===source.through&&source.canonical.hash===source.throughHash&&/^(?:0x)?[0-9a-f]{64}$/.test(source.throughHash)&&fresh(source.canonical.checkedAt,at),'INDEPENDENT_CANONICAL_IDENTITY');
+  }
+ }
+ need(end-previous>=0&&end-previous<=w.maxGapMs&&Date.parse(w.samples[0]!.at)-start<=w.maxGapMs&&Date.parse(w.samples.at(-1)!.at)-Date.parse(w.samples[0]!.at)>=300000,'WINDOW_COVERAGE');
+ for(const network of ['zcash-testnet','base-sepolia'])need(BigInt(w.samples.at(-1)!.sql.find(x=>x.network===network)!.scannedHeight)>BigInt(w.samples[0]!.sql.find(x=>x.network===network)!.scannedHeight),'WINDOW_NO_ACTUAL_PROGRESS');
+}
+export interface Journal {append(value:Record<string,unknown>):Promise<void>}
+export type Intent={action:'activate'|'pause';transactionId:string;expectedXmin:string;before:ControlRow};
+export function classifyControlOutcome(action:Intent['action'],intent:Intent,status:string,row:ControlRow){
+ if(status==='in progress')return 'UNKNOWN_RECONCILE_REQUIRED';
+ if(status!=='committed')return status==='aborted'?'ABORTED_DO_NOT_REPLAY':'UNKNOWN_RECONCILE_REQUIRED';
+ const unchanged=row.xmin===intent.expectedXmin;
+ if(action==='activate')return unchanged&&row.epoch==='1'&&row.accepting_orders&&row.dispatch_enabled&&!row.reconciliation_required?'ACTIVATION_CONFIRMED':'COMMITTED_BUT_INTERVENED_OR_PAUSED';
+ return !row.accepting_orders&&!row.dispatch_enabled?(unchanged&&row.epoch===intent.before.epoch&&row.reconciliation_required===intent.before.reconciliation_required?'PAUSE_CONFIRMED':'PAUSED_WITH_INTERVENTION'):'COMMITTED_BUT_INTERVENED_OR_RESUMED';
+}
+export async function requireConnected(c:Pick<pg.PoolClient,'query'>){const r=(await c.query('SELECT current_database() AS database,current_user AS role')).rows[0];need(r?.database===CONTROL_SCOPE.database&&r.role===CONTROL_SCOPE.role,'CONNECTED_ADMIN_IDENTITY');}
+export async function readCurrent(c:Pick<pg.PoolClient,'query'>){return (await c.query('SELECT accepting_orders,dispatch_enabled,reconciliation_required,epoch::text,xmin::text FROM zee.runtime_control WHERE singleton')).rows[0] as ControlRow;}
+export async function checkActivationDatabase(c:pg.PoolClient,p:ActivationEvidence){
+ await requireConnected(c);const row=(await c.query('SELECT accepting_orders,dispatch_enabled,reconciliation_required,epoch::text,xmin::text FROM zee.runtime_control WHERE singleton FOR UPDATE')).rows[0] as ControlRow;
+ need(row?.epoch==='0'&&row.accepting_orders===false&&row.dispatch_enabled===false&&row.reconciliation_required===true,'FIRST_ACTIVATION_PAUSED_EPOCH_ZERO');
+ const counts=(await c.query(`SELECT (SELECT count(*) FROM zee.quotes)::text quotes,(SELECT count(*) FROM zee.orders)::text orders,(SELECT count(*) FROM zee.deposits)::text deposits,(SELECT count(*) FROM zee.obligations)::text obligations,(SELECT count(*) FROM zee.operations)::text operations,(SELECT count(*) FROM zee.outbox_jobs WHERE status='LEASED' AND lease_until>clock_timestamp())::text active_leases`)).rows[0];need(counts&&Object.values(counts).every(x=>x==='0'),'NO_CUSTOMER_BOOKS_OR_LEASES');
+ const accounts=(await c.query('SELECT asset,purpose,balance::text,reserved::text FROM zee.inventory_accounts FOR UPDATE')).rows,ledger=(await c.query('SELECT event_id::text,asset,bucket,amount::text FROM zee.ledger_entries')).rows;validateLiveOpeningRows(p.openingEventId,accounts,ledger);
+ const sql=(await c.query("SELECT network,observed_at BETWEEN clock_timestamp()-interval '60 seconds' AND clock_timestamp()+interval '5 seconds' AS fresh,scanned_height>=finalized_height AS valid FROM zee.scanner_checkpoints FOR SHARE")).rows;need(sql.length===2&&new Set(sql.map(x=>x.network)).size===2&&sql.every(x=>['zcash-testnet','base-sepolia'].includes(x.network)&&x.fresh===true&&x.valid===true),'CURRENT_SQL_SOURCES_STALE');
+ const assets=(await c.query('SELECT id,live_enabled,decimals,network,contract_address FROM zee.assets ORDER BY id FOR UPDATE')).rows;need(assets.length===3&&assets.every(a=>a.live_enabled===false)&&assets.some(a=>a.id==='TAZ'&&a.decimals===8&&a.network==='zcash-testnet'&&a.contract_address===null)&&assets.some(a=>a.id==='mockUSDC'&&a.decimals===6&&a.network==='base-sepolia'&&a.contract_address?.toLowerCase()==='0xd64c116352cef2adc9484098ae332fd9ba339a63')&&assets.some(a=>a.id==='baseETH'&&a.decimals===18&&a.network==='base-sepolia'&&a.contract_address===null),'ASSETS_REQUIRE_EXACT_FIRST_ACTIVATION');return row;
+}
+export async function reconcileControl(pool:pg.Pool,intent:Intent,journal:Journal){const c=await pool.connect();try{await requireConnected(c);const row=await readCurrent(c),status=(await c.query('SELECT pg_xact_status($1::xid8) AS status',[intent.transactionId])).rows[0]?.status;const outcome=classifyControlOutcome(intent.action,intent,status,row);await journal.append({event:'RECONCILED',outcome,control:row,transactionId:intent.transactionId});return {outcome,control:row};}finally{c.release();}}
+export async function changeControl(pool:pg.Pool,action:Intent['action'],journal:Journal,preflight?:()=>Promise<ActivationEvidence>){
+ const c=await pool.connect();let intent:Intent|undefined,commitSent=false;
+ try{await requireConnected(c);await c.query('BEGIN');
+  const before=action==='activate'?await checkActivationDatabase(c,await preflight!()):(await c.query('SELECT accepting_orders,dispatch_enabled,reconciliation_required,epoch::text,xmin::text FROM zee.runtime_control WHERE singleton FOR UPDATE')).rows[0] as ControlRow;
+  need(before,'RUNTIME_ROW_MISSING');const xid=String((await c.query('SELECT pg_current_xact_id()::text AS id')).rows[0].id);need(/^[1-9][0-9]*$/.test(xid),'TRANSACTION_ID_REQUIRED');
+  if(action==='activate')need((await c.query('SELECT pg_xact_status($1::xid8) AS status',[xid])).rows[0]?.status==='in progress','TRANSACTION_STATUS_LOOKUP_REQUIRED');
+  intent={action,transactionId:xid,expectedXmin:(BigInt(xid)%4294967296n).toString(),before};await journal.append({event:'TX_INTENT',...intent});
+  if(action==='activate'){const changed=await c.query("UPDATE zee.assets SET live_enabled=true WHERE id IN ('TAZ','mockUSDC') RETURNING id");need(changed.rows.length===2,'EXACT_TWO_ASSETS');const r=await c.query('UPDATE zee.runtime_control SET accepting_orders=true,dispatch_enabled=true,reconciliation_required=false,epoch=epoch+1 WHERE singleton AND epoch=0 AND NOT accepting_orders AND NOT dispatch_enabled AND reconciliation_required RETURNING xmin::text');need(r.rows.length===1&&r.rows[0].xmin===intent.expectedXmin,'ACTIVATION_CAS');}
+  else await c.query('UPDATE zee.runtime_control SET accepting_orders=false,dispatch_enabled=false WHERE singleton');
+  await journal.append({event:'COMMIT_INTENT',transactionId:xid});commitSent=true;await c.query('COMMIT');await journal.append({event:'COMMIT_ACK',transactionId:xid});
+ }catch(e){if(!commitSent)await c.query('ROLLBACK').catch(()=>{});await journal.append({event:commitSent?'COMMIT_UNKNOWN':'TRANSACTION_REFUSED',transactionId:intent?.transactionId??null});if(!intent)throw e;
+ }finally{c.release(commitSent?Error('CONTROL_TRANSACTION_FINISHED_NEW_CONNECTION_REQUIRED'):undefined);}
+ need(intent,'DURABLE_INTENT_REQUIRED');return reconcileControl(pool,intent,journal);
+}

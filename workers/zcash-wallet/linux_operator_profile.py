@@ -42,6 +42,21 @@ def pinned(item, private=True):
     return path.read_bytes() if private else None
 
 
+def validate_operator_binding(binding, profile):
+    """Exact transported metadata; no repinning may change logical authority."""
+    critical = {'ledgerOpeningProofSha256': profile['immutable']['openingProof']['sha256'],
+                'chefOpeningProofSha256': profile['immutable']['chefOpeningProof']['sha256'],
+                'sourceFingerprint': profile['identity']['sourceFingerprint'],
+                'ufvkSha256': profile['immutable']['operatorUfvk']['sha256'],
+                'chefAccountId': profile['identity']['chefAccountId']}
+    need(isinstance(binding, dict) and set(binding) == set(critical) | {
+        'version', 'purpose', 'originalOpeningProofRewritten'}, 'OPERATOR_BINDING_SHAPE')
+    need(type(binding['version']) is int and binding['version'] == 1
+         and binding['purpose'] == 'logical-prefunding-operator-relocation-binding'
+         and binding['originalOpeningProofRewritten'] is False, 'OPERATOR_BINDING_METADATA')
+    need(all(binding[key] == expected for key, expected in critical.items()), 'OPERATOR_BINDING_IDENTITY')
+
+
 def load_operator_profile(path, expected_sha):
     need(path == PROFILE and re.fullmatch('[0-9a-f]{64}', expected_sha or ''), 'EXACT_PROFILE_REQUIRED')
     p = json.loads(pinned({'path': path, 'sha256': expected_sha}))
@@ -82,10 +97,7 @@ def load_operator_profile(path, expected_sha):
     need(opening['version'] == 1 and opening['branchId'] == i['branchId'] and opening['database'] == i['database']
          and opening['binding']['sourceFingerprint'] == i['sourceFingerprint']
          and opening['binding']['registrySha256'] == p['immutable']['registry']['sha256'], 'ORIGINAL_OPENING_BINDING')
-    need(binding == {'ledgerOpeningProofSha256': p['immutable']['openingProof']['sha256'],
-                     'chefOpeningProofSha256': p['immutable']['chefOpeningProof']['sha256'],
-                     'sourceFingerprint': i['sourceFingerprint'], 'ufvkSha256': p['immutable']['operatorUfvk']['sha256'],
-                     'chefAccountId': i['chefAccountId']}, 'OPERATOR_BINDING')
+    validate_operator_binding(binding, p)
     registry = json.loads(immutable['registry'])
     need(registry['chainId'] == 84532 and registry['operator'].lower() == i['operator'].lower()
          and registry['contracts']['ZeeSwapSettlement']['address'].lower() == i['settlement'].lower()
