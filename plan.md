@@ -84,6 +84,14 @@ all application headers and paused epoch four. The V6 source follower now uses
 Chef's official data-epoch/reorg lifecycle; deployed sustained continuity and the
 new funded circle are still pending. See
 [observer continuity recovery](docs/evidence/native-observer-continuity-recovery.md).
+The subsequent 167-proof linked campaign actually published Base checkpoint
+49713187, with independent exact-commit/admission verification and the original
+542-proof parent preserved. Its normal-observer handoff failed after an
+approximately 58-second sample-to-start delay: four thirty-two-second timeout
+cycles left the proven frontier unchanged. Both application observers are stopped
+while a bounded repeat-campaign and immediate handoff are reviewed. Source-only
+Chef following remains distinct from application readiness. Epoch four and empty
+customer books are preserved; no new funded circle or activation is claimed.
 Historical live-app checkpoint (23 October): an isolated Neon branch hosts separate
 application, Chef and Envio databases. Native Chef and Envio observers have
 published verified checkpoints to the new application; the connected local frontend uses the

@@ -11,12 +11,13 @@ export const rawSha=(b:Buffer)=>createHash('sha256').update(b).digest('hex');
 const hash=(v:unknown)=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v)&&!/^0+$/.test(v);
 export const LINKED_PARENT='/opt/zeeswap-testnet/state/envio/prefunding-recovery';
 export type ParentPins={coverageSha256:string;intentSha256:string;completedSha256:string;originalAdmissionSha256:string};
+export type PreviousCampaignPins=ParentPins&{directory:string};
 export type ParentBytes={coverage:Buffer;intent:Buffer;completed:Buffer;originalAdmission:Buffer};
 export type CampaignCheckpoint=RecoverySql&{xmin:string};
 export type CampaignControl={epoch:string;xmin:string;accepting_orders:false;dispatch_enabled:false;reconciliation_required:true};
 export interface LinkedCampaignApproval extends EpochContext {
  version:1;purpose:'POST_PUBLICATION_PREFUNDING_ENVIO_CATCHUP';branchId:'br-broad-pine-ao79wemx';database:'zee_app_20261023';verifiedAt:string;expiresAt:string;
- epoch:'4';runtimeXmin:'284222';authoritySha256:string;parent:ParentPins;activeAdmissionSha256:string;baseline:CampaignCheckpoint;
+ epoch:'4';runtimeXmin:'284222';authoritySha256:string;parent:ParentPins;previousCampaign?:PreviousCampaignPins;activeAdmissionSha256:string;baseline:CampaignCheckpoint;
  sourceGeneration:string;projectionDigest:string;identityDigest:string;baselineCanonical:Header;
  observerInactiveProof:{path:string;sha256:string};capitalProof:{path:string;sha256:string};capital:PrefundingEpochProof['capital'];
  financialWorkersStopped:true;normalObserverStopped:true;latestOperatorNonce:0;pendingOperatorNonce:0;
@@ -42,7 +43,9 @@ export function validateLinkedApproval(p:LinkedCampaignApproval,context:EpochCon
  need(p.sourceGeneration===identity.generation&&p.projectionDigest===identity.policy.projectionDigest&&p.identityDigest===digest(identity)&&p.profileSha256===identity.profileSha256&&p.handoffSha256===identity.handoffSha256,'SOURCE_IDENTITY');
  need(p.baseline&&Object.keys(p.baseline).sort().join(',')==='finalizedHeight,finalizedTime,hash,height,observedAt,xmin'&&hash(p.baseline.hash)&&Number.isSafeInteger(p.baseline.finalizedHeight)&&p.baseline.finalizedHeight>=0&&p.baseline.finalizedHeight<=p.baseline.height,'BASELINE_SHAPE');
  campaignBaselineSql(p.baseline);parseHeader(p.baselineCanonical,identity.policy.network);
- need(p.baseline?.height===49676611&&p.baselineCanonical?.height===p.baseline.height&&p.baselineCanonical.hash==='0x'+p.baseline.hash&&/^[1-9][0-9]*$/.test(p.baseline.xmin),'EXACT_ACTIVE_BASELINE');
+ need(p.baseline?.height>=49672405&&Number.isSafeInteger(p.baseline.height)&&p.baselineCanonical?.height===p.baseline.height&&p.baselineCanonical.hash==='0x'+p.baseline.hash&&/^[1-9][0-9]*$/.test(p.baseline.xmin),'EXACT_ACTIVE_BASELINE');
+ if(p.previousCampaign){const prior=p.previousCampaign;need(Object.keys(prior).sort().join(',')==='completedSha256,coverageSha256,directory,intentSha256,originalAdmissionSha256'&&/^\/opt\/zeeswap-testnet\/state\/envio\/catchup-[a-f0-9]{64}$/.test(prior.directory)&&['coverageSha256','intentSha256','completedSha256','originalAdmissionSha256'].every(k=>hash(prior[k as keyof PreviousCampaignPins])),'PREVIOUS_CAMPAIGN_PINS');}
+ else need(p.baseline.height===49676611,'PREVIOUS_CAMPAIGN_REQUIRED');
  need(p.financialWorkersStopped===true&&p.normalObserverStopped===true&&p.latestOperatorNonce===0&&p.pendingOperatorNonce===0,'STOPPED_AND_NONCES');
  for(const pin of [p.observerInactiveProof,p.capitalProof])need(pin?.path.startsWith('/opt/zeeswap-testnet/state/')&&!pin.path.includes('..')&&hash(pin.sha256),'ROOT_EVIDENCE_PIN');
  const c=p.capital;need(c?.physicalZatoshi==='12500000'&&c.openingNoteCanonical===true&&hash(c.nativeCaptureSha256)&&hash(c.baseProofSha256)&&c.gasWei==='500000000000000'&&c.inventory==='10100000'&&c.available==='10000000'&&c.reserved==='100000'&&c.liability==='100000'&&at-Date.parse(c.observedAt)>=-5000&&at-Date.parse(c.observedAt)<=60000,'FRESH_CAPITAL_AT_ISSUANCE');return p;
@@ -60,6 +63,23 @@ export function validateCompletedParent(bytes:ParentBytes,pins:ParentPins,open:(
  need(stable(open(bytes.originalAdmission))===stable(j.originalAdmission)&&j.originalAdmission.hints.length===0&&expected.admission.hints.length===0,'PARENT_HINTS');
  need(completed.version===1&&completed.status==='ENVIO_PREFUNDING_RECOVERY_COMMITTED'&&completed.intentSha256===digest(intent)&&completed.financialAction===false,'PARENT_CLOSURE');
  return {journal:j,candidateSha256:intent.candidateAdmissionSha256,published:expected.sql};
+}
+/** A repeat campaign consumes exactly its approved predecessor closure; no recursive reset. */
+export function validatePreviousCampaign(bytes:ParentBytes,p:LinkedCampaignApproval,open:(b:Buffer)=>unknown,identity:RecoveryIdentity,current:CampaignSnapshot){
+ const pins=p.previousCampaign;need(pins,'PREVIOUS_CAMPAIGN_REQUIRED');
+ for(const [name,pin] of [['coverage','coverageSha256'],['intent','intentSha256'],['completed','completedSha256'],['originalAdmission','originalAdmissionSha256']] as const)need(rawSha(bytes[name])===pins![pin],'PREVIOUS_RAW_CHANGED');
+ const j=JSON.parse(bytes.coverage.toString()) as EnvioRecoveryJournal,intent=JSON.parse(bytes.intent.toString()) as LinkedCampaignIntent,receipt=JSON.parse(bytes.completed.toString()),priorSha=pins!.directory.slice(pins!.directory.lastIndexOf('catchup-')+8);
+ validateEnvioRecovery(j,identity);need(j.proofs.length>0&&j.originalAdmissionSha256===pins!.originalAdmissionSha256&&stable(open(bytes.originalAdmission))===stable(j.originalAdmission)&&j.originalAdmission.hints.length===0,'PREVIOUS_ORIGINAL_ADMISSION');
+ need(intent.version===1&&intent.purpose===p.purpose&&intent.approvalSha256===priorSha&&stable(intent.parent)===stable(p.parent)&&intent.journalDigest===digest(j)&&intent.originalAdmissionSha256===j.originalAdmissionSha256,'PREVIOUS_INTENT_BINDING');
+ need(/^[1-9][0-9]*$/.test(intent.transactionId)&&intent.expectedXmin===(BigInt(intent.transactionId)%4294967296n).toString()&&intent.after?.xmin===intent.expectedXmin,'PREVIOUS_XID');
+ need(stable(intent.control)===stable({epoch:p.epoch,xmin:p.runtimeXmin,accepting_orders:false,dispatch_enabled:false,reconciliation_required:true})&&stable(current.prefunding.control)===stable(intent.control)&&intent.financialDigest===campaignFinancialDigest(current),'PREVIOUS_CONTROL_OR_FINANCIAL');
+ need(/^[1-9][0-9]*$/.test(intent.before?.xmin)&&stable(campaignBaselineSql(intent.before))===stable(j.originalSql),'PREVIOUS_BEFORE_SQL');
+ const last=j.proofs.at(-1)!.selection,complete=completeEnvioRecovery(j,Math.max(Date.parse(last.range.readCompletedAt),Date.parse(last.verification.checkedAt))),candidate=Buffer.from(intent.candidateAdmissionBase64,'base64');
+ const timestamp=(v:string)=>new Date(v).toISOString().replace(/\.(\d{3})Z$/,'.$1000Z'),expectedAfter={...complete.sql,finalizedTime:timestamp(complete.sql.finalizedTime),observedAt:timestamp(complete.sql.observedAt),xmin:intent.expectedXmin};
+ need(hash(intent.candidateAdmissionSha256)&&rawSha(candidate)===intent.candidateAdmissionSha256&&stable(open(candidate))===stable(complete.admission)&&complete.admission.hints.length===0&&stable(intent.after)===stable(expectedAfter),'PREVIOUS_COMPLETE_CANDIDATE');
+ need(receipt.version===1&&receipt.status==='ENVIO_LINKED_CAMPAIGN_COMMITTED_EXACT'&&receipt.approvalSha256===priorSha&&stable(receipt.parent)===stable(p.parent)&&receipt.intentDigest===digest(intent)&&stable(receipt.checkpoint)===stable(intent.after)&&receipt.financialAction===false,'PREVIOUS_CLOSURE');
+ need(p.activeAdmissionSha256===intent.candidateAdmissionSha256&&stable(p.baseline)===stable(intent.after),'PREVIOUS_EXACT_ACTIVE_BASELINE');
+ return{journal:j,intent};
 }
 export function campaignBaselineSql(p:CampaignCheckpoint):RecoverySql{
  const stamp=(v:string)=>{need(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3}(?:000)?)?Z$/.test(v)&&Number.isFinite(Date.parse(v)),'EXACT_MILLISECOND_BASELINE');return new Date(v).toISOString();};

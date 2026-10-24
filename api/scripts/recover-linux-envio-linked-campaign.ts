@@ -13,7 +13,7 @@ import {readJson} from '../src/integrations/observation/chef.ts';
 import {fetchSelectedEnvioRange} from '../src/integrations/observation/envio-selected-export.ts';
 import {requiredEnvioAnchors} from '../src/integrations/observation/envio-required-anchors.ts';
 import {envioRecoveryTransport,validateEnvioRecovery,nextEnvioRecoveryRange,appendEnvioRecovery,recheckEnvioRecovery,completeEnvioRecovery,type EnvioRecoveryJournal} from '../src/integrations/observation/envio-recovery.ts';
-import {rawSha,LINKED_PARENT,validateLinkedApproval,validateCompletedParent,readCampaignSnapshot,campaignBaselineSql,beginLinkedCampaign,publishLinkedCampaign,classifyLinkedCommit,finishLinkedFileBoundary,type LinkedCampaignApproval,type LinkedCampaignIntent} from '../src/integrations/observation/envio-linked-campaign.ts';
+import {rawSha,LINKED_PARENT,validateLinkedApproval,validateCompletedParent,validatePreviousCampaign,readCampaignSnapshot,campaignBaselineSql,beginLinkedCampaign,publishLinkedCampaign,classifyLinkedCommit,finishLinkedFileBoundary,type LinkedCampaignApproval,type LinkedCampaignIntent} from '../src/integrations/observation/envio-linked-campaign.ts';
 import {requireThat,digest,stable} from '../src/integrations/observation/types.ts';
 const need=(v:unknown,c:string)=>requireThat(v,'ENVIO_LINKED_'+c),root='/opt/zeeswap-testnet',state=root+'/state/envio',marker=state+'/recovery-in-progress';
 const [step,approvalPath,approvalSha,limitArg]=process.argv.slice(2),limit=Number(limitArg);
@@ -33,6 +33,7 @@ validateLinkedApproval(approval,{profileSha256:p.operatorProfile.sha256,handoffS
 const keys=new PrivateData(Buffer.from(runtime.payloadKeyHex,'hex'),Buffer.from(runtime.lookupKeyHex,'hex')),context='envio-funding-hints:br-broad-pine-ao79wemx:zee_app_20261023:v1',openAdmission=(b:Buffer)=>keys.open(b,context);
 const{policy:_,...canonicalTransport}=transport,canonical=canonicalRpc(canonicalTransport),base=new BaseContract(registry);
 async function parent(){const bytes={coverage:await rootBytes(LINKED_PARENT+'/coverage.private.json'),intent:await rootBytes(LINKED_PARENT+'/publication-intent.private.json'),completed:await rootBytes(LINKED_PARENT+'/completed.private.json'),originalAdmission:await rootBytes(LINKED_PARENT+'/original-admission.bin')};return validateCompletedParent(bytes,approval.parent,openAdmission,authority!,identity);}
+async function previous(current:Parameters<typeof validatePreviousCampaign>[4]){if(!approval.previousCampaign)return;const d=approval.previousCampaign.directory,ds=await lstat(d);need(ds.isDirectory()&&!ds.isSymbolicLink()&&ds.uid===0&&(ds.mode&0o777)===0o700&&await realpath(d)===d,'PREVIOUS_CAMPAIGN_DIRECTORY');need(!await exists(d+'/writer.lock'),'PREVIOUS_CAMPAIGN_WRITER_RUNNING');validatePreviousCampaign({coverage:await rootBytes(d+'/coverage.private.json'),intent:await rootBytes(d+'/publication-intent.private.json'),completed:await rootBytes(d+'/completed.private.json'),originalAdmission:await rootBytes(d+'/original-admission.bin')},approval,openAdmission,identity,current);}
 async function staticEvidence(){
  need(rawSha(await rootBytes(approvalPath!,262144))===approvalSha,'APPROVAL_FILE_CHANGED');
  validateLinkedApproval(approval,{profileSha256:p.operatorProfile.sha256,handoffSha256:p.relocationProof.sha256,openingProofSha256:operator.immutable.openingProof.sha256,openingEventId:opening.eventId},authority!,identity);
@@ -47,7 +48,7 @@ async function baseCapital(){const heads=await base.heads(),address=registry.con
 const directory=state+'/catchup-'+approvalSha,journalPath=directory+'/coverage.private.json',intentPath=directory+'/publication-intent.private.json',markerBytes=Buffer.from('linked-catchup:'+approvalSha+'\n');
 const pool=connect(runtime.workerUrl,2),lease=await pool.connect();let locked=false,fileLocked=false,lost=false;lease.on('error',()=>{lost=true;});
 async function leaseGuard(){need(!lost,'LEASE_LOST');await lease.query('SELECT 1');need(!lost,'LEASE_LOST');}
-async function guard(){await leaseGuard();await staticEvidence();await parent();const s=await readCampaignSnapshot(lease,authority!);await leaseGuard();return s;}
+async function guard(){await leaseGuard();await staticEvidence();await parent();const s=await readCampaignSnapshot(lease,authority!);await previous(s);await leaseGuard();return s;}
 async function admission(){const s=await lstat(p.admissionPath);need(s.isFile()&&!s.isSymbolicLink()&&s.uid===986&&s.gid===978&&(s.mode&0o777)===0o600&&await realpath(p.admissionPath)===p.admissionPath,'ACTIVE_ADMISSION_OWNER');return readFile(p.admissionPath);}
 async function baseline(){const s=await guard();need(stable(s.checkpoint)===stable(approval.baseline)&&rawSha(await admission())===approval.activeAdmissionSha256,'BASELINE_INTERVENTION');return s;}
 async function anchors(j:EnvioRecoveryJournal){const needed=await requiredEnvioAnchors(lease as unknown as pg.Pool,j.originalAdmission.hints),signal=AbortSignal.timeout(30000);for(let i=0;i<needed.length;i+=10){const page=needed.slice(i,i+10),actual=await canonical.headers!(page.map(a=>Number(a.height)),signal);need(actual.length===page.length&&actual.every((h,n)=>h.height===Number(page[n]!.height)&&(page[n]!.expected_hash===null||page[n]!.expected_hash===h.hash.slice(2))),'CURRENT_CANONICAL_ANCHOR');}}
@@ -68,7 +69,7 @@ async function finish(intent:LinkedCampaignIntent){
 }
 function stateRoot(){return root+'/state/envio';}
 try{
- locked=(await lease.query('SELECT pg_try_advisory_lock(84532,20261024) locked')).rows[0]?.locked===true;need(locked,'NORMAL_CONSUMER_OR_OTHER_RECOVERY_RUNNING');await staticEvidence();await parent();await readCampaignSnapshot(lease,authority!);
+ locked=(await lease.query('SELECT pg_try_advisory_lock(84532,20261024) locked')).rows[0]?.locked===true;need(locked,'NORMAL_CONSUMER_OR_OTHER_RECOVERY_RUNNING');await staticEvidence();await parent();await previous(await readCampaignSnapshot(lease,authority!));
  if(!await exists(directory)){need(step==='recover','NEW_CAMPAIGN_RECOVER_ONLY');await mkdir(directory,{mode:0o700});await syncDir(state);}
  const ds=await lstat(directory);need(ds.isDirectory()&&!ds.isSymbolicLink()&&ds.uid===0&&(ds.mode&0o077)===0&&await realpath(directory)===directory,'CAMPAIGN_DIRECTORY');
  await mkdir(directory+'/writer.lock',{mode:0o700});fileLocked=true;

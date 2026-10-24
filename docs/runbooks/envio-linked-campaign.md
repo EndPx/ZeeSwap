@@ -16,13 +16,39 @@ parent only. It is never applied to an empty new journal or bypassed with a
 special zero-proof case.
 
 A new approval has purpose `POST_PUBLICATION_PREFUNDING_ENVIO_CATCHUP` and pins
-the current active admission bytes and exact Base checkpoint49676611, including
+the current active admission bytes and exact Base checkpoint, including
 finality timestamp, original observation timestamp and scanner xmin. It pins
 original R9 profile/handoff/opening identity, source generation/projection and
 recovery-policy identity. This bounded implementation requires explicit
 E4/xmin284222 authority. Any later epoch/xmin or changed admission/checkpoint
 stops it; adapting to a different incident requires review. Root must independently
 verify the current checkpoint with the recovery canonical reader.
+
+Repeated campaigns retain the original542-proof parent and additionally pin one
+completed predecessor through optional `previousCampaign`:
+`{directory,coverageSha256,intentSha256,completedSha256,originalAdmissionSha256}`.
+The directory must be exactly `state/envio/catchup-<prior approval SHA>` under the
+scoped root. Omitting this field is allowed only for the original49676611 bootstrap
+baseline. Every other baseline must be a safe integer at least49672405 and equal
+its approved predecessor's complete committed checkpoint, including all six
+checkpoint fields and scanner xmin. No latest tip or fixed newer height is trusted.
+
+Every guard reads and hashes all four predecessor files as root0600 regular files
+with exact realpaths. Its full original identity/hash chain and zero-event proofs
+are validated, its original and candidate admissions must decrypt to zero hints,
+and its intent must bind the journal, original SQL/admission, own xid/xmin, original
+542-parent pins and exact E4 control. The receipt must commit that intent and exact
+after checkpoint. The new admission raw SHA must equal the predecessor's sealed
+candidate raw SHA; the new baseline must exactly equal that after checkpoint.
+The prior intent's financial digest must match the already-read coherent current
+snapshot. No additional database query or recursive predecessor traversal occurs.
+
+The predecessor check remains valid while finishing a newly committed campaign:
+it compares financial/control state but does not require the current checkpoint
+to remain the pre-publication baseline. The existing baseline guard enforces that
+checkpoint before new work, and the existing exact committed classifier enforces
+the new intended checkpoint during finish/reconcile. This preserves the original
+unknown-COMMIT and file/lease boundaries. No cache or freshness limit is changed.
 
 The local-only template is
 `.deploy-local/live-testnet-20261023/envio-linked-campaign-approval-UNARMED.private.json`.
@@ -166,3 +192,11 @@ locks/triggers and checked actual lost-COMMIT readback, scanner xmin, preserved
 controls and later intervention rejection. The corrected lease-loss suite passed
 eight focused cases; observed loss during admission or durable completion leaves
 the recovery marker in place without retry.
+
+The repeat-campaign correction passed11/11 focused tests plus the API TypeScript
+check. Synthetic tests cover a predecessor ending49713187, missing/raw-changed or
+pending closure, altered SQL/admission/control/financial state, invalid directory
+and fractional/string/unsafe baseline heights, and finishing after a new checkpoint
+commit. Original542-parent checks and exact pre-publication baseline checks remain
+covered. These repeat-campaign implementation checks performed no live database,
+VPS, wallet or source operation.

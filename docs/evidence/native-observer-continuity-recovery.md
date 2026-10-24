@@ -82,3 +82,40 @@ following as pending and does not authorize activation. Activation still require
 fresh physical capital, current canonical source observations and a new complete
 five-minute window for both chains. Private approvals, raw receipts, memos,
 viewing keys, wallet files and order mappings remain outside public Git history.
+
+The subsequent actual linked campaign closed with 167 proofs and published Base
+checkpoint 49713187. Root independently checked the committed transaction's exact
+checkpoint/xmin, installed encrypted admission, completed receipt and removed
+locks/marker. All four original 542-proof parent files remained unchanged.
+The bounded driver completed eight successful rounds without an RPC retry.
+Before the final publication, one expired export and one incomplete current-tail
+attempt were refused before a durable SQL intent; a new bounded tail traversal
+then passed. These refusals did not replay a checkpoint transaction.
+
+Normal-observer handoff did not pass. The last producer sample was at
+17:55:07.610 UTC on 24 October; the normal service started at approximately
+17:56:06 UTC. Four cycles subsequently waited on timeout code 23, taking
+32327, 32235, 32215 and 32229 milliseconds. SQL retained the proven checkpoint.
+Root stopped both application observers; the source follower continued and later
+authenticated Chef checks remained ready. The application retained paused epoch
+four, unchanged opening books and no new customer transaction.
+
+The normal Base reader verifies each range header once, with up to two HTTP
+batches overlapping latency. At twelve methods per second, a roughly 250-block
+startup gap plus its 32-block overlap leaves little of the existing thirty-second
+budget for HTTP, SQL and additional anchor checks. Each timed-out cycle leaves
+that frontier unchanged while the head advances. This explains a fragile startup;
+it does not establish that the ordinary observer lacks steady-state capacity.
+An immediately verified publication-to-observer handoff remains to be measured.
+The existing source freshness, read budget, overlap and canonical comparisons
+are retained. Neither a completed recovery campaign nor healthy source-only
+following closes the simultaneous application continuity or funded-circle gate.
+
+The repeat-campaign correction retains the original parent and additionally
+requires a hash-pinned completed predecessor for every new baseline. Its journal,
+intent, sealed admission and completion must bind the exact new SQL/admission
+baseline, preserved epoch/control and current financial digest. Root repeated
+all eleven focused tests and API typecheck. The suite includes rejection of
+altered predecessor bytes, pending completion, control/financial intervention,
+wrong admission/xmin and a post-commit finish regression. Deployment and immediate
+normal-observer handoff remain separate operator acceptance checks.
