@@ -1,3 +1,4 @@
+import {requirePrefundingEpochControl,type EpochAuthority} from '../../prefunding-epoch.ts';
 /** Prefunding retained-history proofs. Never signs, drops hints, or advances a partial checkpoint. */
 import type {EnvioAdmissionState} from './envio-live.ts';
 import {lstat} from 'node:fs/promises';
@@ -19,8 +20,9 @@ export type EnvioRecoveryJournal={version:1;identity:RecoveryIdentity;originalAd
 export async function requireNoEnvioRecovery(marker='/opt/zeeswap-testnet/state/envio/recovery-in-progress'){
  try{await lstat(marker);requireThat(false,'ENVIO_RECOVERY_PENDING');}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
 }
-export function requireEnvioRecoveryPrefunding(row:Record<string,unknown>|undefined,counts:Record<string,unknown>|undefined){
- requireThat(row?.db==='zee_app_20261023'&&row.role==='zee_app_worker_20261023'&&row.accepting_orders===false&&row.dispatch_enabled===false&&row.reconciliation_required===true&&row.epoch==='0','ENVIO_RECOVERY_PAUSED_EPOCH_ZERO_REQUIRED');
+export function requireEnvioRecoveryPrefunding(row:Record<string,unknown>|undefined,counts:Record<string,unknown>|undefined,authority?:EpochAuthority){
+ requireThat(row?.db==='zee_app_20261023'&&row.role==='zee_app_worker_20261023'&&row.accepting_orders===false&&row.dispatch_enabled===false&&row.reconciliation_required===true&&(authority||row.epoch==='0'),'ENVIO_RECOVERY_PAUSED_EPOCH_ZERO_REQUIRED');
+ requirePrefundingEpochControl(row,authority);
  requireThat(counts&&Object.keys(counts).sort().join(',')==='deposits,leases,obligations,operations,orders,quotes'&&Object.values(counts).every(v=>v==='0'),'ENVIO_RECOVERY_CUSTOMER_BOOKS_OR_LEASES');
 }
 export function initialEnvioRecovery(identity:RecoveryIdentity,admission:EnvioAdmissionState,originalAdmissionSha256:string,sql:RecoverySql):EnvioRecoveryJournal{

@@ -12,7 +12,8 @@ Windows-versus-Git source hash while preserving encrypted admission journals,
 application checkpoints and all financial books. Forward and reverse worker
 entry checks passed in their waiting states, without financial action.
 
-The application remains paused at epoch 0 with zero customer books. Chef core
+At the earlier deployment checkpoint, the application was paused at epoch 0 with
+zero customer books. Chef core
 catch-up encountered verified HTTP 413 response-size limits on dense ranges;
 bounded one-block finite CLI steps preserve the original configuration and
 durable source identity. Envio's reviewed cap100 scheduling and bounded header
@@ -33,6 +34,18 @@ Envio retained-history proof collection is still running in bounded native
 batches; partial coverage has not renewed its application checkpoint. Controls
 remain paused and no new customer payment exists. See
 [native source recovery](docs/evidence/native-source-recovery-live.md).
+
+Latest source incident checkpoint (24 October, 13:11 UTC): a single replaced
+Zcash tip at 4535991 left Chef's newest checkpoint noncanonical. All application
+SQL anchors, its durable cursor at 4535990 and the Base anchors still matched
+independent chain reads. The application correctly entered paused reconciliation
+at monotonic epoch 1, with all customer books empty; the source follower stopped
+when Prep's separate data epoch changed. Both observers remain stopped pending
+official bounded source rollback/replay and explicit
+[epoch-one prefunding authorization](docs/evidence/prefunding-epoch1-authorization.md).
+The retained 142 Envio proofs, original R9 handoff and opening books are preserved.
+No epoch reset, source reseed or new customer-funded circle is authorized by a
+passing implementation test or a prepared proof template.
 
 Historical live-app checkpoint (23 October): an isolated Neon branch hosts separate
 application, Chef and Envio databases. Native Chef and Envio observers have

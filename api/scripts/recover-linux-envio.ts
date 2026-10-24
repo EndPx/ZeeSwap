@@ -1,3 +1,4 @@
+import {loadPrefundingEpochAuthority,requireAuthorizedPrefundingDatabase,requireAuthorizedEnvioPrefix} from '../src/prefunding-epoch.ts';
 /** Root-only prefunding recovery; explicit commands, no reset/seed or financial adapter. */
 import {readFile,open,mkdir,rename,rmdir,lstat,realpath,unlink} from 'node:fs/promises';
 import {randomUUID,createHash} from 'node:crypto';
@@ -22,6 +23,8 @@ console.log(JSON.stringify({status:'ENVIO_RECOVERY_RPC_PRESET',sourceId:recovery
 const identity={profileSha256:p.operatorProfile.sha256,handoffSha256:p.relocationProof.sha256,generation:source.generation,policy:recoveryPolicy};
 const handoffStat=await lstat(p.relocationProof.path),handoff=JSON.parse((await readLinuxEnvioPin(p.relocationProof)).toString());
 requireThat(handoffStat.uid===0&&handoff.status==='PREFUNDING_RELOCATION_VERIFIED'&&handoff.profileSha256===p.operatorProfile.sha256,'ENVIO_RECOVERY_ROOT_HANDOFF_REQUIRED');
+const operator=JSON.parse((await readLinuxEnvioPin(p.operatorProfile)).toString()),opening=JSON.parse((await readLinuxEnvioPin(operator.immutable.openingProof)).toString());
+const authority=await loadPrefundingEpochAuthority({profileSha256:p.operatorProfile.sha256,handoffSha256:p.relocationProof.sha256,openingProofSha256:operator.immutable.openingProof.sha256,openingEventId:opening.eventId});
 const receipt=JSON.parse(await readFile(p.bootstrapReceiptPath,'utf8'));
 requireThat(receipt.purpose==='explicit-empty-prefunding-linux-consumer'&&receipt.handoffSha256===p.relocationProof.sha256&&receipt.producerGeneration===source.generation&&receipt.projectionDigest===source.policy.projectionDigest,'ENVIO_RECOVERY_BOOTSTRAP_BINDING');
 const context='envio-funding-hints:br-broad-pine-ao79wemx:zee_app_20261023:v1',directory=root+'/state/envio/prefunding-recovery';
@@ -45,7 +48,8 @@ const pool=connect(runtime.workerUrl,2),lease=await pool.connect();let locked=fa
 let leaseLost=false;lease.on('error',()=>{leaseLost=true;});
 async function requireLease(){requireThat(!leaseLost,'ENVIO_RECOVERY_LEASE_LOST');await lease.query('SELECT 1');requireThat(!leaseLost,'ENVIO_RECOVERY_LEASE_LOST');}
 async function paused(c:pg.Pool|pg.PoolClient){
- const row=(await c.query('SELECT current_database() db,current_user role,accepting_orders,dispatch_enabled,reconciliation_required,epoch::text FROM zee.runtime_control WHERE singleton')).rows[0];
+ if(authority){await requireAuthorizedPrefundingDatabase(c,authority);await requireLease();return;}
+ const row=(await c.query('SELECT current_database() db,current_user role,accepting_orders,dispatch_enabled,reconciliation_required,epoch::text,xmin::text FROM zee.runtime_control WHERE singleton')).rows[0];
  const counts=(await c.query(`SELECT (SELECT count(*) FROM zee.quotes)::text quotes,(SELECT count(*) FROM zee.orders)::text orders,(SELECT count(*) FROM zee.deposits)::text deposits,(SELECT count(*) FROM zee.obligations)::text obligations,(SELECT count(*) FROM zee.operations)::text operations,(SELECT count(*) FROM zee.outbox_jobs WHERE status='LEASED' AND lease_until>clock_timestamp())::text leases`)).rows[0];
  requireEnvioRecoveryPrefunding(row,counts);await requireLease();
 }
@@ -65,6 +69,7 @@ try{
   const fd=await open(directory+'/original-admission.bin','wx',0o600);try{await fd.writeFile(bytes);await fd.sync();}finally{await fd.close();}await save(journalPath,journal);
  }
  validateEnvioRecovery(journal,identity);
+ if(authority){requireAuthorizedEnvioPrefix(journal,authority);const authorizationReceipt={version:1,purpose:'APP_PREFUNDING_EPOCH_CONTINUATION',authoritySha256:authority.sha256,epoch:authority.proof.epoch,runtimeXmin:authority.proof.runtimeXmin,envioPrefix:authority.proof.envioPrefix};const receiptPath=directory+'/epoch-authorization-'+authority.sha256+'.private.json',prior=await json(receiptPath);if(prior)requireThat(stable(prior)===stable(authorizationReceipt),'ENVIO_RECOVERY_AUTHORIZATION_RECEIPT_CHANGED');else await save(receiptPath,authorizationReceipt);}
  requireThat(sha(await readFile(directory+'/original-admission.bin'))===journal.originalAdmissionSha256,'ENVIO_RECOVERY_ARCHIVE_CHANGED');
  const {policy:_,...canonicalTransport}=recoveryTransport,canonical=canonicalRpc(canonicalTransport);
  async function requiredAnchors(){
