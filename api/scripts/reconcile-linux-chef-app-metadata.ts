@@ -9,7 +9,7 @@ import {loadPrefundingEpochAuthority,decodePrefundingEpochAuthority,validateAuth
 import {localChefCanonical} from '../src/integrations/observation/chef-canonical-local.ts';
 import {parseChefStatus,readJson,safeEndpoint} from '../src/integrations/observation/chef.ts';
 import {digest,requireThat,stable,type Header} from '../src/integrations/observation/types.ts';
-import {requireNoAppMetadataRepair,readAppMetadataRepairState,financialRepairDigest,otherCanonicalRowsDigest,validateAppMetadataApproval,validateAppMetadataBefore,expectedAppMetadataAfter,applyAppMetadataUpdates,classifyAppMetadataCommit,type AppMetadataRepairApproval,type RepairIntent,type RepairState} from '../src/app-chef-metadata-repair.ts';
+import {requireNoAppMetadataRepair,appMetadataCanonicalHeights,readAppMetadataRepairState,financialRepairDigest,otherCanonicalRowsDigest,validateAppMetadataApproval,validateAppMetadataBefore,expectedAppMetadataAfter,applyAppMetadataUpdates,classifyAppMetadataCommit,type AppMetadataRepairApproval,type RepairIntent,type RepairState} from '../src/app-chef-metadata-repair.ts';
 const ROOT='/opt/zeeswap-testnet',BASE=ROOT+'/state/app-metadata-repair';
 const need=(v:unknown,c:string)=>requireThat(v,'APP_METADATA_'+c),sha=(b:Buffer)=>createHash('sha256').update(b).digest('hex');
 async function rootFile(path:string,max=8*1024*1024){const s=await lstat(path);need(s.isFile()&&!s.isSymbolicLink()&&s.uid===0&&(s.mode&0o027)===0&&await realpath(path)===path&&s.size<=max,'ROOT_FILE');return readFile(path);}
@@ -30,7 +30,7 @@ async function main(){
  async function sourceAndCanonical(state:RepairState,approved?:AppMetadataRepairApproval){
   const signal=AbortSignal.timeout(180000),response=await fetch(new URL('/status',safeEndpoint(c.sourceUrl)),{headers:{authorization:'Bearer '+env.CHEF_API_TOKEN},signal,redirect:'error'});need(response.ok,'SOURCE_HTTP');const status=parseChefStatus(await readJson(response,signal),c.project,Date.now());
   need(status.checkpoint.height>=4536137&&(!approved||status.generation===approved.chefGeneration),'SOURCE_GENERATION_OR_HEIGHT');
-  const heights=[...new Set([...state.rows.map(r=>r.height),4536136,4536137,4536128,4536127])].sort((a,b)=>a-b);need(heights.length<=10004&&heights[0]!>=profile.identity.birthday,'CANONICAL_CAPACITY');
+  const heights=appMetadataCanonicalHeights(state.rows);
   const headers=new Map<number,Header>();
   for(let i=0;i<heights.length;){const from=heights[i]!,through=Math.min(heights.at(-1)!,from+999),reader=localChefCanonical(c.pythonPath,[c.headerScript,'--config',c.decoderConfigPath],c.canonicalSourceId,{fromHeight:from,throughHeight:through});await reader.sample(signal);while(i<heights.length&&heights[i]!<=through){const h=heights[i++]!;headers.set(h,await reader.header(h,signal));}}
   for(const row of state.rows)if(row.height!==4536137){const h=headers.get(row.height)!;need(h.hash===row.hash&&Date.parse(h.time)===Date.parse(row.time),'OTHER_STORED_CANONICAL_CONFLICT');}

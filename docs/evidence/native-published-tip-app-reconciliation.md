@@ -64,5 +64,14 @@ Validation checkpoint:
   checkpoint. No customer payment or payout is claimed by these implementation
   tests.
 
+The first deployed read-only inspection refused before application mutation
+because it incorrectly bounded chain headers by the wallet's note birthday.
+Actual stored headers began at 4531977, before birthday 4532047; all 511 retained
+rows remained present. A narrow correction separates header verification from
+note scanning: it retains every stored height, bounds safe integer heights to
+0..4536137, rejects duplicates and preserves the existing capacity limits. The
+focused metadata suite passed 8/8 after this correction. The two production SQL
+updates were unchanged. This refusal is not counted as successful application
+repair.
 Private approvals, raw receipts, full memos, wallet files, viewing keys, detailed
 order mappings and RPC credentials are excluded from public Git history.

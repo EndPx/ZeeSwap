@@ -24,6 +24,13 @@ export const repairStateSql=`SELECT row_to_json(p) prefunding,
  EXISTS(SELECT 1 FROM pg_constraint k JOIN pg_attribute source_column ON source_column.attrelid=k.conrelid AND source_column.attname='quote_id' AND source_column.attnotnull AND NOT source_column.attisdropped JOIN pg_attribute target_column ON target_column.attrelid=k.confrelid AND target_column.attname='id' AND NOT target_column.attisdropped WHERE k.conrelid='zee.api_quote_requests'::regclass AND k.confrelid='zee.quotes'::regclass AND k.contype='f' AND k.convalidated AND k.conkey=ARRAY[source_column.attnum]::smallint[] AND k.confkey=ARRAY[target_column.attnum]::smallint[]) "apiRequestForeignKey",
  jsonb_build_object('replicationRole',current_setting('session_replication_role'),'enabled',(SELECT jsonb_agg(tgname ORDER BY tgname) FROM pg_trigger WHERE NOT tgisinternal AND tgenabled IN('O','A') AND ((tgrelid='zee.chain_observations'::regclass AND tgname='canonical_reorg') OR(tgrelid='zee.scanner_checkpoints'::regclass AND tgname='observer_rewind')))) triggers
  FROM (${authorizedPrefundingSnapshotSql}) p`;
+/** Chain-header verification is independent of the wallet's note birthday.
+ * Keep every persisted anchor; bound heights and capacity rather than filtering. */
+export function appMetadataCanonicalHeights(rows:readonly Pick<RepairChainRow,'height'>[]){
+ need(Array.isArray(rows)&&rows.length<=10000&&rows.every(r=>Number.isSafeInteger(r.height)&&r.height>=0&&r.height<=4536137),'CANONICAL_CAPACITY');
+ const stored=rows.map(r=>r.height);need(new Set(stored).size===stored.length,'DUPLICATE_STORED_HEIGHT');
+ const heights=[...new Set([...stored,4536136,4536137,4536128,4536127])].sort((a,b)=>a-b);need(heights.length<=10004,'CANONICAL_CAPACITY');return heights;
+}
 export async function readAppMetadataRepairState(c:Pick<pg.PoolClient,'query'>):Promise<RepairState>{const row=(await c.query(repairStateSql)).rows[0];need(row,'STATE_MISSING');return row;}
 export function financialRepairDigest(s:RepairState){const p=s.prefunding;return digest({counts:p.counts,children:s.children,apiRequestForeignKey:s.apiRequestForeignKey,assets:[...p.assets].sort((a,b)=>stable(a).localeCompare(stable(b))),accounts:[...p.accounts].sort((a,b)=>stable(a).localeCompare(stable(b))),ledger:[...p.ledger].sort((a,b)=>stable(a).localeCompare(stable(b)))});}
 export function otherCanonicalRowsDigest(s:RepairState,height:number){return digest(s.rows.filter(r=>r.height!==height));}
