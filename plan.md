@@ -74,6 +74,16 @@ Local implementation checks and one actual isolated PostgreSQL test are distinct
 from these successful source/application operator executions. See
 [published-tip application reconciliation](docs/evidence/native-published-tip-app-reconciliation.md).
 
+Later continuity gates remain open. The first simultaneous five-minute window
+passed but was not used within its freshness envelope; the second refused a
+60.697-second Base observation, followed by an admission-gap stop. The original
+542-proof closure is preserved. A paced observer correction is installed, and a
+separate parent-linked catchup implementation passed local, independent review
+and actual isolated PostgreSQL checks. Source-only Zcash tip repairs preserved
+all application headers and paused epoch four. The V6 source follower now uses
+Chef's official data-epoch/reorg lifecycle; deployed sustained continuity and the
+new funded circle are still pending. See
+[observer continuity recovery](docs/evidence/native-observer-continuity-recovery.md).
 Historical live-app checkpoint (23 October): an isolated Neon branch hosts separate
 application, Chef and Envio databases. Native Chef and Envio observers have
 published verified checkpoints to the new application; the connected local frontend uses the
