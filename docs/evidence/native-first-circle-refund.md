@@ -73,3 +73,34 @@ to resolve tsx; its corrected API-directory invocation passed all three cases.
 The independent review and separately executed serial and concurrent PostgreSQL
 admission fixtures passed. These are implementation checks, not evidence of a
 new live acceptance, migration installation, activation or successful circle.
+
+## Bounded continuation and preparation guard
+
+The corrected private USER read-only helper subsequently passed after separating
+the scheme-free gRPC host/port from the HTTPS CLI endpoint. Both USER and
+operator captures verified two mature notes totalling 12490000 zatoshi and empty
+calculated caches. Root explicitly installed only migration 0017, verified its
+body/security/owner/ACL and committed transaction status, and retained the same
+financial books. SourceExposure migrations 0015/0016 remain unapplied.
+
+The new source window passed 32 samples over 307.360 seconds. Fresh native/Base
+captures, preflight, loaded API bounds and local control checks passed. The
+committed continuation activated epoch 6. One additional forward order was
+accepted with a forty-block window.
+
+Preparation stopped before any financial journal was created. A separately
+reviewed owned read-only prefix, with signing and every durable write denied,
+confirmed that the actual two notes had exactly the approved identities and
+values, but a different list order. Both totals were 12490000; neither list had
+duplicate identities. The payer now compares exact unique identity/value sets,
+with canonical four-field note validation, instead of list order. Root ran all
+seven payer tests in Ubuntu/WSL: permutation succeeds; duplicate identities,
+changed values, missing/extra notes and malformed fields fail.
+
+The same accepted order was retained. Its next prepare attempt stopped at the
+unchanged twelve-block lead gate with eleven blocks remaining, before invoking
+the payer helper. No new calculation, signed transaction, broadcast or fee was
+created. Root paused epoch 6 with reconciliation false. The accepted order is
+still unfunded at this checkpoint; official expiry requires the fresh application
+scanner to reach cutoff plus nine. Its closure and any separately authorized
+continuation remain pending. This is not a successful new circle.

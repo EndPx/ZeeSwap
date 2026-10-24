@@ -1,6 +1,6 @@
 # ZeeSwap implementation plan
 
-Last updated: 2026-10-24 (Asia/Jakarta), for the isolated native Linux deployment. Execution evidence below retains its recorded dates.
+Last updated: 2026-10-25 (Asia/Jakarta), for the isolated native Linux deployment. Execution evidence below retains its recorded dates.
 
 Public deployment checkpoint (24 October): the raccoon frontend and native API
 are reachable at `https://zeeswap.endpx.cloud/`; HTTPS `/health` returned 200.
@@ -112,6 +112,13 @@ forward acceptances and one reverse acceptance, preserving this failed attempt
 and restricting a future forward order to a longer forty-block window. Existing
 accepted terms and original R9 provenance remain unchanged. No new successful
 circle is claimed. See [confirmed first-attempt refund](docs/evidence/native-first-circle-refund.md).
+The bounded post-refund continuation installed only 0017, passed its actual
+source/capital gates and activated epoch 6. Its new forward remained unfunded:
+a read-only diagnostic confirmed note-list ordering differed while identities
+and values matched. The strict identity-set fix passed seven WSL tests. The
+unchanged twelve-block lead guard then refused preparation with eleven blocks
+remaining. Root paused epoch 6; no new transaction or fee exists. Official
+unfunded expiry and a separately reviewed continuation are open.
 Historical live-app checkpoint (23 October): an isolated Neon branch hosts separate
 application, Chef and Envio databases. Native Chef and Envio observers have
 published verified checkpoints to the new application; the connected local frontend uses the

@@ -30,6 +30,27 @@ def validate_request(request, digest):
     return request
 
 
+def approved_capital_matches(actual, approved):
+    def validated(notes):
+        if not isinstance(notes, list) or not notes:
+            return None
+        values, identities = set(), set()
+        for note in notes:
+            if (not isinstance(note, dict) or set(note) != {'pool', 'txid', 'index', 'value'}
+                    or note['pool'] != 'ironwood' or not isinstance(note['txid'], str)
+                    or not re.fullmatch('[0-9a-f]{64}', note['txid']) or type(note['index']) is not int or note['index'] < 0
+                    or not isinstance(note['value'], str) or not re.fullmatch('[1-9][0-9]*', note['value'])):
+                return None
+            identity = (note['pool'], note['txid'], note['index'])
+            if identity in identities:
+                return None
+            identities.add(identity)
+            values.add((*identity, note['value']))
+        return values
+    a, b = validated(actual), validated(approved)
+    return a is not None and b is not None and a == b
+
+
 class Payer:
     def __init__(self,c):
         if (c.get('walletDir')!='/home/albary/zeeswap-testnet-payer-20261023/payer' or c.get('profile')!='zeeswap-one-circle-20261023'
@@ -86,7 +107,7 @@ class Payer:
                 coins=self.run(self.base+['--offline','--nosync','coins','all'])
                 if any(coin['spend_status']=='unspent' for coin in coins.get('transparent_coins',[])):raise ValueError('Unexpected transparent payer capital')
                 capital=selected_capital(notes,scanned)
-                if capital!=self.c['approvedFundingNotes']:raise ValueError('Exactly approved independent faucet funds required')
+                if not approved_capital_matches(capital,self.c['approvedFundingNotes']):raise ValueError('Exactly approved independent faucet funds required')
                 if self.run(self.base+['--offline','--nosync','calculate','--recover'])['transactions']:raise ValueError('Unknown prior calculated payer transaction')
                 if tip>=self.request['cutoffHeight']:raise ValueError('Payer funding cutoff closed')
                 intent={'state':'SIGNING_INTENT','approvedDigest':self.c['approvedDigest'],'request':self.request,'capitalNotes':capital}
