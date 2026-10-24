@@ -7,6 +7,7 @@ import {contentDigest,fresh,height,object,parseHeader,parseObservation,requireTh
 export type ProducerCheckpoint={generation:string;revision:string;through:Header;recoveryFloor:number;sourceSampledAt:string;sourceHead:Header;projectionDigest:string;registryDigest:string;complete:true};
 export type SelectedEnvioExport={protocol:'zee-envio-selected-export-v1';isolation:'repeatable-read-read-only';snapshotToken:string;expiresAt:string;producer:ProducerCheckpoint;range:{fromHeight:number;through:Header;headers:Header[];observations:Observation[];contentDigest:string;readStartedAt:string;readCompletedAt:string}};
 export type VerifiedEnvioSelection=SelectedEnvioExport&{verification:CanonicalSample};
+export const SELECTED_CANONICAL_BATCHES=4;
 const id=(s:string)=>{requireThat(/^[a-z_][a-z0-9_]{0,62}$/.test(s),'INVALID_SQL_IDENTIFIER');return `"${s}"`;};
 export function validateSelectedExport(value:unknown,policy:Policy,now=Date.now()):SelectedEnvioExport{
  validatePolicy(policy);requireThat(policy.adapter==='envio-hyperindex','SELECTED_ENVIO_POLICY');
@@ -47,12 +48,12 @@ export async function verifySelectedExport(value:unknown,policy:Policy,canonical
  const started=performance.now(),selected=validateSelectedExport(value,policy,now),sample=await canonical.sample(signal);fresh(sample.checkedAt,Date.now());requireThat(sample.sourceId===policy.canonicalSourceId&&sample.head.height>=selected.producer.sourceHead.height,'SELECTED_CANONICAL_SOURCE');
  requireThat(stable(await canonical.header(selected.producer.sourceHead.height,signal))===stable(selected.producer.sourceHead),'SELECTED_SOURCE_HEAD_REORG');
  const size=canonical.headerBatchSize??10;requireThat(size>=1&&size<=12,'SELECTED_CANONICAL_PAGE');
- for(let i=0;i<selected.range.headers.length;i+=size*(canonical.headers?2:1)){
-  const page=selected.range.headers.slice(i,i+size*(canonical.headers?2:1));let actual:Header[];
+ for(let i=0;i<selected.range.headers.length;i+=size*(canonical.headers?SELECTED_CANONICAL_BATCHES:1)){
+  const page=selected.range.headers.slice(i,i+size*(canonical.headers?SELECTED_CANONICAL_BATCHES:1));let actual:Header[];
   if(canonical.headers){
-   const pages=[page.slice(0,size),page.slice(size)].filter(p=>p.length);
-   // Bound overlap to two batches. Every request/retry still uses the canonical
-   // client's method limiter; drain both outcomes before any failure escapes.
+   const pages=Array.from({length:SELECTED_CANONICAL_BATCHES},(_,n)=>page.slice(n*size,(n+1)*size)).filter(p=>p.length);
+   // Bound overlap to four batches. Every request/retry still uses the canonical
+   // client's method limiter; drain all outcomes before any failure escapes.
    const reads=await Promise.allSettled(pages.map(p=>canonical.headers!(p.map(h=>h.height),signal)));
    const failed=reads.find(r=>r.status==='rejected');if(failed?.status==='rejected')throw failed.reason;
    actual=reads.flatMap(r=>r.status==='fulfilled'?r.value:[]);

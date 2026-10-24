@@ -27,6 +27,13 @@ checks remain open. No new VPS-funded circle is claimed. See
 The subsequent [prefunding correction evidence](docs/evidence/native-r9-live-checkpoint.md)
 records the preserved state and distinguishes core catch-up from application readiness.
 
+Subsequent native source recovery published Chef's fully proven historical
+checkpoint at 4535912 and started its ordinary advancing application observer.
+Envio retained-history proof collection is still running in bounded native
+batches; partial coverage has not renewed its application checkpoint. Controls
+remain paused and no new customer payment exists. See
+[native source recovery](docs/evidence/native-source-recovery-live.md).
+
 Historical live-app checkpoint (23 October): an isolated Neon branch hosts separate
 application, Chef and Envio databases. Native Chef and Envio observers have
 published verified checkpoints to the new application; the connected local frontend uses the
