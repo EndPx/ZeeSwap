@@ -5,12 +5,15 @@ ZeeSwap is building bidirectional swaps, constrained intents and a backed-token 
 
 Real testnet swaps are verified in both directions: **0.001 shielded TAZ → 0.1 mockUSDC** and **0.1 mockUSDC → 0.001 shielded TAZ**. After the initial G4 experiments, the first same-user circle also passed: both orders SETTLED, original receipts verified, exact final user balances and a reconciled twelve-wallet checkpoint. These use bounded operator harnesses and fixture pricing. The full product remains under construction.
 
-The [web application](apps/web/README.md) now provides a responsive swap interface,
-wallet connection, private order activity and local Zcash payment QR generation.
-It connects to the existing quote/order API when configured and displays an
-explicit preview state while the service is offline. Browser tests use synthetic
-API responses; the screenshot below is the offline testnet preview, not a new
-cross-chain settlement. Reverse public API funding remains gated.
+The [public testnet interface](https://zeeswap.endpx.cloud/) and its HTTPS API are
+deployed on an isolated VPS. The [web application](apps/web/README.md) provides a
+responsive swap interface, wallet connection, private order activity and local
+Zcash payment QR generation. Trading remains paused while the new Chef/Envio
+sources complete catch-up and acceptance checks. The separate
+[Linux deployment evidence](docs/evidence/native-linux-live-checkpoint.md)
+distinguishes live frontend/API access from the still-open funded-circle gate.
+Browser unit tests use synthetic responses; the screenshot below remains the
+earlier offline preview, not a new cross-chain settlement.
 
 ![ZeeSwap testnet web preview](docs/assets/zeeswap-web.png)
 
@@ -74,4 +77,9 @@ python -m unittest discover -s workers/zcash-wallet -p 'test_*.py'
 
 The operator can decrypt payments addressed to its shielded receiver and holds settlement inventory. This prototype uses a custodial operator model. Base transfers are public, and the operator can associate both sides of an order. The shielded claim applies to the Zcash leg; it does not promise end-to-end anonymity, atomic settlement or trustless custody.
 
-There is no deployed frontend or publicly operated cross-chain payout service yet. Initial swaps in each direction and the first same-user roundtrip passed; public reverse HTTP intake, the remaining recovery/soak, end-user wallet integration and the bridge remain open. Primary intake and dispatch remain disabled. Contract tests require `git submodule update --init --recursive`; see the Foundry module guide.
+The frontend and API are publicly reachable; unattended public cross-chain payout
+operation is not established. Initial swaps in each direction and the historical
+first same-user roundtrip passed. The new VPS source-freshness and funded-circle
+gates, remaining recovery/soak, end-user wallet acceptance and the bridge remain
+open. Intake and financial dispatch remain disabled. Contract tests require
+`git submodule update --init --recursive`; see the Foundry module guide.

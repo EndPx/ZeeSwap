@@ -103,3 +103,24 @@ The public testnet app therefore has a live frontend/API and relocated guarded
 operator transport, while source readiness and the new funded two-way circle
 remain open. Intake and financial dispatch remain paused. No new customer
 signature, source payment, payout, refund or cross-chain settlement is claimed.
+
+## Subsequent bounded source execution
+
+After publishing the scheduling helper in commit
+`e37539ae0ffbd2ac96fd4196e896ac2dbc3322f1`, root stopped the isolated Envio engine,
+verified its empty process group and applied the exact cap100 artifact. The
+original SDK file was retained, the replacement hash matched the reviewed value,
+and an additive systemd pre-start hash check was installed. Original producer
+configuration and source files were retained; no SQL/reset helper was used.
+The engine resumed successfully. Its progress subsequently advanced from
+49513298 to 49515198 across 19 committed writes, consistent with the new
+100-block bound. Source lag still exceeded admission limits, so this proves the
+improved commit cadence only. It does not close the continuous freshness gate.
+
+The private finite Chef runner performed five bounded attempts. Its last CLI
+returned typed `SOURCE_UNAVAILABLE`; it stopped, retained the original logs and
+reaped its owned process group. A separate authenticated status read showed
+checkpoint 4534367 with `reconciling/source`. That checkpoint is distinct from a
+successful post-CLI acknowledgement or fresh application admission. Controlled
+resume must recheck source availability, generation, epoch and the actual
+canonical checkpoint instead of inferring a position from the failed command.

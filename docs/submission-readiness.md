@@ -14,6 +14,7 @@ The prototype uses TAZ and project-owned mockUSDC, with fixture pricing.
 | --- | --- |
 | Product, architecture and acceptance gates | [plan.md](../plan.md) |
 | Repository and reproducible offline checks | [README](../README.md) |
+| Deployed frontend and HTTPS API | [Public testnet interface](https://zeeswap.endpx.cloud/) and [Linux deployment checkpoint](evidence/native-linux-live-checkpoint.md); trading paused pending source freshness and the new funded circle |
 | Shielded wallet feasibility | [G1 testnet receipts](evidence/g1-feasibility.md) |
 | Accounting and persistence | [Database evidence](evidence/g2-database.md) |
 | Real incoming payment through the local API and scanner | [G2 intake evidence](evidence/g2-api-scanner.md) |
@@ -46,8 +47,9 @@ The inspected deadline is **2026-10-28 23:59 UTC / 2026-10-29 06:59 WIB**.
 Recheck the official form before the final submission. No draft or submission
 was saved during this review.
 
-The public repository exists. A working frontend/demo and video are still
-missing. mockUSDC and settlement contracts are deployed and source-verified.
+The public repository, frontend and HTTPS API exist. The new deployment still
+needs source-freshness acceptance and its funded two-way circle; a public
+walkthrough video remains missing. mockUSDC and settlement contracts are deployed and source-verified.
 Forward service integration and payout accounting have passed Anvil + Neon tests.
 One public-testnet swap in each direction passed, including exact recipient
 balance deltas and final accounting. The operator's reverse signer and original
