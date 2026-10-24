@@ -1,3 +1,4 @@
+import {observerCadenceDelay} from '../src/observer-cadence.ts';
 /** Native Linux consumer only. Contains no signer or dispatch adapter. */
 import {readFile,open,rename,lstat} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
@@ -49,16 +50,18 @@ try{
    if(state.checkpoint)requireThat(Number.isSafeInteger(state.checkpoint.height)&&/^0x[0-9a-f]{64}$/.test(state.checkpoint.hash)&&state.checkpoint.generation===source.generation&&state.checkpoint.projectionDigest===source.policy.projectionDigest,'INVALID_HINT_JOURNAL');return state;
   },async save(state:EnvioAdmissionState){const tmp=p.admissionPath+'.'+randomUUID()+'.tmp',fd=await open(tmp,'wx',0o600);try{await fd.writeFile(keys.seal(state,context));await fd.sync();}finally{await fd.close();}await rename(tmp,p.admissionPath);}};
   await hints.load();const base=new BaseContract(registry),stop=new AbortController();
+  const canonical=canonicalRpc({url:p.canonicalRpcUrl,sourceId:source.policy.canonicalSourceId,network:'eip155:84532',headerBatchSize:10,maxMethodsPerSecond:12});
   lease.on('error',()=>stop.abort());process.once('SIGTERM',()=>stop.abort());process.once('SIGINT',()=>stop.abort());
   do{
+   const cycleStarted=performance.now();
    requireThat(!stop.signal.aborted,'LINUX_ENVIO_LEASE_LOST');await lease.query('SELECT 1');
    try{
     const status=await fetch(p.sourceUrl+'/zee-observation/status',{headers:{authorization:`Bearer ${token}`},signal:AbortSignal.timeout(10000),redirect:'error'});
     requireThat(status.ok,'WAIT_ENVIO_EXPORT');const body=await status.json() as {protocol?:string;checkpoint?:{generation?:string}};
     requireThat(body.protocol==='zee-envio-status-v1'&&body.checkpoint?.generation===source.generation,'ENVIO_ADMISSION_GENERATION_CHANGED');
-    const result=await observeEnvioOnce(pool,keys,base,{url:p.sourceUrl,token,policy:source.policy,hints,canonical:canonicalRpc({url:p.canonicalRpcUrl,sourceId:source.policy.canonicalSourceId,network:'eip155:84532',headerBatchSize:10,maxMethodsPerSecond:12})});console.log(JSON.stringify({event:'linux-envio-observation',...result}));}
-   catch(e){const code=(e as {code?:string}).code??'LINUX_ENVIO_OBSERVATION_FAILED';console.log(JSON.stringify({event:'linux-envio-observation',status:'WAIT_SOURCE',code,financialAction:false}));if(flag==='--once'||['ENVIO_ADMISSION_GAP','ENVIO_ADMISSION_JOURNAL_REQUIRED','ENVIO_ADMISSION_GENERATION_CHANGED','ENVIO_ADMISSION_REORG_BLOCK','INVALID_HINT_JOURNAL'].includes(code))throw e;}
-   if(flag!=='--once')await delay(5000,undefined,{signal:stop.signal}).catch(()=>{});
+    const result=await observeEnvioOnce(pool,keys,base,{url:p.sourceUrl,token,policy:source.policy,hints,canonical});console.log(JSON.stringify({event:'linux-envio-observation',cycleMs:Math.round(performance.now()-cycleStarted),...result}));}
+   catch(e){const code=(e as {code?:string}).code??'LINUX_ENVIO_OBSERVATION_FAILED';console.log(JSON.stringify({event:'linux-envio-observation',status:'WAIT_SOURCE',code,cycleMs:Math.round(performance.now()-cycleStarted),financialAction:false}));if(flag==='--once'||['ENVIO_ADMISSION_GAP','ENVIO_ADMISSION_JOURNAL_REQUIRED','ENVIO_ADMISSION_GENERATION_CHANGED','ENVIO_ADMISSION_REORG_BLOCK','INVALID_HINT_JOURNAL'].includes(code))throw e;}
+   if(flag!=='--once')await delay(observerCadenceDelay(cycleStarted,performance.now()),undefined,{signal:stop.signal}).catch(()=>{});
   }while(flag!=='--once'&&!stop.signal.aborted);
  }
 }finally{await lease.query('SELECT pg_advisory_unlock(84532,20261024)').catch(()=>{});lease.release();await pool.end();}

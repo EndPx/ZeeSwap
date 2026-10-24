@@ -1,9 +1,18 @@
 import { safeEndpoint, readJson, type CanonicalReader, type CanonicalSample } from "./chef.ts";
 import { height, hex, object, parseHeader, requireThat, type Header, type Policy } from "./types.ts";
 import {setTimeout as delay}from'node:timers/promises';
+export type CanonicalRpcDiagnostic={event:'canonical-rpc-failure';attempt:number;methodCount:number;httpStatus:number|null;retryAfterMs:number|null;willRetry:boolean};
+/** Only bounded numeric metadata is logged. Header text, URLs and bodies stay private. */
+export function canonicalRetryAfterMs(value:string|null,now=Date.now()):number|null{
+ if(value===null)return null;let ms:number;
+ if(/^[0-9]{1,10}$/.test(value))ms=Number(value)*1000;
+ else if(/^[A-Z][a-z]{2}, [0-9]{2} [A-Z][a-z]{2} [0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2} GMT$/.test(value))ms=Date.parse(value)-now;
+ else return null;
+ return Number.isFinite(ms)?Math.max(0,Math.min(300000,Math.ceil(ms))):null;
+}
 
 /** Deliberately exposes only allowlisted read RPC methods, never a generic RPC passthrough. */
-export function canonicalRpc(config: { url: string; authorization?: string; network: Policy["network"]; sourceId: string; consensusBranchId?: string; fetch?: typeof fetch; now?: () => number;headerBatchSize?:number;maxMethodsPerSecond?:number }): CanonicalReader {
+export function canonicalRpc(config: { url: string; authorization?: string; network: Policy["network"]; sourceId: string; consensusBranchId?: string; fetch?: typeof fetch; now?: () => number;headerBatchSize?:number;maxMethodsPerSecond?:number;diagnostic?:(value:CanonicalRpcDiagnostic)=>void }): CanonicalReader {
   const endpoint = safeEndpoint(config.url); const now = config.now ?? Date.now;
   const rate=config.maxMethodsPerSecond??0;requireThat(rate===0||Number.isSafeInteger(rate)&&rate>=1&&rate<=100,'CANONICAL_RATE_LIMIT');
   let nextMethodAt=0,permits=Promise.resolve();
@@ -12,6 +21,7 @@ export function canonicalRpc(config: { url: string; authorization?: string; netw
     for(let attempt=0;attempt<2;attempt++){
       if(rate)await pace(Array.isArray(body)?body.length:1,signal);
       try{const response=await(config.fetch??fetch)(endpoint,{method:'POST',signal,redirect:'error',headers:{'content-type':'application/json',...(config.authorization?{authorization:config.authorization}:{})},body:JSON.stringify(body)});
+        if(!response.ok){const diagnostic:CanonicalRpcDiagnostic={event:'canonical-rpc-failure',attempt:attempt+1,methodCount:Array.isArray(body)?body.length:1,httpStatus:response.status,retryAfterMs:canonicalRetryAfterMs(response.headers.get('retry-after')),willRetry:attempt===0&&(response.status===429||response.status>=500)};try{if(config.diagnostic)config.diagnostic(diagnostic);else console.error(JSON.stringify(diagnostic));}catch{}}
         if(attempt===0&&(response.status===429||response.status>=500)){await response.body?.cancel();await delay(500,undefined,{signal});continue;}return response;
       }catch(error){if(attempt===1||signal.aborted)throw error;await delay(500,undefined,{signal});}
     }throw Error('CANONICAL_RPC_HTTP_ERROR');
