@@ -55,6 +55,18 @@ Envio to continue its original 142-proof prefix while controls remain paused.
 At 14:22 UTC it had 250 proofs, with full-history closure still pending. See
 [actual source recovery and continuation](docs/evidence/native-source-reorg-epoch1-live.md).
 
+A second source epoch change replaced the already published unfinalized tip at
+4536137. Full retained-header comparison found only that tip differed; the
+common ancestor 4536136 and old finalized anchor 4536128 remained canonical.
+Root completed official source-only rollback/replay and verification at 14:51 UTC,
+then resumed the same bounded source follower under Prep epoch 29. At 14:59 UTC
+its ready checkpoint was one block behind head. The application consumer remains
+stopped until its orphaned SQL checkpoint/cursor are repaired. The separate
+application metadata repair preserves original financial books, keeps both
+reconciliation triggers active, and requires an exact new prefunding authority.
+Local implementation tests and one actual isolated PostgreSQL test passed;
+application execution and a new funded circle remain pending. See
+[published-tip application reconciliation](docs/evidence/native-published-tip-app-reconciliation.md).
 Historical live-app checkpoint (23 October): an isolated Neon branch hosts separate
 application, Chef and Envio databases. Native Chef and Envio observers have
 published verified checkpoints to the new application; the connected local frontend uses the

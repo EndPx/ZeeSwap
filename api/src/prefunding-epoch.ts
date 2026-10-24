@@ -6,23 +6,28 @@ import {validateLiveOpeningRows} from './live-testnet-opening.ts';
 import {digest,requireThat,stable} from './integrations/observation/types.ts';
 export const PREFUNDING_EPOCH_SCOPE={branchId:'br-broad-pine-ao79wemx',database:'zee_app_20261023'} as const;
 export interface EpochContext{profileSha256:string;handoffSha256:string;openingProofSha256:string;openingEventId:string}
-export interface PrefundingEpochProof extends EpochContext{
- version:1;purpose:'APP_PREFUNDING_EPOCH_CONTINUATION';branchId:string;database:string;verifiedAt:string;expiresAt:string;epoch:'1';runtimeXmin:string;
- incident:{kind:'CHEF_SINGLE_TIP_REPLACEMENT_RESOLVED';replacedHeight:4535991;wrongTipHash:string;canonicalTipHash:string;appCursorHeight:4535990;appCursorHash:string;appSqlAnchorsCanonical:true;appCursorCanonical:true;generationUnchanged:true;chefGeneration:string;resolutionReceiptSha256:string};
- envioPrefix:{proofCount:142;proofDigest:string;identityDigest:string;originalAdmissionSha256:string;originalSqlDigest:string};
+interface PrefundingEpochProofCommon extends EpochContext{
+ purpose:'APP_PREFUNDING_EPOCH_CONTINUATION';branchId:string;database:string;verifiedAt:string;expiresAt:string;runtimeXmin:string;
+ incident:{kind:'CHEF_SINGLE_TIP_REPLACEMENT_RESOLVED';replacedHeight:number;wrongTipHash:string;canonicalTipHash:string;appCursorHeight:number;appCursorHash:string;appSqlAnchorsCanonical:true;appCursorCanonical:true;generationUnchanged:true;chefGeneration:string;resolutionReceiptSha256:string};
+ envioPrefix:{proofCount:number;proofDigest:string;identityDigest:string;originalAdmissionSha256:string;originalSqlDigest:string};
  state:{acceptingOrders:false;dispatchEnabled:false;reconciliationRequired:true;assetsDisabled:true;openingLedgerUnchanged:true;financialWorkersStopped:true;counts:{quotes:'0';orders:'0';deposits:'0';obligations:'0';operations:'0';activeLeases:'0'};latestOperatorNonce:0;pendingOperatorNonce:0};
  capital:{observedAt:string;nativeCaptureSha256:string;baseProofSha256:string;physicalZatoshi:'12500000';openingNoteCanonical:true;gasWei:'500000000000000';inventory:'10100000';available:'10000000';reserved:'100000';liability:'100000'};
 }
+export interface PrefundingEpochProofV1 extends PrefundingEpochProofCommon{version:1;epoch:'1';incident:PrefundingEpochProofCommon['incident']&{replacedHeight:4535991;appCursorHeight:4535990};envioPrefix:PrefundingEpochProofCommon['envioPrefix']&{proofCount:142}}
+export interface PrefundingEpochProofV2 extends PrefundingEpochProofCommon{version:2;epoch:string;metadataReconciliationReceiptSha256:string}
+export type PrefundingEpochProof=PrefundingEpochProofV1|PrefundingEpochProofV2;
 export interface EpochAuthority{proof:PrefundingEpochProof;sha256:string}
 const hash=(v:unknown)=>typeof v==='string'&&/^[0-9a-f]{64}$/.test(v)&&!/^0+$/.test(v);
 const fail=(ok:unknown,code:string)=>requireThat(ok,'PREFUNDING_EPOCH_'+code);
 export function validatePrefundingEpochProof(p:PrefundingEpochProof,expected:EpochContext,now=Date.now()){
- fail(p?.version===1&&p.purpose==='APP_PREFUNDING_EPOCH_CONTINUATION'&&p.branchId===PREFUNDING_EPOCH_SCOPE.branchId&&p.database===PREFUNDING_EPOCH_SCOPE.database&&p.epoch==='1'&&/^[1-9][0-9]*$/.test(p.runtimeXmin),'SCOPE');
+ const legacy=p?.version===1;
+ fail((legacy||p?.version===2)&&p.purpose==='APP_PREFUNDING_EPOCH_CONTINUATION'&&p.branchId===PREFUNDING_EPOCH_SCOPE.branchId&&p.database===PREFUNDING_EPOCH_SCOPE.database&&(legacy?p.epoch==='1':typeof p.epoch==='string'&&/^[1-9][0-9]*$/.test(p.epoch)&&BigInt(p.epoch)>=2n)&&/^[1-9][0-9]*$/.test(p.runtimeXmin),'SCOPE');
  for(const k of ['profileSha256','handoffSha256','openingProofSha256'] as const)fail(hash(p[k])&&p[k]===expected[k],'IMMUTABLE_BINDING');
  fail(typeof p.openingEventId==='string'&&p.openingEventId===expected.openingEventId,'OPENING_EVENT');
  const at=Date.parse(p.verifiedAt),end=Date.parse(p.expiresAt);fail(Number.isFinite(at)&&Number.isFinite(end)&&at<=now+5000&&end>now&&end>at&&end-at<=86400000,'VALIDITY');
- const i=p.incident;fail(i?.kind==='CHEF_SINGLE_TIP_REPLACEMENT_RESOLVED'&&i.replacedHeight===4535991&&i.appCursorHeight===4535990&&hash(i.wrongTipHash)&&hash(i.canonicalTipHash)&&i.wrongTipHash!==i.canonicalTipHash&&hash(i.appCursorHash)&&i.appSqlAnchorsCanonical===true&&i.appCursorCanonical===true&&i.generationUnchanged===true&&typeof i.chefGeneration==='string'&&i.chefGeneration.length>0&&hash(i.resolutionReceiptSha256),'RESOLVED_INCIDENT');
- const e=p.envioPrefix;fail(e?.proofCount===142&&['proofDigest','identityDigest','originalAdmissionSha256','originalSqlDigest'].every(k=>hash((e as any)[k])),'ENVIO_PREFIX');
+ if(p.version===2)fail(hash(p.metadataReconciliationReceiptSha256),'METADATA_RECONCILIATION_RECEIPT');
+ const i=p.incident;fail(i?.kind==='CHEF_SINGLE_TIP_REPLACEMENT_RESOLVED'&&(legacy?i.replacedHeight===4535991&&i.appCursorHeight===4535990:Number.isSafeInteger(i.replacedHeight)&&i.replacedHeight>0&&i.appCursorHeight===i.replacedHeight-1)&&hash(i.wrongTipHash)&&hash(i.canonicalTipHash)&&i.wrongTipHash!==i.canonicalTipHash&&hash(i.appCursorHash)&&i.appSqlAnchorsCanonical===true&&i.appCursorCanonical===true&&i.generationUnchanged===true&&typeof i.chefGeneration==='string'&&i.chefGeneration.length>0&&hash(i.resolutionReceiptSha256),'RESOLVED_INCIDENT');
+ const e=p.envioPrefix;fail((legacy?e?.proofCount===142:Number.isSafeInteger(e?.proofCount)&&e.proofCount>=142)&&['proofDigest','identityDigest','originalAdmissionSha256','originalSqlDigest'].every(k=>hash((e as any)[k])),'ENVIO_PREFIX');
  const s=p.state;fail(s?.acceptingOrders===false&&s.dispatchEnabled===false&&s.reconciliationRequired===true&&s.assetsDisabled===true&&s.openingLedgerUnchanged===true&&s.financialWorkersStopped===true&&s.latestOperatorNonce===0&&s.pendingOperatorNonce===0&&s.counts&&Object.keys(s.counts).sort().join(',')==='activeLeases,deposits,obligations,operations,orders,quotes'&&Object.values(s.counts).every(v=>v==='0'),'PREFUNDING_STATE');
  const c=p.capital;fail(c?.physicalZatoshi==='12500000'&&c.openingNoteCanonical===true&&hash(c.nativeCaptureSha256)&&hash(c.baseProofSha256)&&c.gasWei==='500000000000000'&&c.inventory==='10100000'&&c.available==='10000000'&&c.reserved==='100000'&&c.liability==='100000'&&at-Date.parse(c.observedAt)>=-5000&&at-Date.parse(c.observedAt)<=60000,'CAPITAL_AT_ISSUANCE');
  return p;
@@ -62,7 +67,7 @@ export function validateAuthorizedPrefundingSnapshot(row:any,a:EpochAuthority){
 /** One coherent SELECT, repeated under the publication lock; no cached guard. */
 export async function requireAuthorizedPrefundingDatabase(c:Pick<pg.PoolClient,'query'>,a:EpochAuthority){return validateAuthorizedPrefundingSnapshot((await c.query(authorizedPrefundingSnapshotSql)).rows[0],a);}
 export function requireAuthorizedEnvioPrefix(j:any,a:EpochAuthority){
- requireEpochAuthorityCurrent(a);const e=a.proof.envioPrefix;fail(j?.proofs?.length>=142&&j.proofs[141]?.proofDigest===e.proofDigest&&digest(j.identity)===e.identityDigest&&j.originalAdmissionSha256===e.originalAdmissionSha256&&digest(j.originalSql)===e.originalSqlDigest,'ORIGINAL_ENVIO_PREFIX_CHANGED');
+ requireEpochAuthorityCurrent(a);const e=a.proof.envioPrefix;fail(j?.proofs?.length>=e.proofCount&&j.proofs[e.proofCount-1]?.proofDigest===e.proofDigest&&digest(j.identity)===e.identityDigest&&j.originalAdmissionSha256===e.originalAdmissionSha256&&digest(j.originalSql)===e.originalSqlDigest,'ORIGINAL_ENVIO_PREFIX_CHANGED');
 }
 export function epochEvidenceBinding(a?:EpochAuthority){return a?{epoch:a.proof.epoch,runtimeXmin:a.proof.runtimeXmin,authorizationSha256:a.sha256}:undefined;}
 export function requireEpochEvidenceBinding(value:unknown,a?:EpochAuthority){fail(a?stable(value)===stable(epochEvidenceBinding(a)):value===undefined,'EVIDENCE_BINDING');if(a)requireEpochAuthorityCurrent(a);}
