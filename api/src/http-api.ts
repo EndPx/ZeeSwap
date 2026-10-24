@@ -23,6 +23,17 @@ function exact(value:Record<string,unknown>,fields:string[]){if(Object.keys(valu
 function evm(value:unknown){if(typeof value!=='string'||!isAddress(value,{strict:true})||value.toLowerCase()===zeroAddress)throw new HttpError(400,'INVALID_BASE_RECEIVER');return getAddress(value);}
 function string(value:unknown){if(typeof value!=='string'||value.length>512||value.length===0)throw new HttpError(400,'INVALID_INPUT');return value;}
 
+/** pg BIGINT fields arrive as decimal strings; JSON heights must be safe numbers. */
+export function serializeFundingCutoffHeight(value:unknown):number|null{
+ if(value===null)return null;
+ if(typeof value==='string'){
+  if(!/^(0|[1-9][0-9]*)$/.test(value)||BigInt(value)>BigInt(Number.MAX_SAFE_INTEGER))throw new Error('INVALID_FUNDING_CUTOFF_HEIGHT');
+  return Number(value);
+ }
+ if(typeof value==='number'&&Number.isSafeInteger(value)&&value>=0)return value;
+ throw new Error('INVALID_FUNDING_CUTOFF_HEIGHT');
+}
+
 export function createApi(options:Options){
  const {pool,keys,wallet}=options;const repo=new Repository(pool,keys);
  if(options.integrationOnly && !['ep-small-resonance-aom8dm9z-pooler.','ep-polished-hill-ao5ulo5g-pooler.','ep-broad-math-aoxcd482-pooler.','ep-winter-frog-ao0z5ayy-pooler.'].some(prefix=>pool.options.host?.startsWith(prefix)))throw new Error('Integration mode requires a dedicated development database');
@@ -61,7 +72,7 @@ export function createApi(options:Options){
    source:{received:!!row.deposit_id,confirmed:!!row.confirmed_at,confirmations:row.confirmations||0,
     policy:row.direction==='ZCASH_TO_BASE'?'zcash-10-confirmations':'base-finalized',requiredConfirmations:row.direction==='ZCASH_TO_BASE'?10:null},
    funding:funding&&row.state==='AWAITING_FUNDS'&&(!options.base||privateQuote.executionMode==='base-settlement-v1')?{network:'zcash-testnet',receiver:privateQuote.depositReceiver,
-    memo:JSON.stringify({v:1,ref:privateQuote.reference}),cutoffHeight:row.funding_cutoff_height,
+    memo:JSON.stringify({v:1,ref:privateQuote.reference}),cutoffHeight:serializeFundingCutoffHeight(row.funding_cutoff_height),
     cutoffTime:row.funding_cutoff_time,cancellationAvailableAt:row.cancellation_available_at}:undefined};
  }
  const rate=new Map<string,{count:number;until:number}>();

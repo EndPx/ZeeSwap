@@ -92,6 +92,15 @@ cycles left the proven frontier unchanged. Both application observers are stoppe
 while a bounded repeat-campaign and immediate handoff are reviewed. Source-only
 Chef following remains distinct from application readiness. Epoch four and empty
 customer books are preserved; no new funded circle or activation is claimed.
+The subsequent repeat campaign closed with 45 proofs, and the checked immediate
+handoff started the normal Base observer 26.933 seconds after its producer sample.
+A new joint window passed 31 samples over 301.877 seconds; fresh capital and an
+explicit committed activation moved controls from epoch four to five. One forward
+order was accepted. Its client response exposed a PostgreSQL bigint/JSON cutoff
+type mismatch; the original accepted terms were retained while the API serializer
+was corrected. The original native payer transaction has broadcast acknowledgment,
+with canonical inclusion, confirmations and the new circle still pending. See
+[first-circle funding wire evidence](docs/evidence/native-first-circle-cutoff-wire.md).
 Historical live-app checkpoint (23 October): an isolated Neon branch hosts separate
 application, Chef and Envio databases. Native Chef and Envio observers have
 published verified checkpoints to the new application; the connected local frontend uses the

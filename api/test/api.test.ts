@@ -56,7 +56,7 @@ test('acceptance is authenticated, repeatable and reveals bound funding instruct
  const q=await (await request('/v1/quotes','POST',body)).json() as any;
  assert.equal((await request(`/v1/orders/${q.id}/accept`,'POST',{},randomBytes(32).toString('base64url'))).status,404);
  const a=await request(`/v1/orders/${q.id}/accept`,'POST',{});assert.equal(a.status,200);accepted.push(q.id);
- const first=await a.json() as any;assert.equal(first.status,'AWAITING_FUNDS');assert.equal(first.funding.cutoffHeight,'1012');
+ const first=await a.json() as any;assert.equal(first.status,'AWAITING_FUNDS');assert.equal(first.funding.cutoffHeight,1012);
  const b=await (await request(`/v1/orders/${q.id}/accept`,'POST',{})).json() as any;assert.deepEqual(first.funding,b.funding);
  assert.equal((await request(`/v1/orders/${q.id}`,'GET',undefined,randomBytes(32).toString('base64url'))).status,404);
 });
