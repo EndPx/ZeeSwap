@@ -1,5 +1,5 @@
 import { performance } from "node:perf_hooks";
-import { contentDigest, decimal, digest, fresh, height, hex, object, ObservationError, parseHeader, parseObservation, requireThat, stable, text, utc, validateRange, type Header, type Policy, type ReplaceRange, type ZcashNote } from "./types.ts";
+import { contentDigest, decimal, digest, fresh, height, hex, object, ObservationError, parseHeader, parseObservation, requireThat, stable, text, utc, validateRange, validateChefHistoricalRange, type ChefHistoricalWitness, type Header, type Policy, type ReplaceRange, type ZcashNote } from "./types.ts";
 
 export type CanonicalSample = { sourceId: string; checkedAt: string; head: Header; finalized?: Header };
 /** Implement with an independently configured canonical RPC/header source. No signing methods. */
@@ -72,7 +72,7 @@ export async function readJson(response: Response, signal: AbortSignal, maxBytes
   } finally { await reader.cancel().catch(() => {}); }
   try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { throw new ObservationError("INVALID_HTTP_JSON"); }
 }
-export type TraversalResult = { status: "READY_SHADOW"; batch: ReplaceRange; restarts: number } | { status: "WAIT_RANGE_UNSTABLE" | "WAIT_SOURCE_UNAVAILABLE"; retryAfterMs: number; restarts: number };
+export type TraversalResult = { status: "READY_SHADOW"; batch: ReplaceRange; historicalWitness?: ChefHistoricalWitness; restarts: number } | { status: "WAIT_RANGE_UNSTABLE" | "WAIT_SOURCE_UNAVAILABLE"; retryAfterMs: number; restarts: number };
 
 export class ChefAdapter {
   private readonly endpoint: URL;
@@ -168,6 +168,13 @@ export class ChefAdapter {
           sourceHead: head, recoveryFloor: after.checkpoint.undoFloor, canonicalCheckAt: canonical.checkedAt,
           canonicalSourceId: canonical.sourceId, contentDigest: contentDigest({ headers, observations: notes }),
         } };
+        if (finiteThroughHeight !== undefined) {
+          const historicalWitness: ChefHistoricalWitness = { kind: "chef-historical-v1", project: after.project,
+            generation: after.generation, revision: after.revision, actualCheckpoint: checkpoint, actualUndoFloor: after.checkpoint.undoFloor,
+            selectedFrom: fromHeight, selectedThrough: batch.coverage.through, selectedContentDigest: batch.coverage.contentDigest,
+            canonicalSourceId: canonical.sourceId, checkedAt: canonical.checkedAt };
+          return { status: "READY_SHADOW", batch: validateChefHistoricalRange(batch, this.config.policy, this.now(), historicalWitness, this.config.project), historicalWitness, restarts };
+        }
         return { status: "READY_SHADOW", batch: validateRange(batch, this.config.policy, this.now()), restarts };
       } catch (error) {
         if (error instanceof ObservationError && error.code === "WAIT_SOURCE_UNAVAILABLE") return { status: "WAIT_SOURCE_UNAVAILABLE", retryAfterMs: 5000 + Math.floor(Math.random() * 1000), restarts };

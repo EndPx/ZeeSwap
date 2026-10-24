@@ -3,6 +3,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { Pool } from 'pg';
 import { exportEnvioRange } from '../src/integrations/observation/envio.ts';
+import {exportSelectedEnvioRange} from '../src/integrations/observation/envio-selected-export.ts';
 import { requireThat, validatePolicy, type Policy } from '../src/integrations/observation/types.ts';
 
 const config = JSON.parse(await readFile(process.argv[2]!, 'utf8')) as {
@@ -25,7 +26,9 @@ createServer(async (request, response) => {
   const url = new URL(request.url ?? '/', 'http://localhost');
   if (request.method !== 'GET' || !['/zee-observation/export','/zee-observation/status'].includes(url.pathname)) { response.writeHead(404).end(); return; }
   const raw = url.searchParams.get('from');
+  const through=url.searchParams.get('through');
   if (url.pathname.endsWith('/export') && (!raw || !/^(0|[1-9][0-9]*)$/.test(raw) || !Number.isSafeInteger(Number(raw)))) { response.writeHead(400).end(); return; }
+  if(through!==null&&(!url.pathname.endsWith('/export')||url.searchParams.getAll('through').length!==1||url.searchParams.getAll('from').length!==1||[...url.searchParams.keys()].some(k=>!['from','through'].includes(k))||(through!=='latest'&&(!/^(0|[1-9][0-9]*)$/.test(through)||!Number.isSafeInteger(Number(through))||Number(through)<Number(raw)||Number(through)-Number(raw)+1>256)))){response.writeHead(400).end();return;}
   const client = await pool.connect().catch(() => null);
   if (!client) { response.writeHead(503).end(); return; }
   try {
@@ -35,7 +38,8 @@ createServer(async (request, response) => {
       requireThat(status.rows.length===1,'COHERENT_CHECKPOINT_REQUIRED');
       response.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify({protocol:'zee-envio-status-v1',checkpoint:status.rows[0].payload}));return;
     }
-    const result = await exportEnvioRange(client, { schema: config.schema, checkpointTable: 'zee_checkpoint', headersTable: 'zee_headers', eventsTable: 'zee_events', streamId: 'base-v1' }, config.policy, Number(raw));
+    const schema={schema:config.schema,checkpointTable:'zee_checkpoint',headersTable:'zee_headers',eventsTable:'zee_events',streamId:'base-v1'};
+    const result = through===null?await exportEnvioRange(client,schema,config.policy,Number(raw)):await exportSelectedEnvioRange(client,schema,config.policy,Number(raw),through==='latest'?'latest':Number(through));
     response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result));
   } catch { response.writeHead(503, { 'content-type': 'application/json' }).end('{"status":"WAIT_ENVIO_EXPORT"}'); }
   finally { client.release(); }

@@ -24,9 +24,10 @@ function diagnostic(source:string,status:string,reason:string,network:string,pre
  * observation cannot renew readiness. A contradictory header commits the same
  * reconciliation primitive as the existing triggers BEFORE an error escapes.
  */
-export async function publishObserverBatch(pool:pg.Pool,source:string,checkpoints:ObserverCheckpoint[],blocks:CanonicalBlock[]=[],receiptHeight?:number){
+export async function publishObserverBatch(pool:pg.Pool,source:string,checkpoints:ObserverCheckpoint[],blocks:CanonicalBlock[]=[],receiptHeight?:number,guard?:(client:pg.PoolClient)=>Promise<void>){
  const result=await transaction(pool,async c=>{
   await c.query('SELECT zee.lock_observer_cycle()');
+  if(guard)await guard(c);
   const prior=new Map<string,ObserverCheckpoint>();
   for(const p of checkpoints){
    const row=(await c.query('SELECT * FROM zee.scanner_checkpoints WHERE network=$1 FOR UPDATE',[p.network])).rows[0];

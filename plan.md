@@ -18,9 +18,14 @@ bounded one-block finite CLI steps preserve the original configuration and
 durable source identity. Envio's reviewed cap100 scheduling and bounded header
 transport are applied. Actual catch-up reduced backlog, and its Base-specific
 five-minute window passed on 24 October with 62 samples and 13 canonical observer
-publications. Chef catch-up, simultaneous source freshness and native activation
+publications. Chef core subsequently reached a ready checkpoint one block behind
+its observed head. The strict native binding correction and prefunding metadata
+rebind passed actual VPS handoff checks; native capital warmup also passed.
+Application complete-gap recovery, simultaneous source freshness and activation
 checks remain open. No new VPS-funded circle is claimed. See
 [native Linux live checkpoint](docs/evidence/native-linux-live-checkpoint.md).
+The subsequent [prefunding correction evidence](docs/evidence/native-r9-live-checkpoint.md)
+records the preserved state and distinguishes core catch-up from application readiness.
 
 Historical live-app checkpoint (23 October): an isolated Neon branch hosts separate
 application, Chef and Envio databases. Native Chef and Envio observers have

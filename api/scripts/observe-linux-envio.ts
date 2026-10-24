@@ -9,6 +9,7 @@ import {BaseContract} from '../src/base-contract.ts';
 import {observeEnvioOnce,type EnvioAdmissionState} from '../src/integrations/observation/envio-live.ts';
 import {canonicalRpc} from '../src/integrations/observation/canonical-rpc.ts';
 import {requireThat} from '../src/integrations/observation/types.ts';
+import {requireNoEnvioRecovery} from '../src/integrations/observation/envio-recovery.ts';
 const [path,flag]=process.argv.slice(2);
 requireThat(path&&process.argv.length<=4&&(!flag||['--once','--initialize-empty-consumer'].includes(flag)),'LINUX_ENVIO_EXPLICIT_COMMAND');
 const {profile:p,runtime,registry,source,token}=await loadLinuxEnvioProfile(path);
@@ -18,6 +19,9 @@ const pool=connect(runtime.workerUrl,2),lease=await pool.connect();
 try{
  const identity=(await lease.query('SELECT current_database() AS db,current_user AS role,pg_try_advisory_lock(84532,20261024) AS locked')).rows[0];
  requireThat(identity.db==='zee_app_20261023'&&identity.role==='zee_app_worker_20261023'&&identity.locked===true,'LINUX_ENVIO_SINGLE_CONSUMER_REQUIRED');
+ // A pending recovery must finish its exact SQL/admission reconciliation before
+ // ordinary observation can write either journal or checkpoint.
+ await requireNoEnvioRecovery();
  if(flag==='--initialize-empty-consumer'){
   const proofStat=await lstat(p.relocationProof.path);requireThat(proofStat.uid===0,'LINUX_ENVIO_ROOT_HANDOFF_PROOF_REQUIRED');
   const proof=JSON.parse((await readLinuxEnvioPin(p.relocationProof)).toString());

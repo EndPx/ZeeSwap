@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import type { Snapshot } from "../../observer.ts";
 import { validateSnapshot } from "../../observer.ts";
 import type { PrivacyClassifier } from "./chef.ts";
-import { digest, object, requireThat, text, validateRange, type Policy, type ReplaceRange, type ZcashNote } from "./types.ts";
+import { digest, object, requireThat, text, validateRange, validateChefHistoricalRange, type ChefHistoricalWitness, type Policy, type ReplaceRange, type ZcashNote } from "./types.ts";
 
 export type DecodedChefNote = {
   txid: string; index: number; pool: string; amount: string; receiver: string;
@@ -61,8 +61,8 @@ export class ChefWalletBridge {
   private key(note: Readonly<ZcashNote>) { return `${note.txid}:${note.pool}:${note.outputIndex}:${note.block.hash}`; }
   /** Only a fully checked coherent range becomes the existing observer DTO.
    * The caller still applies existing SQL order matching and confirmation gates. */
-  snapshot(value: ReplaceRange, policy: Policy, now = Date.now()): Snapshot {
-    const batch = validateRange(value, policy, now), head = batch.coverage.through;
+  snapshot(value: ReplaceRange, policy: Policy, now = Date.now(), historical?: {witness: ChefHistoricalWitness; project: string}): Snapshot {
+    const batch = historical ? validateChefHistoricalRange(value, policy, now, historical.witness, historical.project) : validateRange(value, policy, now), head = batch.coverage.through;
     requireThat(policy.adapter === "zeer-chef" && batch.headers.some(h => h.height === Math.max(0, head.height - 9)), "CHEF_CONFIRMATION_WINDOW_REQUIRED");
     const outputs: Snapshot["outputs"] = [];
     this.excludedOpeningCapitalCount=0;

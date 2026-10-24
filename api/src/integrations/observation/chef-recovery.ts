@@ -2,10 +2,10 @@ import {mkdir,open,readFile,rename,rmdir,lstat,realpath} from 'node:fs/promises'
 import {join,resolve} from 'node:path';
 import {validateSnapshot,type Snapshot} from '../../observer.ts';
 import type {CanonicalReader} from './chef.ts';
-import {digest,fresh,height,parseHeader,requireThat,stable,validateRange,type Header,type Policy,type ReplaceRange} from './types.ts';
+import {digest,fresh,height,parseHeader,requireThat,stable,validateRange,validateChefHistoricalRange,type ChefHistoricalWitness,type Header,type Policy,type ReplaceRange} from './types.ts';
 
 export type ChefRecoveryIdentity={project:string;generation:string;policy:Policy};
-type Proof={target:Header;batch:ReplaceRange;snapshot:Snapshot;previousDigest:string;proofDigest:string};
+type Proof={target:Header;batch:ReplaceRange;snapshot:Snapshot;historicalWitness?:ChefHistoricalWitness;previousDigest:string;proofDigest:string};
 export type ChefRecoveryJournal={version:1;identity:ChefRecoveryIdentity;target:Header;proofs:Proof[]};
 const status='COVERAGE_COMPLETE_AWAITING_LIVE_WINDOW' as const;
 
@@ -33,10 +33,16 @@ export function validateChefRecoveryJournal(j:ChefRecoveryJournal,expected:ChefR
  let previousDigest=digest({identity:j.identity});
  let tail:Header[]=[];
  for(const proof of j.proofs){
-  requireThat(proof.previousDigest===previousDigest&&proof.proofDigest===proofDigest({target:proof.target,batch:proof.batch,snapshot:proof.snapshot,previousDigest}),'CHEF_RECOVERY_PROOF_CHANGED');
-  const batch=validateRange(proof.batch,expected.policy,Date.parse(proof.batch.coverage.readCompletedAt));
+  requireThat(proof.previousDigest===previousDigest&&proof.proofDigest===proofDigest({target:proof.target,batch:proof.batch,snapshot:proof.snapshot,...(proof.historicalWitness?{historicalWitness:proof.historicalWitness}:{}),previousDigest}),'CHEF_RECOVERY_PROOF_CHANGED');
+  const batch=proof.historicalWitness?validateChefHistoricalRange(proof.batch,expected.policy,Date.parse(proof.batch.coverage.readCompletedAt),proof.historicalWitness,expected.project)
+   :validateRange(proof.batch,expected.policy,Date.parse(proof.batch.coverage.readCompletedAt));
   requireThat(batch.coverage.generation===expected.generation,'CHEF_RECOVERY_GENERATION_CHANGED');
   parseHeader(proof.target,'zcash-testnet');
+  if(proof.historicalWitness){
+   const checkpoint=proof.historicalWitness.actualCheckpoint;
+   requireThat(checkpoint.height>=proof.target.height,'CHEF_RECOVERY_WITNESS_BEHIND_TARGET');
+   if(checkpoint.height===proof.target.height)requireThat(stable(checkpoint)===stable(proof.target),'CHEF_RECOVERY_WITNESS_TARGET_MISMATCH');
+  }
   const prior=checked.proofs.at(-1);
   requireThat(proof.target.height<=j.target.height&&(!prior||proof.target.height>=prior.target.height),'CHEF_RECOVERY_TARGET_REGRESSION');
   if(prior&&stable(prior.target)!==stable(proof.target))requireThat(prior.batch.coverage.through.height===prior.target.height&&proof.target.height>prior.target.height,'CHEF_RECOVERY_UNFINISHED_TARGET');
@@ -54,11 +60,12 @@ export function validateChefRecoveryJournal(j:ChefRecoveryJournal,expected:ChefR
  return j;
 }
 
-export function appendChefRecoveryProof(j:ChefRecoveryJournal,identity:ChefRecoveryIdentity,canonicalTarget:Header,batch:ReplaceRange,snapshot:Snapshot,now=Date.now()):ChefRecoveryJournal {
+export function appendChefRecoveryProof(j:ChefRecoveryJournal,identity:ChefRecoveryIdentity,canonicalTarget:Header,batch:ReplaceRange,snapshot:Snapshot,now=Date.now(),historicalWitness?:ChefHistoricalWitness):ChefRecoveryJournal {
  validateChefRecoveryJournal(j,identity,canonicalTarget);
- validateRange(batch,identity.policy,now);validateSnapshot(snapshot);
+ if(historicalWitness)validateChefHistoricalRange(batch,identity.policy,now,historicalWitness,identity.project);else validateRange(batch,identity.policy,now);
+ validateSnapshot(snapshot);
  const previousDigest=j.proofs.at(-1)?.proofDigest??digest({identity:j.identity});
- const body={target:j.target,batch,snapshot,previousDigest};
+ const body={target:j.target,batch,snapshot,...(historicalWitness?{historicalWitness}:{}),previousDigest};
  const next={...j,proofs:[...j.proofs,{...body,proofDigest:proofDigest(body)}]};
  return validateChefRecoveryJournal(next,identity,canonicalTarget);
 }
@@ -106,6 +113,12 @@ export async function chefRecoverySnapshot(j:ChefRecoveryJournal,identity:ChefRe
  requireThat(sample.sourceId===identity.policy.canonicalSourceId&&sample.head.height>=j.target.height,'CHEF_RECOVERY_CANONICAL_SOURCE');
  parseHeader(sample.head,'zcash-testnet');
  requireThat(sample.head.height-j.target.height<=6,'CHEF_RECOVERY_SOURCE_LAG');
+ // A historical witness can describe a newer full Chef checkpoint than the
+ // selected/fixed target. Recheck it independently, never add it to SQL blocks.
+ const witnesses=new Map<number,Header>();
+ for(const proof of j.proofs)if(proof.historicalWitness){const checkpoint=proof.historicalWitness.actualCheckpoint,old=witnesses.get(checkpoint.height);
+  requireThat(!old||stable(old)===stable(checkpoint),'CHEF_RECOVERY_WITNESS_REORG');witnesses.set(checkpoint.height,checkpoint);}
+ for(const checkpoint of witnesses.values())requireThat(stable(parseHeader(await canonical.header(checkpoint.height,signal),'zcash-testnet'))===stable(checkpoint),'CHEF_RECOVERY_WITNESS_REORG');
  const headers=new Map<number,Header>(),outputs=new Map<string,Snapshot['outputs'][number]>(),required=new Set([j.target.height,j.target.height-9,...checks]);
  for(const p of j.proofs){
   for(const header of p.batch.headers){const old=headers.get(header.height);requireThat(!old||stable(old)===stable(header),'CHEF_RECOVERY_OVERLAP_REORG');headers.set(header.height,header);}

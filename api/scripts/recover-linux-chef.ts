@@ -76,7 +76,8 @@ export async function runLinuxChefRecovery(options:ReturnType<typeof parseChefRe
     const result=await new ChefAdapter({url:c.sourceUrl,token:env.CHEF_API_TOKEN!,project:c.project,policy,canonical,classify:bridge.classify}).traverse(range.fromHeight,range.throughHeight);
     if(result.status!=='READY_SHADOW')return {status:result.status,admissionReady:false};
     const checkedTarget=await plain.header(journal.target.height,AbortSignal.timeout(15000));
-    journal=appendChefRecoveryProof(journal,identity,checkedTarget,result.batch,bridge.snapshot(result.batch,policy));await io.write(journal);
+    const historical=result.historicalWitness?{witness:result.historicalWitness,project:c.project}:undefined;
+    journal=appendChefRecoveryProof(journal,identity,checkedTarget,result.batch,bridge.snapshot(result.batch,policy,Date.now(),historical),Date.now(),result.historicalWitness);await io.write(journal);
    }
    return chefRecoveryCoverageStatus(journal);
   }

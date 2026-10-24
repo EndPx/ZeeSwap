@@ -5,13 +5,14 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {ChefAdapter,type ChefConfig} from '../../src/integrations/observation/chef.ts';
 import {ChefWalletBridge} from '../../src/integrations/observation/chef-wallet-bridge.ts';
+import {validateRange,validateChefHistoricalRange} from '../../src/integrations/observation/types.ts';
 import {loadLinuxChefRuntime,parseChefRecoveryArgs} from '../../scripts/recover-linux-chef.ts';
 import {appendChefRecoveryProof,chefRecoveryCoverageStatus,chefRecoverySnapshot,extendChefRecoveryTarget,nextChefRecoveryRange,
  validateChefRecoveryJournal,withChefRecoveryJournal,type ChefRecoveryIdentity,type ChefRecoveryJournal} from '../../src/integrations/observation/chef-recovery.ts';
 const hash=(n:number)=>n.toString(16).padStart(64,'0'),time=new Date().toISOString();
 const header=(height:number)=>({height,hash:hash(height),parentHash:hash(height-1),time});
 function fixture(){
- let checkpoint=2599,generation='fixture-generation';const queried=new Set<number>();
+ let checkpoint=2599,undoFloor=100,generation='fixture-generation';const queried=new Set<number>();
  const identity:ChefRecoveryIdentity={project:'fixture',generation,policy:{adapter:'zeer-chef',network:'zcash-testnet',birthday:100,
   registryDigest:hash(1),projectionDigest:hash(2),canonicalSourceId:'independent',accountFingerprint:'fixture-account',maxBlocks:1000,maxObservations:1000}};
  const current=async()=>({generation,checkpoint:{height:checkpoint,hash:hash(checkpoint)}});
@@ -22,7 +23,7 @@ function fixture(){
     const items=[1200,2090].filter(h=>h>=from&&h<=through).map(h=>({id:String(h),network:'zcash-testnet',txid:hash(h+5000),pool:'ironwood',outputIndex:0,
      blockHeight:h,blockHash:hash(h),valueZat:'100000',receiverBytes:'12'.repeat(43),memoHex:'00'.repeat(512),accountFingerprint:'fixture-account',scope:'external',origin:'unknown',coinbase:false}));
     return Response.json({data:{ReadableNoteList:{items,nextCursor:null}}});}
-   return Response.json({project:'fixture',generation,revision:'1',checkpoint:{height:checkpoint,hash:hash(checkpoint),anchorHash:null,status:'ready',undoFloor:100},lastCommitAt:null,
+   return Response.json({project:'fixture',generation,revision:'1',checkpoint:{height:checkpoint,hash:hash(checkpoint),anchorHash:null,status:'ready',undoFloor},lastCommitAt:null,
     source:{status:'available',checkedAt:new Date().toISOString(),prepIndexedHeight:checkpoint,sourceObservedHeight:checkpoint+1,sourceObservedAt:Math.floor(Date.now()/1000)}});
   }};
  const bridge=new ChefWalletBridge(async(txid,h)=>({rawHex:'ab',blockHash:hash(h),notes:[{txid,index:0,pool:'ironwood',amount:'100000',receiver:'utest1fixture',memo:null,
@@ -30,9 +31,56 @@ function fixture(){
  const initial=():ChefRecoveryJournal=>({version:1,identity,target:header(checkpoint),proofs:[]});
  async function advance(j:ChefRecoveryJournal){const range=nextChefRecoveryRange(j)!;const result=await new ChefAdapter(config).traverse(range.fromHeight,range.throughHeight);
   assert.equal(result.status,'READY_SHADOW');if(result.status!=='READY_SHADOW')throw Error('fixturewait');
-  return appendChefRecoveryProof(j,identity,header(checkpoint),result.batch,bridge.snapshot(result.batch,identity.policy));}
- return {identity,config,canonical,current,queried,initial,advance,setCheckpoint:(h:number)=>{checkpoint=h;},setGeneration:(s:string)=>{generation=s;}};
+  return appendChefRecoveryProof(j,identity,header(checkpoint),result.batch,bridge.snapshot(result.batch,identity.policy,Date.now(),{witness:result.historicalWitness!,project:identity.project}),Date.now(),result.historicalWitness);}
+ return {identity,config,canonical,current,queried,initial,advance,bridge,setCheckpoint:(h:number)=>{checkpoint=h;},setUndoFloor:(h:number)=>{undoFloor=h;},setGeneration:(s:string)=>{generation=s;}};
 }
+
+test('historical selected range keeps actual newer rollback floor with explicit canonical checkpoint witness only',async()=>{
+ const f=fixture();f.setUndoFloor(2400);
+ const result=await new ChefAdapter(f.config).traverse(100,1099);assert.equal(result.status,'READY_SHADOW');if(result.status!=='READY_SHADOW')throw Error('wait');
+ const {batch,historicalWitness:w}=result;assert.ok(w);assert.equal(batch.coverage.recoveryFloor,2400);assert.equal(w.actualUndoFloor,2400);assert.deepEqual(w.actualCheckpoint,header(2599));
+ assert.throws(()=>validateRange(batch,f.identity.policy,Date.now()),/INVALID_RANGE/);
+ assert.throws(()=>f.bridge.snapshot(batch,f.identity.policy),/INVALID_RANGE/);
+ const snapshot=f.bridge.snapshot(batch,f.identity.policy,Date.now(),{witness:w,project:'fixture'});
+ assert.equal(snapshot.scannedHeight,1099);assert.equal(snapshot.blocks.some(b=>b.height===2599),false);
+ let j=appendChefRecoveryProof(f.initial(),f.identity,header(2599),batch,snapshot,Date.now(),w);
+ assert.equal(chefRecoveryCoverageStatus(j).admissionReady,false);
+ await assert.rejects(chefRecoverySnapshot(j,f.identity,f.canonical,[],f.current,AbortSignal.timeout(1000)),/INCOMPLETE/);
+ while(nextChefRecoveryRange(j))j=await f.advance(j);
+ assert.equal(j.proofs.length,3);assert.equal((await chefRecoverySnapshot(j,f.identity,f.canonical,[],f.current,AbortSignal.timeout(1000))).scannedHeight,2599);
+});
+
+test('historical witness refuses wrong identities, false floors, omitted history and forged checkpoint',async()=>{
+ const f=fixture();f.setUndoFloor(2400);const r=await new ChefAdapter(f.config).traverse(100,1099);if(r.status!=='READY_SHADOW')throw Error('wait');
+ const w=r.historicalWitness!,validate=(batch=r.batch,witness=w)=>validateChefHistoricalRange(batch,f.identity.policy,Date.now(),witness,'fixture');
+ for(const witness of [{...w,project:'other'},{...w,generation:'other'},{...w,revision:'2'},{...w,actualUndoFloor:100},
+  {...w,selectedContentDigest:hash(99)},{...w,actualCheckpoint:header(2000)}])assert.throws(()=>validate(r.batch,witness),/CHEF_HISTORY/);
+ assert.throws(()=>validate({...r.batch,coverage:{...r.batch.coverage,sourceHead:header(2599)}},{...w,actualCheckpoint:{...header(2599),hash:hash(9999)}}),/CHECKPOINT_MISMATCH/);
+ assert.throws(()=>validate({...r.batch,headers:r.batch.headers.slice(1)}),/COVERAGE_GAP/);
+ const snapshot=f.bridge.snapshot(r.batch,f.identity.policy,Date.now(),{witness:w,project:'fixture'});
+ assert.throws(()=>appendChefRecoveryProof(f.initial(),f.identity,header(2599),r.batch,snapshot),/INVALID_RANGE/);
+ assert.throws(()=>appendChefRecoveryProof(f.initial(),f.identity,header(2599),r.batch,snapshot,Date.now(),{...w,actualCheckpoint:{...w.actualCheckpoint,hash:hash(9999)}}),/WITNESS_TARGET_MISMATCH/);
+ const j=appendChefRecoveryProof(f.initial(),f.identity,header(2599),r.batch,snapshot,Date.now(),w),changed=structuredClone(j);
+ changed.proofs[0]!.historicalWitness!.actualUndoFloor=100;
+ assert.throws(()=>validateChefRecoveryJournal(changed,f.identity,header(2599)),/PROOF_CHANGED/);
+ const fabricated=structuredClone(r.batch);fabricated.coverage.recoveryFloor=100;
+ assert.throws(()=>validate(fabricated),/CHECKPOINT_MISMATCH/);
+});
+
+test('final publication independently rechecks historical full checkpoint witness without publishing it as a selected header',async()=>{
+ const f=fixture();f.setCheckpoint(2502);f.setUndoFloor(2400);const r=await new ChefAdapter(f.config).traverse(100,1099);if(r.status!=='READY_SHADOW')throw Error('wait');
+ // Chef can move ahead of a fixed recovery target. The independent current
+ // checkpoint remains a separate witness, never fake selected-range coverage.
+ const target=header(2500),w=r.historicalWitness!,snapshot=f.bridge.snapshot(r.batch,f.identity.policy,Date.now(),{witness:w,project:'fixture'});
+ let j:ChefRecoveryJournal={version:1,identity:f.identity,target,proofs:[]};
+ j=appendChefRecoveryProof(j,f.identity,target,r.batch,snapshot,Date.now(),w);
+ while(nextChefRecoveryRange(j)){
+  const range=nextChefRecoveryRange(j)!,part=await new ChefAdapter(f.config).traverse(range.fromHeight,range.throughHeight);if(part.status!=='READY_SHADOW')throw Error('wait');
+  j=appendChefRecoveryProof(j,f.identity,target,part.batch,f.bridge.snapshot(part.batch,f.identity.policy,Date.now(),{witness:part.historicalWitness!,project:'fixture'}),Date.now(),part.historicalWitness);
+ }
+ const canonical={...f.canonical,sample:async()=>({head:header(2503),checkedAt:new Date().toISOString(),sourceId:'independent'}),header:async(h:number)=>h===2502?{...header(h),hash:hash(9999)}:header(h)};
+ await assert.rejects(chefRecoverySnapshot(j,f.identity,canonical,[],async()=>({generation:f.identity.generation,checkpoint:{height:2500,hash:hash(2500)}}),AbortSignal.timeout(1000)),/WITNESS_REORG/);
+});
 
 test('2500-block native bridge recovery persists and restarts without skipped chunks or partial publication',async()=>{
  const f=fixture(),dir=await mkdtemp(join(tmpdir(),'chef-recovery-'));let j=f.initial();

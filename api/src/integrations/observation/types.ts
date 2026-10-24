@@ -65,6 +65,13 @@ export type BaseEvent = {
 };
 export type Observation = ZcashNote | BaseEvent;
 export type ReplaceRange = { coverage: Coverage; headers: Header[]; observations: Observation[] };
+/** Full current checkpoint evidence is separate from a selected historical page.
+ * Its undo horizon is never rewritten into an artificial historical floor. */
+export type ChefHistoricalWitness = {
+  kind: "chef-historical-v1"; project: string; generation: string; revision: string;
+  actualCheckpoint: Header; actualUndoFloor: number; selectedFrom: number; selectedThrough: Header;
+  selectedContentDigest: string; canonicalSourceId: string; checkedAt: string;
+};
 export type Policy = {
   adapter: Coverage["adapter"]; network: "zcash-testnet" | "eip155:84532";
   registryDigest: string; projectionDigest: string; canonicalSourceId: string;
@@ -125,6 +132,26 @@ export function fresh(value: string, now: number): void {
   const age = now - Date.parse(utc(value)); requireThat(age >= -5000 && age <= 60_000, "STALE_SOURCE");
 }
 export function validateRange(value: unknown, policy: Policy, now: number): ReplaceRange {
+  return validateRangeContents(value, policy, now);
+}
+/** Explicit historical Chef proof admission. Ordinary range validation remains
+ * strict; callers must retain the complete witness beside the selected range. */
+export function validateChefHistoricalRange(value: unknown, policy: Policy, now: number, witness: ChefHistoricalWitness, project: string): ReplaceRange {
+  requireThat(policy.adapter === "zeer-chef" && policy.network === "zcash-testnet", "CHEF_HISTORY_POLICY");
+  const w = object(witness, ["kind", "project", "generation", "revision", "actualCheckpoint", "actualUndoFloor", "selectedFrom", "selectedThrough", "selectedContentDigest", "canonicalSourceId", "checkedAt"]);
+  const r = object(value, ["coverage", "headers", "observations"]), c = r.coverage as Coverage;
+  const checkpoint = parseHeader(w.actualCheckpoint, policy.network), selected = parseHeader(w.selectedThrough, policy.network);
+  height(w.actualUndoFloor); height(w.selectedFrom); text(w.project); text(w.generation); decimal(w.revision); hex(w.selectedContentDigest, 32); fresh(utc(w.checkedAt), now);
+  requireThat(w.kind === "chef-historical-v1" && w.project === project && w.generation === c.generation && w.revision === c.revision
+    && w.canonicalSourceId === policy.canonicalSourceId && w.checkedAt === c.canonicalCheckAt, "CHEF_HISTORY_IDENTITY_MISMATCH");
+  requireThat(w.actualUndoFloor === c.recoveryFloor && Number(w.actualUndoFloor) <= checkpoint.height
+    && w.selectedFrom === c.fromHeight && stable(selected) === stable(c.through) && w.selectedContentDigest === c.contentDigest
+    && selected.height <= checkpoint.height && checkpoint.height <= c.sourceHead.height, "CHEF_HISTORY_CHECKPOINT_MISMATCH");
+  if (selected.height === checkpoint.height) requireThat(stable(selected) === stable(checkpoint), "CHEF_HISTORY_CHECKPOINT_MISMATCH");
+  if (checkpoint.height === c.sourceHead.height) requireThat(stable(checkpoint) === stable(c.sourceHead), "CHEF_HISTORY_CHECKPOINT_MISMATCH");
+  return validateRangeContents(value, policy, now, checkpoint);
+}
+function validateRangeContents(value: unknown, policy: Policy, now: number, historicalCheckpoint?: Header): ReplaceRange {
   validatePolicy(policy);
   const r = object(value, ["coverage", "headers", "observations"]);
   const c = object(r.coverage, ["protocol", "adapter", "network", "registryDigest", "projectionDigest", "generation", "revision", "fromHeight", "through", "complete", "readStartedAt", "readCompletedAt", "sourceSampledAt", "sourceHead", "recoveryFloor", "canonicalCheckAt", "canonicalSourceId", "contentDigest"]);
@@ -134,7 +161,8 @@ export function validateRange(value: unknown, policy: Policy, now: number): Repl
   const started = Date.parse(utc(c.readStartedAt)), completed = Date.parse(utc(c.readCompletedAt));
   requireThat(started <= completed && completed - started <= 30_000 && completed <= now + 5000, "READ_BUDGET");
   fresh(c.readCompletedAt as string, now); fresh(c.sourceSampledAt as string, now); fresh(c.canonicalCheckAt as string, now);
-  requireThat(Number(c.fromHeight) >= policy.birthday && Number(c.fromHeight) <= through.height && through.height <= sourceHead.height && Number(c.recoveryFloor) <= through.height + 1, "INVALID_RANGE");
+  requireThat(Number(c.fromHeight) >= policy.birthday && Number(c.fromHeight) <= through.height && through.height <= sourceHead.height
+    && Number(c.recoveryFloor) <= (historicalCheckpoint?.height ?? through.height) + 1, "INVALID_RANGE");
   requireThat(Array.isArray(r.headers) && Array.isArray(r.observations), "INVALID_ARRAY");
   requireThat(r.headers.length <= (policy.maxBlocks ?? 1000) && r.observations.length <= (policy.maxObservations ?? 1000), "BACKPRESSURE");
   const headers = r.headers.map(h => parseHeader(h, policy.network));
