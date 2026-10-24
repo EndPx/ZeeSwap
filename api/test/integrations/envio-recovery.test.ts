@@ -124,22 +124,22 @@ test('recovery pacing is an explicit24or80preset with stable provider/policy ide
  assert.equal(slow.maxMethodsPerSecond,24);assert.equal(fast.maxMethodsPerSecond,80);assert.equal(envioRecoveryTransport(originalPolicy).maxMethodsPerSecond,24);assert.deepEqual(slow.policy,fast.policy);assert.equal(slow.sourceId,fast.sourceId);assert.equal(slow.url,fast.url);
  for(const value of ['','024','80.0','100','12',' 80','80 '])assert.throws(()=>envioRecoveryTransport(originalPolicy,value),/PACING_PRESET/);
 });
-test('canonical selection overlaps at most4batches, checks everyheader, and drains all outcomes before failure escapes',async()=>{
+test('canonical selection overlaps at most2batches, checks everyheader, and drains all outcomes before failure escapes',async()=>{
  const s=selected(469,724),c=canonical();let active=0,maxActive=0,calls=0,drained=false;const requested:number[]=[];
  c.headers=async hs=>{active++;maxActive=Math.max(maxActive,active);calls++;requested.push(...hs);await new Promise(r=>setTimeout(r,1));active--;return hs.map(header);};
- await verifySelectedExport(s,policy,c);assert.equal(maxActive,4);assert.equal(active,0);assert.deepEqual(requested,Array.from({length:256},(_,n)=>469+n));
+ await verifySelectedExport(s,policy,c);assert.equal(maxActive,2);assert.equal(active,0);assert.deepEqual(requested,Array.from({length:256},(_,n)=>469+n));
  calls=0;let drainedCount=0;c.headers=async hs=>{const n=++calls;if(n===1)throw Error('INJECTED_BATCH_FAILURE');await new Promise(r=>setTimeout(r,5*n));drained=true;drainedCount++;return hs.map(header);};
- await assert.rejects(verifySelectedExport(s,policy,c),/INJECTED_BATCH_FAILURE/);assert.equal(drained,true);assert.equal(drainedCount,3);assert.equal(calls,4);
+ await assert.rejects(verifySelectedExport(s,policy,c),/INJECTED_BATCH_FAILURE/);assert.equal(drained,true);assert.equal(drainedCount,1);assert.equal(calls,2);
 });
 
 
-test('fourway selection drains all aborted batches and retains30second source-read budget',async()=>{
+test('twoway selection drains all aborted batches and retains30second source-read budget',async()=>{
  const c=canonical(),s=selected(469,724);let started=0,settled=0;
  c.headers=async hs=>{started++;try{await new Promise(r=>setTimeout(r,20));signal.throwIfAborted();return hs.map(header);}finally{settled++;}};
- const signal=AbortSignal.timeout(5);await assert.rejects(verifySelectedExport(s,policy,c,signal),/abort|timeout/i);assert.equal(started,4);assert.equal(settled,4);
+ const signal=AbortSignal.timeout(5);await assert.rejects(verifySelectedExport(s,policy,c,signal),/abort|timeout/i);assert.equal(started,2);assert.equal(settled,2);
  const expired=selected(469,724);expired.range.readStartedAt=new Date(now-30001).toISOString();await assert.rejects(verifySelectedExport(expired,policy,canonical()),/SELECTED_READ_BUDGET/);
 });
-test('fourway verification still shares canonical global method pacing at both24and80, with at most10methods per HTTP',async()=>{
+test('twoway verification still shares canonical global method pacing at both24and80, with at most10methods per HTTP',async()=>{
  for(const rate of [24,80]){
   const stamp=new Date(Math.floor(Date.now()/1000)*1000).toISOString(),s=selected(469,508),records:{at:number;count:number}[]=[];
   for(const h of [...s.range.headers,s.range.through,s.producer.through,s.producer.sourceHead])h.time=stamp;s.range.contentDigest=contentDigest(s.range);

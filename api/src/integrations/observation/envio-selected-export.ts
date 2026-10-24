@@ -7,7 +7,7 @@ import {contentDigest,fresh,height,object,parseHeader,parseObservation,requireTh
 export type ProducerCheckpoint={generation:string;revision:string;through:Header;recoveryFloor:number;sourceSampledAt:string;sourceHead:Header;projectionDigest:string;registryDigest:string;complete:true};
 export type SelectedEnvioExport={protocol:'zee-envio-selected-export-v1';isolation:'repeatable-read-read-only';snapshotToken:string;expiresAt:string;producer:ProducerCheckpoint;range:{fromHeight:number;through:Header;headers:Header[];observations:Observation[];contentDigest:string;readStartedAt:string;readCompletedAt:string}};
 export type VerifiedEnvioSelection=SelectedEnvioExport&{verification:CanonicalSample};
-export const SELECTED_CANONICAL_BATCHES=4;
+export const SELECTED_CANONICAL_BATCHES=2;
 const id=(s:string)=>{requireThat(/^[a-z_][a-z0-9_]{0,62}$/.test(s),'INVALID_SQL_IDENTIFIER');return `"${s}"`;};
 export function validateSelectedExport(value:unknown,policy:Policy,now=Date.now()):SelectedEnvioExport{
  validatePolicy(policy);requireThat(policy.adapter==='envio-hyperindex','SELECTED_ENVIO_POLICY');
@@ -52,7 +52,7 @@ export async function verifySelectedExport(value:unknown,policy:Policy,canonical
   const page=selected.range.headers.slice(i,i+size*(canonical.headers?SELECTED_CANONICAL_BATCHES:1));let actual:Header[];
   if(canonical.headers){
    const pages=Array.from({length:SELECTED_CANONICAL_BATCHES},(_,n)=>page.slice(n*size,(n+1)*size)).filter(p=>p.length);
-   // Bound overlap to four batches. Every request/retry still uses the canonical
+   // Bound overlap to two batches. Every request/retry still uses the canonical
    // client's method limiter; drain all outcomes before any failure escapes.
    const reads=await Promise.allSettled(pages.map(p=>canonical.headers!(p.map(h=>h.height),signal)));
    const failed=reads.find(r=>r.status==='rejected');if(failed?.status==='rejected')throw failed.reason;

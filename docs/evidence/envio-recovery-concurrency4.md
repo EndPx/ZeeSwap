@@ -30,3 +30,30 @@ method pacer still applied. This supports accepting the bounded change; it does
 not establish a provider quota, a sustained throughput guarantee, completed
 recovery or faster cross-chain finality. The private comparison artifact remains
 outside Git.
+
+## Sustained counterevidence and restored two-batch decision
+
+The short comparison above did not establish sustained acceptance. After publication of the four-batch candidate, root observed that the recovery driver stopped safely at proof 110; the original helper discarded stderr, so that first cause remains unknown. A subsequent observable run stopped at proof 120 with the safe cause `CANONICAL_RPC_HTTP_ERROR` retained in a root-private diagnostic. This establishes an HTTP-level failure, not a particular HTTP status, a 429 response, or causation by the concurrency setting. Both stops left no publication intent, writer lock or SQL publication. The earlier two-batch run had completed 100 consecutive proofs before its planned stop.
+
+Root therefore withdrew sustained acceptance of four overlapping batches and restored the shared recovery constant to two. This is a conservative operator decision based on the observed sustained stops; it is not a causal diagnosis. The small measured approximately 10% median improvement remains valid bounded evidence and is retained above, but it does not outweigh the incomplete sustained gate. The separate 24-method/four-batch backoff phase was still in progress when the restoration was prepared; no stability or performance closure is claimed for it.
+
+The restored verifier retains all newer tests for exact 256-header coverage, both global 24/80 pacing presets and the 30-second budget. Updated failure/abort tests require the single sibling to drain after a failed batch and both requests to drain on abort. The shared CLI status follows the same constant automatically. The normal Tenderly reader, provider/source identity, generation/projection/registry, profile, 256-block selection bound, 32-block overlap, 1,024-proof cap, immutable original baseline and saved-proof compatibility remain unchanged. A separate private observable 80-method/two-batch candidate requires a new reviewed published-commit binding before execution. It retains stderr; publication is never retried or automatically reconciled. Root owns clean stopping of the current 24-method unit and any publication, deployment or resume.
+
+Root separately authorized a bounded read-recovery exception for the private
+driver: only a recover-step `CANONICAL_RPC_HTTP_ERROR` can wait thirty seconds
+and retry, with three consecutive and ten total retries, forty total attempts
+and thirty successful rounds. The retained prefix/identity/baseline and absence
+of publication intent/completion are rechecked. The next public recover CLI still
+checks the actual original SQL/admission, paused empty books and all canonical
+anchors. Every other error stops. A failed recovery cannot move directly to
+publication; one successful recovery must occur first. This exception never
+retries a publication or financial action. Fifteen private orchestration tests
+passed, including exhaustion, intervention and no retry after publication failure.
+
+Restoration validation on 2026-10-24: API typecheck and all 19 local recovery tests passed. No implementation-agent VPS operation, source reset, SQL write or journal change occurred.
+
+Coordinator verification also passed API typecheck and **65/65** targeted
+Chef/Envio recovery, bridge, observation and required-anchor tests on the VPS,
+with zero skips or failures. The explicit 24-method backoff invocation completed
+twenty proofs through 49584978 before the two-batch restoration was installed;
+no SQL publication or financial action occurred in that phase.
