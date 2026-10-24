@@ -22,4 +22,7 @@ type BlockVisit {
   id: ID!
   blockNumber: Int!
   coverageComplete: Boolean!
+  headerJson: String
+  sourceHeadJson: String
+  sourceSampledAt: String
 }

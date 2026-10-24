@@ -10,17 +10,31 @@ export interface BaseSigner {
  prepare(terms:PayoutTerms,phase:BasePhase):Promise<PreparedBaseTransaction>;
 }
 export class LocalBaseSigner implements BaseSigner {
- constructor(private readonly command:string,private readonly args:string[],private readonly timeoutMs=120000){}
+ constructor(private readonly command:string,private readonly args:string[],private readonly timeoutMs=120000,private readonly supervised=false){}
  protected invoke(request:unknown):Promise<any>{return new Promise((resolve,reject)=>{
   const binding=signerBinding(request),child=spawn(this.command,this.args,{stdio:['pipe','pipe','pipe'],windowsHide:true});let output='',stderr='',done=false;
-  let timer:ReturnType<typeof setTimeout>;
+  let timer:ReturnType<typeof setTimeout>|undefined,pendingFailure:string|undefined;
   const diagnostic=(code:string,exitCode:number|null=null,signal:string|null=null)=>{const packets=parseSignerPackets(stderr,binding);return signerFailureDiagnostic({version:1,...binding,code,exitCode,signal,python:packets.primary,cleanup:packets.cleanup})!;};
   const fail=(code:string,exitCode:number|null=null,signal:string|null=null)=>{if(!done){done=true;clearTimeout(timer);const safe=diagnostic(code,exitCode,signal);try{console.error(JSON.stringify({version:1,status:'BASE_SIGNER_INVOKE_FAILED',diagnostic:safe}));}catch{}reject(Object.assign(Error('BASE_SIGNER_UNAVAILABLE'),{signerDiagnostic:safe}));}};
-  timer=setTimeout(()=>{child.kill();fail('SIGNER_TIMEOUT');},this.timeoutMs);
-  child.on('error',()=>fail('SIGNER_SPAWN_FAILED'));child.stdin.on('error',()=>fail('SIGNER_STDIN_FAILED'));
-  child.stdout.on('data',chunk=>{output=(output+chunk).slice(0,32769);if(output.length>32768){child.kill();fail('SIGNER_OUTPUT_LIMIT');}});
-  child.stderr.on('data',chunk=>{stderr=(stderr+chunk).slice(0,8193);if(stderr.length>8192){child.kill();fail('SIGNER_STDERR_LIMIT');}});
+  const boundedFailure=(code:string)=>{if(this.supervised){pendingFailure??=code;}else{child.kill();fail(code);}};
+  // New explicitly supervised runners let Linux own the deadline, process
+  // group cleanup and actual reap. Killing only wsl.exe is not cleanup proof.
+  if(!this.supervised)timer=setTimeout(()=>{child.kill();fail('SIGNER_TIMEOUT');},this.timeoutMs);
+  child.on('error',()=>fail('SIGNER_SPAWN_FAILED'));child.stdin.on('error',()=>boundedFailure('SIGNER_STDIN_FAILED'));
+  child.stdout.on('data',chunk=>{output=(output+chunk).slice(0,32769);if(output.length>32768)boundedFailure('SIGNER_OUTPUT_LIMIT');});
+  child.stderr.on('data',chunk=>{stderr=(stderr+chunk).slice(0,16385);if(stderr.length>(this.supervised?16384:8192))boundedFailure('SIGNER_STDERR_LIMIT');});
   child.on('close',(code,signal)=>{clearTimeout(timer);if(done)return;
+   if(this.supervised){
+    const kind=this.args[this.args.indexOf('--kind')+1],lines=stderr.split(/\r?\n/),acks=lines.flatMap(line=>{try{const value=JSON.parse(line);return value?.status==='OWNED_PROCESS_CLEANED'?[value]:[];}catch{return [];}});
+    if(signal!==null||!['base-forward','base-reverse','base-refund'].includes(kind??'')||acks.length!==1||Object.keys(acks[0]).sort().join(',')!=='groupReaped,kind,status'||acks[0].groupReaped!==true||acks[0].kind!==kind){
+     // Keep the caller's operator lock and lease held. A transport close with
+     // no owned cleanup proof cannot authorize another nonce. Operator action
+     // must first establish Linux quiescence and inspect the original journal.
+     console.error(JSON.stringify({status:'OWNED_SIGNER_CLEANUP_UNCONFIRMED_OPERATOR_HOLD'}));return;
+    }
+    stderr=lines.filter(line=>{try{return JSON.parse(line)?.status!=='OWNED_PROCESS_CLEANED';}catch{return true;}}).join('\n');
+    if(pendingFailure){fail(pendingFailure,code,signal);return;}
+   }
    let result:any;try{result=JSON.parse(output);}catch{fail(signal?'SIGNER_SIGNAL':code===0?'SIGNER_RESPONSE_INVALID':'SIGNER_PROCESS_EXIT',code,signal);return;}
    if((code===75&&result?.status==='BASE_SIGNER_READ_WAIT'||code===76&&result?.status==='BASE_SIGNER_FINALITY_WAIT')&&signal===null&&signerReadWait(result,binding)&&signerWaitEvidence(stderr,result,binding)){
     done=true;const error=new ObserverWaitError({event:'base-signer-read',source:'forward-base-signer',status:'WAIT',network:'base-sepolia',reason:code===76?'RESERVE_AHEAD_OF_FINALIZED':'READ_TIMEOUT',command:binding.command,phase:binding.phase,requestDigest:binding.requestDigest,stage:result.stage});
@@ -36,7 +50,7 @@ export class LocalBaseSigner implements BaseSigner {
  prepare(terms:PayoutTerms,phase:BasePhase){return this.invoke({command:'prepare',terms,phase});}
 }
 export class LocalReverseBaseSigner extends LocalBaseSigner {
- constructor(command:string,args:string[]){super(command,args,360000);}
+ constructor(command:string,args:string[],supervised=false){super(command,args,360000,supervised);}
  async authorizeFunding(terms:import('./base-escrow.ts').FundingTerms){return (await this.invoke({command:'authorize',terms,phase:'FUNDING'})).signature as Hex;}
  prepareEscrow(terms:import('./base-escrow.ts').FundingTerms,phase:'COMMIT'|'SETTLE'):Promise<PreparedBaseTransaction>{return this.invoke({command:'prepare',terms,phase});}
 }

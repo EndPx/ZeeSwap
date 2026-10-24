@@ -1,4 +1,5 @@
 import { indexer } from 'envio';
+import { canonicalHeaders, type Header } from '../headers.js';
 
 // Public metadata, pinned to contracts/deployments/base-sepolia.json.
 const TOKEN = '0xd64c116352cef2adc9484098ae332fd9ba339a63';
@@ -7,6 +8,10 @@ const v1Events = [
   'InventoryDeposited', 'InventoryWithdrawn', 'PayoutReserved', 'Paid',
   'SettlementCancelled', 'Funded', 'PayoutCommitted', 'EscrowSettled', 'Refunded',
 ] as const;
+const canonicalValue = (value: unknown): string => {
+  const result = String(value);
+  return result.startsWith('0x') ? result.toLowerCase() : result;
+};
 
 function guard(chainId: number, address: string, version: 'v1' | 'v2') {
   if (chainId !== 84532) throw new Error('WRONG_NETWORK');
@@ -20,7 +25,7 @@ for (const contract of ['ZeeSwapSettlement', 'ZeeSwapSettlementV2'] as const) fo
   indexer.onEvent({ contract, event: name }, async ({ event, context }) => {
     const version = contract === 'ZeeSwapSettlement' ? 'v1' : 'v2';
     guard(event.chainId, event.srcAddress, version);
-    const decoded = Object.fromEntries(Object.entries(event.params).map(([key, value]) => [key, String(value)]));
+    const decoded = Object.fromEntries(Object.entries(event.params).map(([key, value]) => [key, canonicalValue(value)]));
     context.SettlementEvent.set({
       id: `${event.chainId}:${event.srcAddress.toLowerCase()}:${event.transaction.hash}:${event.logIndex}:${event.block.hash}`,
       contract: event.srcAddress.toLowerCase(), contractVersion: version, token: TOKEN,
@@ -37,7 +42,7 @@ for (const contract of ['ZeeSwapSettlement', 'ZeeSwapSettlementV2'] as const) fo
 // config edit AND this explicit opt-in are required; no V2 has been deployed here.
 indexer.onEvent({ contract: 'ZeeSwapSettlementV2', event: 'EscrowAborted' }, async ({ event, context }) => {
   guard(event.chainId, event.srcAddress, 'v2');
-  const decoded = Object.fromEntries(Object.entries(event.params).map(([key, value]) => [key, String(value)]));
+  const decoded = Object.fromEntries(Object.entries(event.params).map(([key, value]) => [key, canonicalValue(value)]));
   context.SettlementEvent.set({
     id: `${event.chainId}:${event.srcAddress.toLowerCase()}:${event.transaction.hash}:${event.logIndex}:${event.block.hash}`,
     contract: event.srcAddress.toLowerCase(), contractVersion: 'v2', token: TOKEN,
@@ -49,5 +54,14 @@ indexer.onEvent({ contract: 'ZeeSwapSettlementV2', event: 'EscrowAborted' }, asy
 });
 
 indexer.onBlock({ name: 'ZeeSwapEmptyBlockVisits', where: ({ chain }) => chain.id === 84532 }, async ({ block, context }) => {
-  context.BlockVisit.set({ id: `84532:${block.number}`, blockNumber: block.number, coverageComplete: false });
+  if (process.env.ZEESWAP_COHERENT_HEADERS !== 'true') {
+    context.BlockVisit.set({ id: `84532:${block.number}`, blockNumber: block.number, coverageComplete: false,
+      headerJson: undefined, sourceHeadJson: undefined, sourceSampledAt: undefined });
+    return;
+  }
+  const { header, sourceHead, sampledAt } = JSON.parse(await context.effect(canonicalHeaders, block.number)) as {
+    header: Header; sourceHead: Header; sampledAt: string;
+  };
+  context.BlockVisit.set({ id: `84532:${block.number}`, blockNumber: block.number, coverageComplete: true,
+    headerJson: JSON.stringify(header), sourceHeadJson: JSON.stringify(sourceHead), sourceSampledAt: sampledAt });
 });

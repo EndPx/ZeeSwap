@@ -36,5 +36,5 @@ export function useWallet(){
   }catch(error){setError(walletError(error));}finally{setBusy(false);}},[busy]);
   const switchChain=useCallback(async()=>{if(!selected||busy)return;setBusy(true);setError('');try{await selected.provider.request({method:'wallet_switchEthereumChain',params:[{chainId:'0x14a34'}]});
     const network=await selected.provider.request({method:'eth_chainId'});setChainId(chain(network));}catch(error){setError(walletError(error));}finally{setBusy(false);}},[selected,busy]);
-  return{options,address,chainId,busy,error,connect,switchChain,disconnect:()=>{setAddress(null);setChainId(null);setSelected(null);setError('');}};
+  return{provider:selected?.provider,options,address,chainId,busy,error,connect,switchChain,disconnect:()=>{setAddress(null);setChainId(null);setSelected(null);setError('');}};
 }

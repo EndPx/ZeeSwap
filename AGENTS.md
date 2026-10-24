@@ -6,6 +6,9 @@ and acceptance gates. Complete one bounded task at a time.
 Use Sol 6.1 (`gpt-6.1-sol`) subagents for coding, as requested by the user.
 The main agent coordinates review, verification and operator execution.
 
+Do not use or start Docker on this laptop. Use the existing remote Neon databases
+and bounded direct Node/native processes; do not install local PostgreSQL.
+
 For each completed milestone that changes files (group related fixes and their
 verification; do not commit or push every small task):
 

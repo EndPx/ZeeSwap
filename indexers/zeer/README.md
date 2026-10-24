@@ -131,6 +131,41 @@ recompute txids, pin the branch and enforce the existing single-pool policy.
 Wallet-aware receiver/memo binding and existing-order comparison are also still
 external gates before any future financial bridge.
 
+An explicit live-testnet bridge is now available in
+`api/src/integrations/observation/chef-wallet-bridge.ts` and `chef-live.ts`.
+`ChefWalletBridge.classify` binds each external non-coinbase receipt to the exact
+output independently fetched from TLS lightwalletd and decrypted by the maintained
+SDK. The native `chef_decrypt` request verifies the complete transaction bytes,
+recomputes the txid, pins NU7, and returns canonical Orchard-only testnet Unified
+Address, decoded text memo, exact receiver/memo bytes and the existing single-pool
+source privacy result. A mismatch in canonical block, output position, pool,
+amount, receiver bytes or memo bytes refuses the receipt. Internal change and
+coinbase outputs never become customer payments.
+
+The local pipe helpers `workers/zcash-wallet/chef_read.py` and `chef_headers.py`
+read an explicit protected JSON config with `protoDir`, `ufvkFile`, `readCommand`,
+`lightwalletd` and `canonicalSourceId`. The key file holds a testnet UFVK only;
+neither helper opens a wallet database or signs a transaction. The header helper
+retrieves canonical compact block metadata from an independently configured
+lightwalletd, rather than reading Chef's indexed headers. Keep helper stdout
+private: the receipt helper returns raw transactions and decrypted note data.
+
+`observeChefOnce` is an explicit application integration entry point. It converts
+only a coherent, classified range into the existing strict observer snapshot and
+calls the existing SQL order-matching/confirmation path. Every persisted source
+anchor receives a canonical header check. Anchors outside the Chef note range are
+independently read and appended to the strict observer snapshot; this does not
+claim note coverage before the account birthday. A missing anchor, a failed read
+or a lagging Chef checkpoint blocks ingestion. The bounded range still needs at least ten headers
+for the confirmation policy. This opt-in function does not alter the default
+shadow CLI, enable dispatch, or configure any existing historical operator run.
+
+Local tests cover exact conversion, canonical inclusion mismatch, receipt byte
+tampering, duplicate decoded outputs, unclassified observations, mixed source
+privacy and exclusion of change/coinbase. Actual operator execution and database
+activation are recorded separately in the integration evidence; these helpers
+alone do not establish a running Chef database or a funded swap.
+
 The mirror retains orphaned occurrences, deduplicates output value independently
 of receipt ID/key fingerprint, and reports exposure from an explicitly supplied
 local journal snapshot through the library. It never erases or repeats customer

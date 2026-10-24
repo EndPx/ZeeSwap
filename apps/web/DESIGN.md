@@ -108,11 +108,17 @@ private-session recovery export is user initiated and warned. Runtime dev tools
 are gated behind Vite DEV and an opt-out environment flag; excluded from production.
 
 This frontend connects to the existing local API, not a newly deployed relayer.
-API `/health` establishes connectivity only. Reverse quote creation currently
-returns `BASE_ESCROW_NOT_READY`; show it without substituting an EOA deposit.
+API `/health` establishes connectivity only. Reverse quotes require an explicit quoted payer and a configured escrow signer.
+Without that runtime the API returns `BASE_ESCROW_NOT_READY`. The accepted reverse
+response carries signed V1 contract funding terms; the browser checks exact calldata,
+token, amount, payer and Base Sepolia chain before requesting wallet confirmation.
+Exact token approval and escrow funding are separate user actions. An unknown
+transaction result blocks further sends until reconciled. The contract prevents
+funding an already used settlement ID. No EOA deposit instructions are issued.
 Pricing is the API's fixture model; offline preview is labelled, never accepted.
 Actual order creation requires a reachable API and valid server checks. Wallet
-connection checks EIP-1193/Base Sepolia but never signs or sends. UI tests use
+connection checks EIP-1193/Base Sepolia. Reverse approval and funding explicitly
+request wallet confirmation after acceptance; connecting alone never sends. UI tests use
 synthetic API fixtures and do not establish wallet funding or cross-chain readiness.
 
 Review debt: the main application component coordinates multiple modal branches
@@ -123,3 +129,7 @@ handler is flagged by React Doctor as a noninteractive handler; native Escape,
 focus containment, and the labelled 44px close button provide keyboard equivalents.
 No lint rule is suppressed. Real-browser screenshots and interaction checks are
 captured on the production build at 375px, 835px and 1440px.
+
+The small Zee brand mark uses round ears, a broad gray head, cream muzzle and
+a continuous dark eye mask with two bright eyes. Its silhouette stays legible at
+24 and 32 pixels and follows the existing original raccoon mascot.

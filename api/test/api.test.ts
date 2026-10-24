@@ -68,7 +68,7 @@ test('malformed amounts, extra fields, bad addresses, query tokens and foreign o
  const preflight=await fetch(origin+'/v1/quotes',{method:'OPTIONS',headers:{origin:'http://localhost:3030'}});assert.equal(preflight.status,204);
 });
 test('reverse funding is gated until the Base escrow exists',async()=>{
- const response=await request('/v1/quotes','POST',{direction:'BASE_TO_ZCASH',inputAmount:'100000',recipient:'fixture-shielded:dest',refundRecipient:body.recipient});
+ const response=await request('/v1/quotes','POST',{direction:'BASE_TO_ZCASH',inputAmount:'100000',recipient:'fixture-shielded:dest',refundRecipient:body.recipient,payer:body.recipient});
  assert.equal(response.status,503);assert.deepEqual(await response.json(),{error:'BASE_ESCROW_NOT_READY'});
 });
 test('stale or contradictory scanner snapshots are rejected before database ingestion',()=>{

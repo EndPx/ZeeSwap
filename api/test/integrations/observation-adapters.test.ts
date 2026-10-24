@@ -29,6 +29,16 @@ function batch(rows: ReplaceRange["observations"] = [note()], through = 110, rev
 }
 function initial(p = policy): ShadowState { return { mode: "SHADOW", version: 1, policyDigest: digest(p), sealedThrough: 99, checkpoint: null, headers: [], occurrences: [], exposures: [], lastBatchDigest: null }; }
 const canonical = (evm = false, changes: Partial<CanonicalReader> = {}): CanonicalReader => ({ sample: async () => ({ sourceId: policy.canonicalSourceId, checkedAt: stamp, head: header(120, 0, evm), ...(evm ? { finalized: header(110, 0, true) } : {}) }), header: async h => header(h, 0, evm), ...changes });
+test("Chef independent fresh tips may advance or differ, but never cover a checkpoint beyond the canonical head",async()=>{
+ for(const [reported,independent] of [[100,101],[120,110],[100,99]]) {
+  const current=status();current.source.sourceObservedHeight=reported!;
+  const fetcher:typeof fetch=async(input)=>new Response(JSON.stringify(new URL(String(input)).pathname==="/status"?current:{data:{ReadableNoteList:{items:[projection(note())],nextCursor:null}}}),{status:200});
+  const result=await new ChefAdapter({url:"http://127.0.0.1:39375",token:"fixture",project:"private-shadow",policy,now:()=>now,fetch:fetcher,
+   canonical:canonical(false,{sample:async()=>({sourceId:policy.canonicalSourceId,checkedAt:stamp,head:header(independent!)})})}).traverse(100);
+  if(independent!<100){assert.equal(result.status,"WAIT_SOURCE_UNAVAILABLE");continue;}
+  assert.equal(result.status,"READY_SHADOW");if(result.status==="READY_SHADOW")assert.equal(result.batch.coverage.sourceHead.height,independent);
+ }
+});
 function status(revision = "1") {
   return { project: "private-shadow", generation: "generation-one", revision, checkpoint: { height: 100, hash: hash(100), anchorHash: hash(99), status: "ready", undoFloor: 99 }, lastCommitAt: stamp, source: { status: "available", checkedAt: stamp, prepIndexedHeight: 100, sourceObservedHeight: 120, sourceObservedAt: now / 1000 } };
 }

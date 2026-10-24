@@ -2,6 +2,31 @@
 
 Last updated: 2026-10-23 (Asia/Jakarta), for the EVM routing and settlement integration design. Execution evidence below retains its recorded dates.
 
+Current live-app work (23 October): an isolated Neon branch now hosts separate
+application, Chef and Envio databases. Native Chef and Envio observers have
+published verified checkpoints to the new application; the connected local frontend uses the
+new API and raccoon mark. The six new Base capital setup transactions are
+finalized, and the fresh TAZ faucet receipt is independently verified. Exact
+opening books contain 200000 atomic mockUSDC principal, 200000 zatoshi principal,
+20000 zatoshi fees and 500000000000000 wei Base fees. All eight opening entries
+balance by asset. Intake/dispatch remain disabled at epoch 0 pending the bounded
+worker and refund checks. No new customer order or settlement is claimed. This
+work does not resume or close the historical G5 run described below. Docker and
+local PostgreSQL are prohibited on this laptop; NEAR Intents is outside this
+native testnet run. Continuous Base observer freshness remains an open gate:
+earlier five-minute windows failed during RPC pressure and growing historical
+anchor reads. Required financial-anchor selection and bounded RPC pacing are
+implemented; successful unit checks do not replace a passing live window.
+
+The user subsequently selected their existing Hostinger VPS. Read-only hPanel
+and SSH checks confirmed Ubuntu 24.04 and existing applications. Prepare an
+isolated Linux deployment at `/opt/zeeswap-testnet`, with the proposed public
+host `zeeswap.endpx.cloud`, before the first customer-funded acceptance run.
+Keep user-payer and deployer keys local; migrate only the new restricted operator
+state after stopping local writers and verifying a scoped file/identity manifest.
+Preserve the original opening proof and books. Do not run two settlement writers
+or imply that server access, DNS preparation or a native build proves deployment.
+
 Status: Both initial public-testnet swap directions, the first same-user circle and both full-principal source refund experiments passed. G5 retry now has twelve SQL SETTLED and eleven ordinarily receipt-verified executions, with barriers [5,10]. The separate Source15 scan refusal was followed by a fully audited third no-effect expiry; its successor is unaccepted and unfunded. Root's independent2026-10-16 07:24:00.392 UTC postcheck passed with all original financial files unchanged, healthy paused epoch11 controls, and exact archives [7,13,15]. The first expiry attempt refused before financial mutation; its history and the corrected fresh retry are retained. Twenty funded settlements, all four barriers, close and broader G5 acceptance remain incomplete. Future0015/0016 remain unwired/unapplied to this fourteen-migration run.
 
 Current bounded-run status (2026-10-16 07:24:00.392 UTC / 14:24:00.392 WIB): **12/20 SQL SETTLED, 11/20 ordinarily receipt-verified, barriers [5,10]**. Root's literal Source15 no-effect expiry passed; its durable intent is COMPLETE, and the independent postcheck preserved all fourteen funded originals while retaining the third EXPIRED_UNFUNDED predecessor. Seventeen accepted attempts now comprise fourteen current funded IDs plus archives [7,13,15]; fifty-one reservations remain, six held, with two HELD obligations, fourteen operations and zero active leases. Two historical expired LEASED job records remain unchanged. Source15 attempt2 is SYNC and unaccepted: no successor quote or funding occurred. R12's original shielded delivery is independently confirmed physically but remains SQL-unconfirmed with no ACK; R14 COMMIT remains SQL-unconfirmed. All original financial bytes (67 operator/eight payer non-lock files, plus exact empty locks giving68/9 entries) are unchanged. Controls intake/dispatch/reconciliation and both incidents are false at epoch11; normal status passed at07:24 UTC. The COMPLETE intent file's modification time is07:23:48.4875078 UTC, distinct from currentProof07:23:42.136 and the independent postcheck time. The first recovery refused before expiry on a nullable SQL-anchor assembly error; root proved unchanged books, then the narrow canonical-floor correction and fresh retry passed. Completed-book Base fees remain **42002560003846 wei**, a partial total. Eight SQL settlements, nine ordinary verifications, barriers15/20, close and broader G5 gates remain pending. The exact closing profile is now **20 funded settlements,23 accepted attempts and69 released reservations**, with all three retired receiver/reference pairs monitored. Primary intake and dispatch remain disabled; driver held for grouped publication. See [Source15 lifecycle](docs/evidence/g5-source15-unfunded-recovery.md), [scanner catchup](docs/evidence/g5-source-scan-catchup.md), and [prior original-PAY28 recovery](docs/evidence/g5-f11-prestore-recovery.md).
@@ -122,6 +147,14 @@ Use maintained Rust Zcash wallet libraries behind a narrow scanner/signer bounda
 The user funding path starts with a shielded payment request/QR and a tested external testnet wallet. An injected Noir integration is optional after its separate testnet build passes G1. Do not use its RHEA aggregation or WalletConnect path as a shortcut: the documented cross-chain path uses transparent deposits. [Wallet adapter source](https://github.com/NoirWallet/zcash-wallet-adapter/blob/main/README.md).
 
 ### Integration design baseline (23 October 2026)
+
+Live-testnet execution update (23 October): the user explicitly selected native
+TAZ shielded <-> mockUSDC on Base Sepolia without NEAR Intents as a dependency.
+NEAR provider activation is outside this testnet acceptance run. The user also
+explicitly prohibits Docker on this laptop: use remote Neon PostgreSQL and
+bounded direct Node/native scanner processes; do not start Docker or install a
+local PostgreSQL server. New runtime state must stay separate from historical
+G5 databases, wallets and the stopped soak driver.
 
 Implementation update: the user authorized the integration work, preparation of
 new Chef/Envio project configurations, and a polished frontend with creative

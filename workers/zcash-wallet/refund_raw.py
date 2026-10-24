@@ -15,6 +15,8 @@ from refund_preflight import validate_refund_request
 
 class RefundAdapter(Adapter):
     def __init__(self, config):
+        if config.get('recipientProofMode','recipient-incoming')!='recipient-incoming':
+            raise ValueError('Legacy refund mode requires recipient incoming proof')
         self.config = config
         self.request = json.loads(Path(config['approvedRequest']).read_text())
         validate_refund_request(self.request, config['approvedDigest'])

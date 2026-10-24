@@ -5,6 +5,9 @@ export function errorCopy(code:string):string {
   const copy:Record<string,string>={
     OFFLINE:'The swap service is not connected. You can explore indicative testnet amounts; orders require a reachable service.',
     TIMEOUT:'The service did not reply in time. The result is unknown. Retry this same request to reconcile it.',
+    DESTINATION_EVIDENCE_UNAVAILABLE:'The service has not confirmed the destination receipt. Keep the private order and check again; settlement is not verified.',
+    BOUNDED_AMOUNT_REQUIRED:'This bounded testnet run accepts exactly 0.001 TAZ or 0.1 mockUSDC.',
+    BOUNDED_ACCEPTANCE_LIMIT:'This direction has already accepted its one order in the bounded testnet run. Wait for operator reconciliation.',
     BASE_ESCROW_NOT_READY:'Base-to-Zcash escrow funding is not available through this API yet. No order or deposit instructions were created.',
     ROUTE_NOT_READY:'This testnet route is paused. No funding instructions are available.',
     TEMPORARILY_UNAVAILABLE:'The service is paused or reconciling. Keep any existing order and try its status again.',
@@ -41,7 +44,7 @@ export class ZeeApi {
     if(!response.ok)throw new ApiError(typeof value==='object'&&value&&'error'in value&&typeof value.error==='string'?value.error:'UNKNOWN_ERROR');
     return value;
   }
-  async health(signal?:AbortSignal):Promise<{status:'ok';integrationOnly:boolean}>{const v=await this.call('/health',{signal}) as {status?:unknown;integrationOnly?:unknown};if(v.status!=='ok'||typeof v.integrationOnly!=='boolean')throw new ApiError('INVALID_RESPONSE');return v as {status:'ok';integrationOnly:boolean};}
+  async health(signal?:AbortSignal):Promise<{status:'ok';integrationOnly:boolean;quoteBounds?:{inputAmountAtomic:'100000';maxAcceptedPerDirection:1}}>{const v=await this.call('/health',{signal}) as {status?:unknown;integrationOnly?:unknown;quoteBounds?:{inputAmountAtomic?:unknown;maxAcceptedPerDirection?:unknown}};if(v.status!=='ok'||typeof v.integrationOnly!=='boolean'||(v.quoteBounds!==undefined&&(!v.quoteBounds||v.quoteBounds.inputAmountAtomic!=='100000'||v.quoteBounds.maxAcceptedPerDirection!==1)))throw new ApiError('INVALID_RESPONSE');return v as {status:'ok';integrationOnly:boolean;quoteBounds?:{inputAmountAtomic:'100000';maxAcceptedPerDirection:1}};}
   create(body:QuoteBody):Promise<{order:OrderView;access:PrivateOrder}>{
     const fingerprint=JSON.stringify(body);
     if(this.creating){if(this.request?.fingerprint!==fingerprint)return Promise.reject(new ApiError('IDEMPOTENCY_CONFLICT'));return this.creating;}
@@ -54,6 +57,7 @@ export class ZeeApi {
   }
   freshReview(){if(this.creating)throw Error('Wait for the current quote request.');if(this.request?.completed)this.request=null;}
   order(access:PrivateOrder):Promise<OrderView>{if(!uuid(access.id)||!/^[A-Za-z0-9_-]{43}$/.test(access.token))throw new ApiError('NOT_FOUND');return this.call(`/v1/orders/${access.id}`,{token:access.token}).then(value=>{const order=decodeOrder(value);if(order.id!==access.id)throw new ApiError('INVALID_RESPONSE');return order;});}
+  async funding(access:PrivateOrder,transactionHash:string):Promise<OrderView>{return decodeOrder(await this.call(`/v1/orders/${access.id}/funding`,{method:'POST',token:access.token,body:{transactionHash}}));}
   accept(access:PrivateOrder):Promise<OrderView>{
     const active=this.accepts.get(access.id);if(active)return active;
     // Reconcile an earlier lost acceptance response before repeating its POST.

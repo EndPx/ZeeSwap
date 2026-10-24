@@ -1,3 +1,4 @@
+import { validateEscrowFunding, type EscrowFunding } from './escrow-funding.ts';
 import { getAddress, isAddress } from 'viem';
 
 export type Direction = 'ZCASH_TO_BASE' | 'BASE_TO_ZCASH';
@@ -39,7 +40,7 @@ export function validateReceiver(text: string, zcash: boolean): string {
   if (!isAddress(text,{strict:true}) || /^0x0{40}$/i.test(text)) throw Error('Enter a valid, nonzero Base Sepolia address.');
   return getAddress(text);
 }
-export interface QuoteBody { direction: Direction; inputAmount: string; recipient: string; refundRecipient: string; }
+export interface QuoteBody { direction: Direction; inputAmount: string; recipient: string; refundRecipient: string; payer?:string; }
 export function quoteBody(direction: Direction, amount: string, recipient: string, refundRecipient: string): QuoteBody {
   return {direction,inputAmount:amountForApi(amount,direction),recipient:validateReceiver(recipient.trim(),direction==='BASE_TO_ZCASH'),refundRecipient:validateReceiver(refundRecipient.trim(),direction==='ZCASH_TO_BASE')};
 }
@@ -49,7 +50,8 @@ export interface OrderView {
   id:string; direction:Direction; status:OrderStatus; inputAmount:string; outputAmount:string;
   executionMode:string; priceMode:'fixture'; integrationOnly:boolean; expiresAt:string;
   source:{received:boolean;confirmed:boolean;confirmations:number;policy:'zcash-10-confirmations'|'base-finalized';requiredConfirmations:number|null};
-  destination?:{network:'base-sepolia';status:'FINALIZED'|'PAYOUT_PENDING'|'RESERVING'|'NOT_SUBMITTED';transactionHash?:string;blockNumber?:number};
+  escrowFunding?:EscrowFunding;
+  destination?:{network:'base-sepolia'|'zcash-testnet';status:'FINALIZED'|'PAYOUT_PENDING'|'RESERVING'|'NOT_SUBMITTED';transactionHash?:string;blockNumber?:number};
   funding?:{network:'zcash-testnet';receiver:string;memo:string;cutoffHeight:number|null;cutoffTime:string|null;cancellationAvailableAt:string|null};
 }
 const object=(value:unknown):Record<string,unknown>=>{if(!value||typeof value!=='object'||Array.isArray(value))throw Error('The service returned an unsupported response.');return value as Record<string,unknown>;};
@@ -61,9 +63,10 @@ export function decodeOrder(value:unknown):OrderView {
     ||!atomic(row.inputAmount)||!atomic(row.outputAmount)||typeof row.executionMode!=='string'||row.priceMode!=='fixture'||typeof row.integrationOnly!=='boolean'
     ||typeof row.expiresAt!=='string'||!Number.isFinite(Date.parse(row.expiresAt))||typeof source.received!=='boolean'||typeof source.confirmed!=='boolean'
     ||!nonnegative(source.confirmations)||!['zcash-10-confirmations','base-finalized'].includes(String(source.policy))||!(source.requiredConfirmations===null||nonnegative(source.requiredConfirmations)))throw Error('The service returned an unsupported order.');
-  if(row.destination!==undefined){const d=object(row.destination);if(d.network!=='base-sepolia'||!['FINALIZED','PAYOUT_PENDING','RESERVING','NOT_SUBMITTED'].includes(String(d.status))
-    ||(d.transactionHash!==undefined&&(typeof d.transactionHash!=='string'||!/^0x[0-9a-fA-F]{64}$/.test(d.transactionHash)))||(d.blockNumber!==undefined&&!nonnegative(d.blockNumber))
+  if(row.destination!==undefined){const d=object(row.destination);if(!['base-sepolia','zcash-testnet'].includes(String(d.network))||(d.network==='base-sepolia'&&row.direction!=='ZCASH_TO_BASE')||(d.network==='zcash-testnet'&&row.direction!=='BASE_TO_ZCASH')||!['FINALIZED','PAYOUT_PENDING','RESERVING','NOT_SUBMITTED'].includes(String(d.status))
+    ||(d.transactionHash!==undefined&&(typeof d.transactionHash!=='string'||!(d.network==='base-sepolia'?/^0x[0-9a-fA-F]{64}$/:/^[0-9a-f]{64}$/).test(d.transactionHash)))||(d.blockNumber!==undefined&&!nonnegative(d.blockNumber))
     ||(d.status==='FINALIZED'&&(typeof d.transactionHash!=='string'||!nonnegative(d.blockNumber))))throw Error('The service returned an unsupported destination.');}
+  if(row.escrowFunding!==undefined){if(row.direction!=='BASE_TO_ZCASH'||row.status!=='AWAITING_FUNDS'||row.executionMode!=='base-escrow-v1')throw Error('Unsupported escrow order.');validateEscrowFunding(row.escrowFunding,row.inputAmount as string);}
   if(row.funding!==undefined){const f=object(row.funding);if(row.status!=='AWAITING_FUNDS'||row.direction!=='ZCASH_TO_BASE'||f.network!=='zcash-testnet'
     ||typeof f.receiver!=='string'||typeof f.memo!=='string'||f.memo.length>512||f.receiver.length>512||!(f.cutoffHeight===null||nonnegative(f.cutoffHeight))
     ||!(f.cutoffTime===null||typeof f.cutoffTime==='string')||!(f.cancellationAvailableAt===null||typeof f.cancellationAvailableAt==='string'))throw Error('The service returned unsupported funding instructions.');}
@@ -79,7 +82,7 @@ export function statusCopy(order:OrderView):{title:string;description:string;ton
     case 'QUOTED':return{title:'Your quote is ready',description:'Review the exact amounts and destinations before accepting.',tone:'waiting'};
     case 'AWAITING_FUNDS':return{title:'Waiting for your deposit',description:'Use the exact testnet funding instructions for this order.',tone:'waiting'};
     case 'CONFIRMING':return{title:'Deposit found. Confirming…',description:'Your source payment must meet the confirmation policy before delivery.',tone:'waiting'};
-    case 'READY':return{title:'Source confirmed',description:'The service is preparing delivery. Your destination receipt is still pending.',tone:'waiting'};
+    case 'READY':return order.destination?.status==='FINALIZED'?{title:'Destination delivered',description:'The confirmed receipt is recorded. The service is finishing settlement bookkeeping.',tone:'waiting'}:{title:'Source confirmed',description:'The service is preparing delivery. Your destination receipt is still pending.',tone:'waiting'};
     case 'SETTLED':return{title:order.destination?.status==='FINALIZED'?'Delivery finalized':'Service reports settlement',description:order.destination?.status==='FINALIZED'?'The API has verified the destination receipt.':'A finalized destination receipt is not available in this API response.',tone:order.destination?.status==='FINALIZED'?'success':'waiting'};
     case 'REFUNDED':return{title:'Source refund confirmed',description:'The service reports your source principal returned. This is separate from a destination swap.',tone:'success'};
     case 'EXPIRED_UNFUNDED':return{title:'Order expired without funding',description:'Do not send to its old instructions. Start a new quote when you are ready.',tone:'warning'};

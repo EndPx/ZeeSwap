@@ -20,7 +20,23 @@ export async function consumeEnvioExport(value: unknown, policy: Policy, canonic
   const head = parseHeader(sample.head, policy.network);
   requireThat(head.height >= batch.coverage.sourceHead.height && head.height >= batch.coverage.through.height, "SOURCE_HEAD_REGRESSION");
   requireThat(stable(await canonical.header(batch.coverage.sourceHead.height, signal)) === stable(batch.coverage.sourceHead), "SOURCE_HASH_CONFLICT");
-  for (const header of batch.headers) requireThat(stable(await canonical.header(header.height, signal)) === stable(header), "CANONICAL_HEADER_MISMATCH");
+  // Network latency must fit the same 30s budget even for the retained reorg
+  // tail. Bound parallel reads; every header still gets an exact comparison.
+  const pageSize = canonical.headers ? canonical.headerBatchSize??50 : 8;
+  requireThat(Number.isSafeInteger(pageSize)&&pageSize>=1&&pageSize<=50,'CANONICAL_BATCH_LIMIT');
+  for (let index = 0; index < batch.headers.length; index += pageSize*(canonical.headers?2:1)) {
+    const expected = batch.headers.slice(index,index+pageSize*(canonical.headers?2:1));
+    let actual;
+    if(canonical.headers){
+      // At most two batches overlap network latency. The canonical client's
+      // method limiter still paces every request/retry; drain both on failure.
+      const pages=[expected.slice(0,pageSize),expected.slice(pageSize)].filter(page=>page.length);
+      const reads=await Promise.allSettled(pages.map(page=>canonical.headers!(page.map(header=>header.height),signal)));
+      const failed=reads.find(read=>read.status==='rejected');if(failed?.status==='rejected')throw failed.reason;
+      actual=reads.flatMap(read=>read.status==='fulfilled'?read.value:[]);
+    }else actual=await Promise.all(expected.map(header=>canonical.header(header.height,signal)));
+    requireThat(actual.length===expected.length && actual.every((header,i)=>stable(header)===stable(expected[i])), "CANONICAL_HEADER_MISMATCH");
+  }
   requireThat(sample.finalized !== undefined, "FINALIZED_HEADER_REQUIRED");
   const finalized = parseHeader(sample.finalized, policy.network);
   requireThat(finalized.height <= head.height && stable(await canonical.header(finalized.height, signal)) === stable(finalized), "FINALIZED_HEADER_CONFLICT");

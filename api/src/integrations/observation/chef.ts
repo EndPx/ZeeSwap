@@ -6,6 +6,8 @@ export type CanonicalSample = { sourceId: string; checkedAt: string; head: Heade
 export interface CanonicalReader {
   sample(signal: AbortSignal): Promise<CanonicalSample>;
   header(height: number, signal: AbortSignal): Promise<Header>;
+  headers?(heights: readonly number[], signal: AbortSignal): Promise<Header[]>;
+  readonly headerBatchSize?:number;
 }
 export type PrivacyClassifier = (note: Readonly<ZcashNote>, signal: AbortSignal) => Promise<Pick<ZcashNote, "sourcePrivacy" | "privacyEvidenceDigest">>;
 export type ChefConfig = {
@@ -18,6 +20,19 @@ type Status = {
   lastCommitAt: string | null;
   source: { status: "available"; checkedAt: string; prepIndexedHeight: number; sourceObservedHeight: number; sourceObservedAt: number };
 };
+/** PostgreSQL-backed Chef source samples can use RFC3339 offsets and six
+ * fractional digits. Preserve the represented instant; never renew it at read. */
+export function chefSourceTimestamp(value: unknown): string {
+  requireThat(typeof value === "string", "INVALID_CHEF_SOURCE_TIME");
+  const match = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)(?:\.(\d{1,6}))?(Z|[+-](?:0\d|1\d|2[0-3]):[0-5]\d)$/.exec(value);
+  requireThat(match, "INVALID_CHEF_SOURCE_TIME");
+  const [year, month, day, hour, minute, second] = match.slice(1, 7).map(Number);
+  const calendar = new Date(Date.UTC(year!, month! - 1, day!, hour!, minute!, second!));
+  requireThat(calendar.getUTCFullYear() === year && calendar.getUTCMonth() + 1 === month && calendar.getUTCDate() === day
+    && calendar.getUTCHours() === hour && calendar.getUTCMinutes() === minute && calendar.getUTCSeconds() === second, "INVALID_CHEF_SOURCE_TIME");
+  const parsed = Date.parse(value); requireThat(Number.isFinite(parsed), "INVALID_CHEF_SOURCE_TIME");
+  return new Date(parsed).toISOString();
+}
 export function parseChefStatus(value: unknown, project: string, now: number): Status {
   const r = object(value, ["project", "generation", "revision", "checkpoint", "lastCommitAt", "source"]);
   requireThat(r.project === project, "WRONG_PROJECT"); text(r.generation); decimal(r.revision);
@@ -31,6 +46,7 @@ export function parseChefStatus(value: unknown, project: string, now: number): S
   if (r.lastCommitAt !== null) utc(r.lastCommitAt);
   const source = object(r.source, ["status", "checkedAt", "prepIndexedHeight", "sourceObservedHeight", "sourceObservedAt"]);
   requireThat(source.status === "available", "WAIT_SOURCE_UNAVAILABLE");
+  source.checkedAt = chefSourceTimestamp(source.checkedAt);
   fresh(utc(source.checkedAt), now); height(source.prepIndexedHeight); height(source.sourceObservedHeight); height(source.sourceObservedAt);
   requireThat(Number(source.sourceObservedAt) <= 8_640_000_000_000, "INVALID_SOURCE_TIME");
   fresh(new Date(Number(source.sourceObservedAt) * 1000).toISOString(), now);
@@ -112,7 +128,10 @@ export class ChefAdapter {
         const canonical = await this.config.canonical.sample(signal);
         fresh(utc(canonical.checkedAt), this.now()); requireThat(canonical.sourceId === this.config.policy.canonicalSourceId, "WRONG_CANONICAL_SOURCE");
         const head = parseHeader(canonical.head, this.config.policy.network);
-        requireThat(head.height >= after.source.sourceObservedHeight && head.height >= throughHeight, "SOURCE_HEAD_REGRESSION");
+        // Independent providers can observe different fresh tips. Only the
+        // independently checked head supplies confirmation coverage; a claimed
+        // Prep source tip never substitutes for canonical headers.
+        if(head.height < throughHeight) throw new ObservationError("WAIT_SOURCE_UNAVAILABLE");
         const headers: Header[] = [];
         for (let h = fromHeight; h <= throughHeight; h++) headers.push(parseHeader(await this.config.canonical.header(h, signal), this.config.policy.network));
         requireThat(headers.at(-1)?.hash === after.checkpoint.hash, "CANONICAL_CHECKPOINT_MISMATCH");

@@ -15,6 +15,7 @@ import subprocess
 import sys
 import traceback
 from reverse_preflight import validate_request
+from outgoing_recovery import MODE as OUTGOING_MODE,recover_operator_outputs
 
 
 _error_path = None
@@ -118,6 +119,11 @@ class Adapter:
         wallet = Path(config['walletDir']).resolve()
         if wallet.name != 'reverse-capital' or wallet == Path('/home/albary/zeeswap-g1/zingo-wallets/operator-b'):
             raise ValueError('Dedicated reverse capital wallet required')
+        mode=config.get('recipientProofMode','recipient-incoming')
+        if mode not in ('recipient-incoming',OUTGOING_MODE):
+            raise ValueError('Unknown recipient proof mode')
+        if mode==OUTGOING_MODE and (str(wallet)!='/home/albary/zeeswap-testnet-capital-20261023/reverse-capital' or 'recipientUfvkFile' in config):
+            raise ValueError('New live operator mode requires exclusive fresh capital wallet')
         self.base = config['cliCommand'] + ['--chain', 'testnet', '--data-dir', str(wallet)]
 
     def run(self, command, payload=None, timeout=240):
@@ -165,15 +171,19 @@ class Adapter:
         prepared = validate_prepared(export, self.request, intent, structure, tip, self.sdk, require_safe_expiry)
         # Incoming-key decrypt independently binds the actual encrypted payload
         # to the approved receiver/value even if journal metadata was altered.
-        key = Path(self.config['recipientUfvkFile']).read_text().strip()
-        decoded = self.sdk({'command': 'decrypt', 'ufvk': key, 'raw_hex': prepared['rawTransaction'],
-                            'txid': prepared['txid'], 'height': tip})
-        del key
-        approved = self.sdk({'command': 'validate', 'address': self.request['recipient']})
-        matches = [n for n in decoded.get('notes', []) if n.get('pool') == 'ironwood'
-                   and self.sdk({'command': 'validate', 'address': n['receiver']}) == approved]
-        if len(matches) != 1 or matches[0]['amount'] != self.request['amountZatoshi']:
-            raise ValueError('Actual prepared ciphertext recipient/value mismatch')
+        if self.config.get('recipientProofMode')==OUTGOING_MODE:
+            recovered=recover_operator_outputs(self.config,self.request,prepared,tip,self.sdk)
+            prepared['attestationMode']=recovered['attestationMode']
+        else:
+            key = Path(self.config['recipientUfvkFile']).read_text().strip()
+            decoded = self.sdk({'command': 'decrypt', 'ufvk': key, 'raw_hex': prepared['rawTransaction'],
+                                'txid': prepared['txid'], 'height': tip})
+            del key
+            approved = self.sdk({'command': 'validate', 'address': self.request['recipient']})
+            matches = [n for n in decoded.get('notes', []) if n.get('pool') == 'ironwood'
+                       and self.sdk({'command': 'validate', 'address': n['receiver']}) == approved]
+            if len(matches) != 1 or matches[0]['amount'] != self.request['amountZatoshi']:
+                raise ValueError('Actual prepared ciphertext recipient/value mismatch')
         return prepared
 
     def execute(self, command):
@@ -270,16 +280,19 @@ class Adapter:
                     raise ValueError('Mined transaction differs from prepared signed bytes')
                 self.verify({'version': 'zeeswap_prepared_v1', 'transactions': [prepared]}, intent,
                             tip, require_safe_expiry=False)
-                key = Path(self.config['recipientUfvkFile']).read_text().strip()
-                decoded = self.sdk({'command': 'decrypt', 'ufvk': key, 'raw_hex': raw.data.hex(),
-                                    'txid': txid, 'height': height})
-                del key
-                approved = self.sdk({'command': 'validate', 'address': self.request['recipient']})
-                outputs = [n for n in decoded.get('notes', []) if n.get('pool') == 'ironwood'
-                           and self.sdk({'command': 'validate', 'address': n['receiver']}) == approved]
-                if (len(outputs) != 1 or outputs[0]['amount'] != self.request['amountZatoshi']
-                        or outputs[0].get('shieldedSource') is not True):
-                    raise ValueError('Independent incoming recipient decrypt mismatch')
+                if self.config.get('recipientProofMode')==OUTGOING_MODE:
+                    recover_operator_outputs(self.config,self.request,prepared,height,self.sdk)
+                else:
+                    key = Path(self.config['recipientUfvkFile']).read_text().strip()
+                    decoded = self.sdk({'command': 'decrypt', 'ufvk': key, 'raw_hex': raw.data.hex(),
+                                        'txid': txid, 'height': height})
+                    del key
+                    approved = self.sdk({'command': 'validate', 'address': self.request['recipient']})
+                    outputs = [n for n in decoded.get('notes', []) if n.get('pool') == 'ironwood'
+                               and self.sdk({'command': 'validate', 'address': n['receiver']}) == approved]
+                    if (len(outputs) != 1 or outputs[0]['amount'] != self.request['amountZatoshi']
+                            or outputs[0].get('shieldedSource') is not True):
+                        raise ValueError('Independent incoming recipient decrypt mismatch')
                 final_block = service.GetBlock(messages.BlockID(height=height), timeout=20)
                 if final_block.hash != block.hash:
                     raise ValueError('Canonical receipt changed during verification')
@@ -293,6 +306,8 @@ class Adapter:
                            'recipient': self.request['recipient'], 'confirmations': tip - height + 1,
                            'shielded': True, 'confirmed': True}
                 receipt = bind_receipt(self.request, self.config['approvedDigest'], receipt)
+                if self.config.get('recipientProofMode')==OUTGOING_MODE:
+                    receipt['attestationMode']=OUTGOING_MODE
                 durable(self.path, {**intent, 'state': 'DELIVERY_CONFIRMED', 'receipt': receipt})
                 return receipt
             # Reparse journal bytes on every recovery/broadcast, avoiding trust
