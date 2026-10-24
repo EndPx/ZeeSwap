@@ -226,8 +226,15 @@ Successful intended principals are 100000 zatoshi to Base's 100000 atomic mockUS
 and back to 100000 zatoshi. Each native send has a 10000-zatoshi fee cap. USER
 approve/fund have individual 10000000000000-wei caps and a 20000000000000-wei total
 cap. Four operator Base transactions each cap at 10000000000000 wei, with actual
-L1/operator fees accounted from receipts. Successful ledger principal returns to
-200000 for both assets; operator TAZ fee inventory decreases only by its actual
-reverse fee and Base fee inventory by actual operator fees. USER gas and native
-fees remain separate. Inclusion, prepared bytes, provider health or a fresh
+L1/operator fees accounted from receipts. After both settlements, SQL principal
+inventory is 100000 for each asset with zero reserved. The settled incoming
+100000 of each asset remains in its `operator:unreconciled` ledger bucket;
+physical-capital approval does not credit inventory or reclassify proceeds.
+Operator TAZ fee inventory decreases from 20000 by the actual reverse fee, and
+Base fee inventory decreases from 500000000000000 by the four actual operator
+transaction fees. The contract's mock inventory/available values return to
+10100000/10000000, with excluded legacy reserved/liability still 100000/100000.
+Contract inventory and SQL available principal are distinct accounting
+boundaries. USER gas and native fees remain separate. Inclusion, prepared bytes,
+provider health or a fresh
 checkpoint alone never establishes settlement.

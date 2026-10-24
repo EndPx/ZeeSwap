@@ -40,12 +40,20 @@ Zcash tip at 4535991 left Chef's newest checkpoint noncanonical. All application
 SQL anchors, its durable cursor at 4535990 and the Base anchors still matched
 independent chain reads. The application correctly entered paused reconciliation
 at monotonic epoch 1, with all customer books empty; the source follower stopped
-when Prep's separate data epoch changed. Both observers remain stopped pending
+when Prep's separate data epoch changed. Both application observers were stopped pending
 official bounded source rollback/replay and explicit
 [epoch-one prefunding authorization](docs/evidence/prefunding-epoch1-authorization.md).
 The retained 142 Envio proofs, original R9 handoff and opening books are preserved.
 No epoch reset, source reseed or new customer-funded circle is authorized by a
 passing implementation test or a prepared proof template.
+
+Subsequent actual recovery passed official Chef single-block rollback/replay and
+verification, preserving generation and application epoch one. Root restarted
+the source follower with a new Prep-epoch proof and resumed the existing app
+cursor. A separately issued, hash-pinned epoch-one prefunding authority permits
+Envio to continue its original 142-proof prefix while controls remain paused.
+At 14:22 UTC it had 250 proofs, with full-history closure still pending. See
+[actual source recovery and continuation](docs/evidence/native-source-reorg-epoch1-live.md).
 
 Historical live-app checkpoint (23 October): an isolated Neon branch hosts separate
 application, Chef and Envio databases. Native Chef and Envio observers have
