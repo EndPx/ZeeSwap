@@ -1,0 +1,23 @@
+[Unit]
+Description=ZeeSwap loopback SELECT-only Envio export
+After=network-online.target
+
+[Service]
+Type=simple
+User=zeeswap-testnet
+Group=zeeswap-testnet
+WorkingDirectory=/opt/zeeswap-testnet/current/app/api
+Environment=NODE_OPTIONS=--max-old-space-size=192
+ExecStart=/usr/bin/node --import tsx scripts/serve-linux-envio-export.ts /opt/zeeswap-testnet/secrets/linux-envio-profile.private.json
+Restart=no
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+MemoryMax=320M
+TasksMax=24
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

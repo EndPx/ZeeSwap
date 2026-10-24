@@ -110,7 +110,7 @@ def main():
     parser.add_argument('--command', choices=('prepare','recover','broadcast','receipt'))
     args = parser.parse_args()
     scripts = Path(__file__).resolve().parent
-    allowed = {'native': {scripts/'prepared_raw.py', scripts/'live_refund_raw.py', scripts/'live_payer_send.py'},
+    allowed = {'native': {scripts/'prepared_raw.py', scripts/'live_refund_raw.py', scripts/'live_payer_send.py', scripts/'linux_native_wallet.py'},
                'base-forward': {scripts.parent/'base-signer/signer.py'},
                'base-reverse': {scripts.parent/'base-signer/reverse_signer.py'},
                'base-refund': {scripts.parent/'base-signer/refund_signer.py'}}

@@ -1,0 +1,3 @@
+# Exact versions already inspected in the approved Ubuntu 24.04 Python runtime.
+grpcio==1.84.0
+protobuf==7.36.2

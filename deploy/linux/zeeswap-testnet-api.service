@@ -1,0 +1,38 @@
+[Unit]
+Description=ZeeSwap isolated testnet API (paused controls remain authoritative)
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/opt/zeeswap-testnet/secrets/relocation-applied-proof.private.json
+
+[Service]
+Type=simple
+User=zeeswap-testnet
+Group=zeeswap-testnet
+WorkingDirectory=/opt/zeeswap-testnet/current/app/api
+Environment=HOME=/opt/zeeswap-testnet/home
+Environment=NODE_ENV=production
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=RAYON_NUM_THREADS=2
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+UMask=0077
+ExecStart=/usr/bin/node --import tsx scripts/serve-linux-testnet.ts /opt/zeeswap-testnet/secrets/api-profile.private.json
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=60
+KillMode=control-group
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/zeeswap-testnet/state
+ReadOnlyPaths=/opt/zeeswap-testnet/secrets /opt/zeeswap-testnet/home
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LimitNOFILE=4096
+TasksMax=96
+MemoryMax=768M
+CPUQuota=150%
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

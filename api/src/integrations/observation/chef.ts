@@ -93,15 +93,17 @@ export class ChefAdapter {
     requireThat(response.ok, "CHEF_HTTP_ERROR"); return readJson(response, signal);
   }
   /** Read the complete mutable tail in <=16-block query windows; nothing is published here. */
-  async traverse(fromHeight: number): Promise<TraversalResult> {
-    height(fromHeight); const started = this.monotonic(); const startedAt = new Date(this.now()).toISOString();
+  async traverse(fromHeight: number, finiteThroughHeight?:number): Promise<TraversalResult> {
+    height(fromHeight);if(finiteThroughHeight!==undefined)height(finiteThroughHeight);
+    const started = this.monotonic(); const startedAt = new Date(this.now()).toISOString();
     for (let restarts = 0; restarts <= 3; restarts++) {
       const remaining = 30_000 - (this.monotonic() - started);
       if (remaining <= 0) return { status: "WAIT_RANGE_UNSTABLE", retryAfterMs: 5000 + Math.floor(Math.random() * 1000), restarts };
       const signal = AbortSignal.timeout(Math.max(1, Math.floor(remaining)));
       try {
         const before = parseChefStatus(await this.request("/status", signal), this.config.project, this.now());
-        const throughHeight = before.checkpoint.height;
+        const throughHeight = finiteThroughHeight??before.checkpoint.height;
+        requireThat(throughHeight<=before.checkpoint.height,"CHEF_FINITE_RANGE_AHEAD");
         requireThat(fromHeight >= this.config.policy.birthday && fromHeight <= throughHeight, "INVALID_RANGE");
         requireThat(throughHeight - fromHeight + 1 <= (this.config.policy.maxBlocks ?? 1000), "BACKPRESSURE");
         const rows: unknown[] = [];
@@ -131,10 +133,11 @@ export class ChefAdapter {
         // Independent providers can observe different fresh tips. Only the
         // independently checked head supplies confirmation coverage; a claimed
         // Prep source tip never substitutes for canonical headers.
-        if(head.height < throughHeight) throw new ObservationError("WAIT_SOURCE_UNAVAILABLE");
+        if(head.height < after.checkpoint.height) throw new ObservationError("WAIT_SOURCE_UNAVAILABLE");
         const headers: Header[] = [];
         for (let h = fromHeight; h <= throughHeight; h++) headers.push(parseHeader(await this.config.canonical.header(h, signal), this.config.policy.network));
-        requireThat(headers.at(-1)?.hash === after.checkpoint.hash, "CANONICAL_CHECKPOINT_MISMATCH");
+        const checkpoint=throughHeight===after.checkpoint.height?headers.at(-1)!:parseHeader(await this.config.canonical.header(after.checkpoint.height,signal),this.config.policy.network);
+        requireThat(checkpoint.height===after.checkpoint.height&&checkpoint.hash === after.checkpoint.hash, "CANONICAL_CHECKPOINT_MISMATCH");
         requireThat(stable(await this.config.canonical.header(head.height, signal)) === stable(head), "CANONICAL_HEAD_CHANGED");
         const notes: ZcashNote[] = [];
         for (const value of rows) {

@@ -1,0 +1,27 @@
+[Unit]
+Description=ZeeSwap isolated Base Sepolia Envio writer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=zeeswap-testnet
+Group=zeeswap-testnet
+WorkingDirectory=/opt/zeeswap-testnet/state/envio-engine/project
+Environment=PATH=/usr/bin:/bin
+EnvironmentFile=/opt/zeeswap-testnet/secrets/envio-engine.private.env
+ExecStart=/bin/bash /opt/zeeswap-testnet/current/app/deploy/linux/envio/run-engine.sh
+Restart=no
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/zeeswap-testnet/state/envio-engine
+MemoryMax=512M
+TasksMax=32
+KillMode=control-group
+TimeoutStopSec=90
+
+[Install]
+WantedBy=multi-user.target
