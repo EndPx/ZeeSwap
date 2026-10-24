@@ -1,6 +1,14 @@
 import { performance } from "node:perf_hooks";
 import { contentDigest, decimal, digest, fresh, height, hex, object, ObservationError, parseHeader, parseObservation, requireThat, stable, text, utc, validateRange, validateChefHistoricalRange, type ChefHistoricalWitness, type Header, type Policy, type ReplaceRange, type ZcashNote } from "./types.ts";
 
+/** A changed sampled tip is distinct from a persisted-anchor conflict. */
+export class ChefCanonicalHeadChanged extends ObservationError {
+ recheckFailure?:unknown;
+ constructor(readonly expected:Header,readonly actual:Header,readonly phase:'traversal'|'anchor-recheck') {super('CANONICAL_HEAD_CHANGED');this.name='ChefCanonicalHeadChanged';}
+}
+export function requireChefCanonicalHead(expected:Header,actual:Header,phase:'traversal'|'anchor-recheck'){
+ if(stable(actual)!==stable(expected))throw new ChefCanonicalHeadChanged(expected,actual,phase);
+}
 export type CanonicalSample = { sourceId: string; checkedAt: string; head: Header; finalized?: Header };
 /** Implement with an independently configured canonical RPC/header source. No signing methods. */
 export interface CanonicalReader {
@@ -138,7 +146,7 @@ export class ChefAdapter {
         for (let h = fromHeight; h <= throughHeight; h++) headers.push(parseHeader(await this.config.canonical.header(h, signal), this.config.policy.network));
         const checkpoint=throughHeight===after.checkpoint.height?headers.at(-1)!:parseHeader(await this.config.canonical.header(after.checkpoint.height,signal),this.config.policy.network);
         requireThat(checkpoint.height===after.checkpoint.height&&checkpoint.hash === after.checkpoint.hash, "CANONICAL_CHECKPOINT_MISMATCH");
-        requireThat(stable(await this.config.canonical.header(head.height, signal)) === stable(head), "CANONICAL_HEAD_CHANGED");
+        requireChefCanonicalHead(head,await this.config.canonical.header(head.height, signal),'traversal');
         const notes: ZcashNote[] = [];
         for (const value of rows) {
           const r = object(value, noteSelection.split(" "));

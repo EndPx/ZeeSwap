@@ -2,6 +2,19 @@
 
 Last updated: 2026-10-25 (Asia/Jakarta), for the isolated native Linux deployment. Execution evidence below retains its recorded dates.
 
+Latest reconciliation checkpoint (25 October): migration 0018 was explicitly
+installed and its stored source and privileges verified. No replacement quote
+was accepted. One passing source window aged before activation; a separately
+journaled one-shot window then stopped when controls entered reconciliation at
+epoch seven. Root's actual read-only audit matched all 1,324 retained native
+header hashes, all 114 retained Base header hashes, cursor, checkpoints,
+finalized and financial anchors. The full 39-row ledger snapshot remained
+unchanged. The historical error trigger is unproven. Controls remain paused;
+the old authority is fenced and the funded two-way circle remains pending.
+Continue through explicit audited monotonic recovery and fresh readiness gates,
+preserving closed sessions and the unused replacement session. See
+[observer reconciliation checkpoint](docs/evidence/native-observer-reconciliation-recovery.md).
+
 Public deployment checkpoint (24 October): the raccoon frontend and native API
 are reachable at `https://zeeswap.endpx.cloud/`; HTTPS `/health` returned 200.
 The restricted operator state has been relocated to the isolated Hostinger VPS.
