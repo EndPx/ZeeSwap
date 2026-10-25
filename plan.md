@@ -14,7 +14,25 @@ and released its locks before starting the container writer. Container startup
 does not authorize a project reset, financial activation or a payment. Docker
 remains prohibited on the laptop; do not provision local PostgreSQL there.
 
-Current normal-follow checkpoint (25 October): the earlier owned deadline
+Current application recovery checkpoint (25 October): the new published fast
+path passed 82 VPS cases and typechecking. After a fresh independent audit,
+capital captures and a separate metadata-only approval, Root completed exact
+publication through 4540584 from the old 4537824 checkpoint. Independent
+transaction/intent/cursor/canonical readback passed and recovery markers cleared;
+all 19 financial tables/70 rows and paused epoch-ten controls remained unchanged,
+with zero authority rows and the original financial approval still expired.
+Root started the ordinary application observer at 14:51:27 UTC; its journal then
+recorded 18 successful cycles through 14:54:33.624 UTC with zero outputs/operations
+and no other status. At 14:54:36.809 UTC, both application checkpoints were fresh:
+Zcash 4540588 matched Core/Prep with gap zero, and Base was 50090935. Financial
+state remained exact and paused. This finite observation interval does not close
+the continuous 300-second financial readiness window or a funded circle.
+No activation, new payment,
+financial authority renewal or G5 continuation is claimed. Earlier refused
+campaigns and their retired markers/proofs are preserved. See
+[actual linked metadata recovery](docs/evidence/native-chef-linked-suffix-live.md).
+
+Earlier normal-follow checkpoint (25 October): the earlier owned deadline
 cleanly stopped source recovery at 12:34:49 UTC after reaching the observed tip.
 Root verified unchanged identity/entities and 201 canonical retained headers,
 then started normal cap-one following at 13:25:28.597 UTC without source-recovery
@@ -28,7 +46,7 @@ zero authorization rows. The application observer remains stopped at stale
 activation or G5. No crash/reboot recovery test or new payment is claimed. See
 [normal continuous handoff](docs/evidence/native-chef-normal-follow.md).
 
-Current application metadata checkpoint (25 October): Root deployed the reviewed
+Earlier application metadata checkpoint (25 October): Root deployed the reviewed
 V2 path, passed 74 VPS cases and typechecking, and issued a metadata-only approval
 after a fresh R4 canonical audit and capital checks. Six private proofs completed
 coverage through 4540483, but two explicit publication attempts refused an aged

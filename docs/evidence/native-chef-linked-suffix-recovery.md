@@ -1,5 +1,13 @@
 # Chef linked suffix recovery with retained closed history
 
+The later [actual metadata publication and observer handoff](native-chef-linked-suffix-live.md)
+records the successful independent campaign after the refused attempts below,
+including four proofs/2,770 unique headers, exact committed metadata publication
+and 18 subsequent successful ordinary cycles. The 14:54:36.809 UTC readback
+verified fresh application sources while financial controls remained paused;
+the separate 300-second financial readiness window and funded circle remain open.
+Preparation, local checks and historical pending states remain preserved here.
+
 The new Root-only recovery command prepares complete private coverage from the existing durable cursor minus nine through a fresh Chef target. It preserves the original wallet birthday, source identity, opening recovery journal, cursor archive, and financial history. The ordinary consumer's 1,000-header limit remains unchanged.
 
 This is a separate metadata authority. The existing continuation authority supplies the validated closed-history schema and immutable bindings; it does not implicitly authorize recovery or activation. The new Root approval pins its raw bytes, exact paused control epoch/xmin, full financial digest, SQL checkpoint, equal-height/equal-hash cursor, legacy journal, stopped-observer evidence and separately verified capital evidence. Archival physical observation timestamps remain unchanged. Root's issuance verification time is distinct from those timestamps. In version one, approval expiry cannot exceed the pinned continuation authority expiry; its current-time financial-authority check is unchanged.
