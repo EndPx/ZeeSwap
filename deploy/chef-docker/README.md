@@ -47,6 +47,17 @@ Differences from the public reference are deliberate:
   loopback port after explicit cutover. Do not expose it publicly through a new
   port mapping. Docker network peers can still reach container interfaces;
   authenticated Chef access and a reviewed VPS network/firewall remain required.
+- Compose requires `CHEF_DOCKER_NETWORK` to name a pre-created dedicated
+  user-defined external network. It allocates no implicit default subnet. Before
+  provisioning that one network, the VPS operator must inspect all host/VPN
+  routes and existing Docker IPAM ranges, select a small non-overlapping CIDR,
+  and verify its gateway, driver, DNS and outbound access for Neon/Prep. Retain
+  the reviewed network identity and subnet receipt privately. No subnet or
+  existing network is assumed safe by this example. Missing configuration or a
+  missing external network must stop startup. Do not change daemon address pools,
+  delete unrelated networks, use host networking or substitute Docker's built-in
+  default bridge to bypass this requirement. Network provisioning/verification
+  remains an explicit operator step; this revision does not claim it completed.
 - Follower is behind Compose profile `writer` and also requires
   `CHEF_ENABLE_FOLLOWER=reviewed-cutover`. Default `compose up` selects the API
   only. That string is an operator guard, **not an authority or proof**.
@@ -59,10 +70,14 @@ Differences from the public reference are deliberate:
 - Both roles use `restart: "no"`. Fatal identity, scanner, reorg or source errors
   require inspection. There is no outer retry loop or host startup unit here.
   Chef's own documented source-unavailable wait behavior remains unchanged.
-- The unchanged `bounded-prep-client.mjs` wraps the official CLI client seam:
-  outgoing payload queries remain one block / limit one. Config page size 16 is
-  preserved byte-for-byte, but cannot cause sixteen-block raw requests through
-  this wrapper. No adaptive fallback is introduced. Official Chef validates
+- `bounded-prep-client.mjs` wraps the official CLI client seam: outgoing payload
+  queries default to one block / limit one. Private `pins.maxPayloadBlocks: 2`
+  explicitly permits fixed two-block requests; absent or `1` retains one, and
+  every other value refuses startup before SDK/database/writer invocation.
+  Range and limit are capped by the original query too, so canonical header
+  queries stay one block. Config page size 16 and batch size one remain
+  byte-for-byte unchanged; this transport cannot cause sixteen-block raw requests
+  or batch commits. No adaptive fallback is introduced. Official Chef validates
   source epochs, canonicality and persisted commits; an initial Prep epoch is
   not frozen. Docker does not fix Prep startup latency or ingestion behavior.
 
@@ -195,6 +210,26 @@ cleanup and advisory-lock release, and retain independent before/after canonical
 and financial receipts. The proof expiry gates startup; it is not a built-in
 runtime watchdog. This remains preparation until actual operator evidence exists.
 
+### Optional fixed-two transport comparison: pending
+
+The two-block cap is a bounded candidate, not a performance claim. It retains
+the original field/filter objects, options/AbortSignal, exact response identity,
+PrepClient's 32 MiB response guard and official epoch/continuity validation.
+There is no automatic fallback after HTTP 413 or another error. Changing the
+bounded client/runtime requires a new reviewed image and file pins, while the
+Chef config/schema/handler identity remains unchanged.
+
+Before selecting cap two, Root records a five-minute cap-one baseline while
+ingestion continues and the builder is idle. After reviewed stop/lock release
+and new image/pins, Root measures a five-minute cap-two candidate and verifies
+independent canonical checkpoint history, unchanged financial state and fresh
+source observations. Compare completed blocks, fetch time per completed block,
+net backlog reduction, provider waits/errors and CPU/RAM. Acceptance requires
+at least 20% lower fetch time per block and 15% higher net catch-up rate, with
+no correctness/fatal/HTTP-413 or resource regression. Otherwise stop and inspect,
+then explicitly restore reviewed cap-one pins; do not retry or fall back
+automatically. Local tests do not establish the measured improvement.
+
 No valid private pin file, verified image digest, scanner compatibility receipt,
 host writer-stop receipt or replacement operator authority is supplied by this
 preparation. Generating hashes does not authorize their use. The original
@@ -241,7 +276,8 @@ The preparation does not authorize migrations or a new readiness proof.
    native rollback supervision disabled while the container owns the writer.
    Resolve the existing host API port owner before starting the new query API.
 5. Set nonsecret Compose variables `CHEF_IMAGE` (reviewed name@sha256 digest),
-   `CHEF_PRIVATE_DIR`, `CHEF_UID` and `CHEF_GID`. An explicit
+   `CHEF_PRIVATE_DIR`, `CHEF_UID`, `CHEF_GID` and `CHEF_DOCKER_NETWORK` (the
+   separately reviewed, pre-created user-defined external network). An explicit
    `docker compose -f deploy/chef-docker/compose.yaml up -d --no-build api`
    starts only the query API. Verify authenticated status/identity/read-gate
    through loopback and source/checkpoint readback before any writer start. An
@@ -287,7 +323,7 @@ node --check deploy/chef-docker/stage-context.mjs
 git diff --check
 ```
 
-On 25 October 2026, Node 24.18.0 passed **23 tests, zero failures/skips**, both
+On 25 October 2026, Node 24.18.0 passed **26 tests, zero failures/skips**, both
 syntax checks and `git diff --check` (only existing CRLF conversion warnings for
 unrelated modified files). Tests verify API key/scanner isolation, explicit
 writer opt-in, forbidden mutation commands, byte/SDK/UID/fingerprint refusals,
@@ -299,3 +335,7 @@ whitespace-only tokens or empty required API credentials. SDK/process/database c
 fixtures; the scanner is a synthetic file and is never executed. These establish
 wrapper behavior and static contracts, not actual container ABI, database grants,
 VPS networking, lock ownership, sustained following or live settlement.
+The external-network static check requires an explicit nonempty network variable
+and `external: true`, and refuses embedded IPAM/subnet or network-mode fallbacks.
+Actual Compose interpretation and the network's overlap/reachability checks
+remain VPS operator verification; no runtime or image bytes change for this fix.

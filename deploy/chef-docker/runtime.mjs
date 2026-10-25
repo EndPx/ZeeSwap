@@ -84,6 +84,8 @@ export async function runRuntime(args = process.argv.slice(2), options = {}) {
   const app = options.app ?? '/app', privateDir = options.privateDir ?? '/run/chef';
   const metadata = validateMetadata(JSON.parse(await regularFile(resolve(privateDir, 'metadata.json'))));
   const pins = JSON.parse(await regularFile(resolve(privateDir, 'pins.json')));
+  const maxPayloadBlocks = pins.maxPayloadBlocks === undefined ? 1 : pins.maxPayloadBlocks;
+  if (maxPayloadBlocks !== 1 && maxPayloadBlocks !== 2) fail('FIXED_PAYLOAD_CAP_INVALID');
   const identity = options.identity ?? { uid: process.getuid?.(), gid: process.getgid?.() };
   if (!Number.isInteger(pins.uid) || pins.uid <= 0 || !Number.isInteger(pins.gid) || pins.gid <= 0
     || identity.uid !== pins.uid || identity.gid !== pins.gid) fail('RUNTIME_IDENTITY_MISMATCH');
@@ -143,8 +145,8 @@ export async function runRuntime(args = process.argv.slice(2), options = {}) {
   const keyInfo = await lstat(env.ZEESWAP_CHEF_UFVK_FILE);
   if (!keyInfo.isFile() || keyInfo.isSymbolicLink() || keyInfo.size < 1 || keyInfo.size > 16384) fail('INVALID_UFVK_FILE');
   const { PrepClient } = options.prep ?? await import('@zeer-dev/prep-client');
-  const { singleBlockClient } = options.bounded ?? await import(pathToFileURL(resolve(app, 'bounded-prep-client.mjs')).href);
-  const client = singleBlockClient(new PrepClient({ url: metadata.ZEESWAP_CHEF_PREP_URL, ...(prepToken !== undefined ? { token: prepToken } : {}) }));
+  const { fixedPayloadClient } = options.bounded ?? await import(pathToFileURL(resolve(app, 'bounded-prep-client.mjs')).href);
+  const client = fixedPayloadClient(new PrepClient({ url: metadata.ZEESWAP_CHEF_PREP_URL, ...(prepToken !== undefined ? { token: prepToken } : {}) }), maxPayloadBlocks);
   let status;
   try {
     await sdk.main(['status', '--config', config, '--json'], { client, write: text => { status = JSON.parse(text); } });
@@ -162,7 +164,7 @@ export async function runRuntime(args = process.argv.slice(2), options = {}) {
     await verifySourceRecovery({ pins, status, metadata, client, now: options.now });
   } else if (!ready) fail('FOLLOWER_PREFLIGHT_NOT_READY');
   // Official CLI owns source epochs, canonicality, writer locks, commit and signal cleanup.
-  // Fixed single-block requests retain the deployed response-size protection.
+  // Default-one or explicitly pinned fixed-two bounds retain the SDK's response-size protection.
   await sdk.main(['sync', '--config', config, '--follow', '--json'], { client });
 }
 export async function runtimeFailure(error, app = '/app') {

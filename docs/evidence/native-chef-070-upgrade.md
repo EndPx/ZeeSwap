@@ -1,6 +1,6 @@
 # Chef 0.7.0: local compatible upgrade preparation
 
-Recorded 25 October 2026. This revision upgrades only the local exact Chef
+Initial preparation recorded 25 October 2026. This revision upgrades the local exact Chef
 dependency/lock, Docker wrapper version guard, validated additive status metadata
 and separately opted-in source-reconciliation startup with associated tests/docs.
 It does not deploy an image, start a follower, reconcile the live database,
@@ -8,6 +8,11 @@ change financial authority or prove readiness. The separately recorded VPS API
 canary and native API still belong to the historical 0.6.1 deployment until an
 operator records otherwise. The [canary evidence](native-chef-docker-canary.md)
 retains its original meaning.
+
+Subsequent operator execution backed up the existing namespace, built and tested
+the image with the actual scanner, and resumed a single Docker follower without
+changing the generation. See the [live upgrade record](native-chef-070-live.md)
+for exact evidence and the still-pending catch-up/application gates.
 
 ## Compatibility inspected before editing
 

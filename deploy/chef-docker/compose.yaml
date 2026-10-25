@@ -42,3 +42,10 @@ services:
       - {type: bind, source: "${CHEF_PRIVATE_DIR}/prep-token", target: /run/chef/prep-token, read_only: true, bind: {create_host_path: false}}
       - {type: bind, source: "${CHEF_PRIVATE_DIR}/testnet.ufvk", target: /run/chef/testnet.ufvk, read_only: true, bind: {create_host_path: false}}
       - {type: bind, source: "${CHEF_SCANNER_PATH:-/nonexistent-zeeswap-scanner}", target: /run/chef/zeer-scanner, read_only: true, bind: {create_host_path: false}}
+
+# Provision and inspect a dedicated user-defined network explicitly on the VPS.
+# Compose must not allocate another default address pool on this shared host.
+networks:
+  default:
+    external: true
+    name: ${CHEF_DOCKER_NETWORK:?Set reviewed user-defined network}

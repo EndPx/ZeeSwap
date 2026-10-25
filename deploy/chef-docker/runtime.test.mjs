@@ -6,7 +6,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runRuntime, digest, validateMetadata, validateDatabase, verifySourceRecovery, runtimeFailure } from './runtime.mjs';
 import { stageContext, projectFiles } from './stage-context.mjs';
-import { singleBlockClient } from '../../indexers/zeer/bounded-prep-client.mjs';
+import { fixedPayloadClient } from '../../indexers/zeer/bounded-prep-client.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const metadata = {
@@ -43,7 +43,7 @@ async function fixture(t) {
       if (args[0] === 'sync') await dependencies.client.get({ from_block: 1, to_block: 17, limit: 16 }); } };
   const requests = [], prepOptions = [];
   const prep = { PrepClient: class { constructor(options) { prepOptions.push(options); } async get(query) { requests.push(query); return {}; } } };
-  return { app, privateDir, env, sdk, prep, bounded: { singleBlockClient }, identity: { uid: 986, gid: 978 }, pins, savePins, calls, requests, prepOptions, status };
+  return { app, privateDir, env, sdk, prep, bounded: { fixedPayloadClient }, identity: { uid: 986, gid: 978 }, pins, savePins, calls, requests, prepOptions, status };
 }
 test('API starts authenticated serve with metadata only, without scanner, UFVK or Prep token files', async t => {
   const f = await fixture(t);
@@ -99,6 +99,21 @@ test('follower retains fixed single-block transport through the official CLI sea
   assert.deepEqual(f.requests, [{ from_block: 1, to_block: 2, limit: 1 }]);
   assert.equal(f.prepOptions[0].token, 'fixture-prep-token');
   assert.equal(f.env.ZEESWAP_CHEF_PREP_TOKEN, 'fixture-prep-token');
+});
+test('only explicit private cap two enables two-block transport; cap one retains default', async t => {
+  for (const cap of [1, 2]) {
+    const f = await fixture(t); await scannerFixture(f); f.pins.maxPayloadBlocks = cap; await f.savePins();
+    await runRuntime(['follower'], f);
+    assert.deepEqual(f.requests, [{ from_block: 1, to_block: 1 + cap, limit: cap }]);
+  }
+});
+test('unsupported private transport caps refuse before SDK or writer invocation', async t => {
+  const f = await fixture(t); await scannerFixture(f);
+  for (const cap of [0, 3, 16, '2', null, true]) {
+    f.pins.maxPayloadBlocks = cap; await f.savePins();
+    await assert.rejects(runRuntime(['follower'], f), /FIXED_PAYLOAD_CAP_INVALID/);
+    assert.deepEqual(f.calls, []);
+  }
 });
 test('public Prep follower accepts an empty optional token without sending authentication', async t => {
   const f = await fixture(t); await scannerFixture(f);
@@ -164,6 +179,11 @@ test('static deployment contract excludes database service, implicit build and d
   const ignore = await readFile(resolve(here, '.dockerignore'), 'utf8');
   assert.ok(ignore.startsWith('**\n'));
   assert.doesNotMatch(ignore, /!.*(?:\.env|ufvk|wallet|receipt|database)/);
+});
+test('Compose requires a pre-created reviewed external network without allocating a default subnet', async () => {
+  const compose = await readFile(resolve(here, 'compose.yaml'), 'utf8');
+  assert.match(compose, /networks:\s*\n  default:\s*\n    external: true\s*\n    name: \$\{CHEF_DOCKER_NETWORK:\?Set reviewed user-defined network\}/);
+  assert.doesNotMatch(compose, /network_mode:|\bipam:|\bsubnet:|\bdriver:\s*bridge/);
 });
 function recoveryFixture() {
   const now = 1800000000, generation = '11111111-2222-3333-4444-555555555555', hash = 'd'.repeat(64);
