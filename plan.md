@@ -66,6 +66,16 @@ preserves expired financial authority strictly as an archive. Actual issuance,
 complete retained-range traversal, exact publication and ordinary following
 remain pending; the Native one-tip repair is a separate preceding operation.
 
+The [closed-history Native tip repair](docs/evidence/native-chef-closed-tip-repair.md)
+is prepared for the exact frozen E217 incident. Root independently passed five
+pure cases and one actual isolated restricted-role PostgreSQL case with zero
+skips. The shipped triggers produce the expected E217-to-E219 transition while
+preserving all synthetic financial rows, final height and old observation time.
+Peer review cleared the final CLI/model. Actual reviewed inspection, separate
+metadata-only issuance, exact transaction/cursor completion and subsequent Base
+recovery remain operator gates. Production timeout readback is five minutes idle
+in transaction and zero transaction timeout; no timeout or privilege was widened.
+
 Earlier application recovery checkpoint (25 October): the new published fast
 path passed 82 VPS cases and typechecking. After a fresh independent audit,
 capital captures and a separate metadata-only approval, Root completed exact
