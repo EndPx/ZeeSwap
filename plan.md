@@ -28,7 +28,22 @@ zero authorization rows. The application observer remains stopped at stale
 activation or G5. No crash/reboot recovery test or new payment is claimed. See
 [normal continuous handoff](docs/evidence/native-chef-normal-follow.md).
 
-Application metadata preparation (25 October): version-two linked recovery now
+Current application metadata checkpoint (25 October): Root deployed the reviewed
+V2 path, passed 74 VPS cases and typechecking, and issued a metadata-only approval
+after a fresh R4 canonical audit and capital checks. Six private proofs completed
+coverage through 4540483, but two explicit publication attempts refused an aged
+target before intent/completion or SQL mutation. The application observer remains
+stopped. A separate one-shot catch-up/publish schedule now prepares bulk canonical
+verification before selecting one fresh bounded tail, retaining all exact source,
+deadline, authority, control/books and commit gates. It requires reviewed new code,
+fresh Root approval/audit and an independent campaign before actual use; no
+financial authority, activation, G5 or successful application recovery is claimed.
+Local checks passed 82 focused cases with zero skips and API typechecking;
+independent peer review passed 25 linked cases with zero skips. These local
+results do not replace a new actual combined publication.
+See [linked recovery scheduling](docs/evidence/native-chef-linked-suffix-recovery.md).
+
+Earlier application metadata preparation (25 October): version-two linked recovery now
 has a separate Root metadata-only expiry of at most two hours and a freshly
 pinned canonical audit. The expired financial authority is validated only as
 an immutable closed-history archive at its own original verification time;

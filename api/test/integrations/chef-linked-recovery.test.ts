@@ -4,7 +4,51 @@ import {appendChefLinkedRecoveryProof,chefLinkedCampaignDirectory,chefLinkedReco
 import {chefPersistedCanonical} from '../../src/integrations/observation/chef-live.ts';
 import {contentDigest,digest,type Header,type ReplaceRange,type ChefHistoricalWitness} from '../../src/integrations/observation/types.ts';
 import type {Snapshot} from '../../src/observer.ts';
+import {chefLinkedInvocationCanonical,chefLinkedPublicationFence,prepareChefLinkedCatchupPublish,type LinkedCanonical} from '../../src/integrations/observation/chef-linked-catchup.ts';
 const hash=(n:number)=>n.toString(16).padStart(64,'0'),time=new Date().toISOString(),header=(height:number):Header=>({height,hash:hash(height),parentHash:hash(height-1),time}),sha=hash(999);
+test('invocation canonical cache preserves all old entries, fetches only missing tail and rejects changed seams',async()=>{
+ const ranges:{fromHeight:number;throughHeight:number}[]=[],signal=new AbortController().signal;let changed=false,fresh=0;
+ const reader=chefLinkedInvocationCanonical(range=>({sample:async()=>{if(range)ranges.push(range);return{sourceId:'independent-fixture',checkedAt:time,head:header(1122)};},header:async h=>{if(!range)fresh++;return changed&&h===1100?{...header(h),hash:hash(9999)}:header(h);}}));
+ await reader.prefetchPersisted([100,1100],signal);const count=ranges.length;await reader.prefetchPersisted([101,1099],signal);assert.equal(ranges.length,count);
+ await reader.prefetchPersisted([1110],signal);assert.deepEqual(ranges.at(-1),{fromHeight:1100,throughHeight:1110});assert.deepEqual(await reader.header(101,signal),header(101));
+ await reader.sample(signal);await reader.header(1122,signal);await reader.freshHeader(100,signal);assert.equal(fresh,2);
+ const forked=chefLinkedInvocationCanonical(range=>({sample:async()=>({sourceId:'independent-fixture',checkedAt:time,head:header(1122)}),header:async h=>changed&&h===1100?{...header(h),hash:hash(9999)}:header(h)}));
+ changed=false;await forked.prefetchPersisted([100,1100],signal);changed=true;await assert.rejects(forked.prefetchPersisted([1110],signal),/HISTORICAL_CANONICAL_REORG/);
+});
+function catchupFixture(){const{p,j}=complete(),events:number[]=[],ranges:{fromHeight:number;throughHeight:number}[]=[];let core=2095,reads=0,traversals=0,saves=0;
+ const canonical=chefLinkedInvocationCanonical(range=>({sample:async()=>{if(range){ranges.push(range);core=2100;}return{sourceId:'independent-fixture',checkedAt:time,head:header(2102)};},header:async h=>{if(range)events.push(h);return header(h);}}));
+ const options={journal:j,approval:p,sha,canonical,checks:[100],guard:async()=>{},readCurrent:async()=>{reads++;assert.ok(chefLinkedRecoveryHeaders(j).every(old=>events.includes(old.height)));return{generation:p.identity.generation,checkpoint:{height:core,hash:hash(core)}};},traverse:async(r:{fromHeight:number;throughHeight:number})=>{traversals++;assert.deepEqual(r,{fromHeight:2087,throughHeight:2100});const result=range(r.fromHeight,r.throughHeight,2100);return result;},save:async()=>{saves++;}};
+ return{options,ranges,events,get reads(){return reads;},get traversals(){return traversals;},get saves(){return saves;}};
+}
+test('combined one-shot selects moving Core only after bulk verification and reuses old history for final snapshot',async()=>{
+ const f=catchupFixture(),result=await prepareChefLinkedCatchupPublish(f.options);assert.equal(result.snapshot.scannedHeight,2100);assert.equal(f.traversals,1);assert.equal(f.saves,1);assert.equal(f.reads,3);
+ assert.equal(f.ranges.filter(r=>r.fromHeight===100).length,1);assert.ok(f.ranges.every(r=>r.throughHeight-r.fromHeight+1<=1000));
+ assert.ok(f.ranges.some(r=>r.fromHeight===2097&&r.throughHeight===2100));assert.ok(f.ranges.some(r=>r.fromHeight===2100&&r.throughHeight===2102));
+});
+test('combined one-shot still rejects notes, old-header forks, expired/control fences and moving final Core without chasing',async()=>{
+ const notes=catchupFixture();notes.options.traverse=async(r)=>{const value=range(r.fromHeight,r.throughHeight,2100);value.batch.observations=[{} as any];return value;};await assert.rejects(prepareChefLinkedCatchupPublish(notes.options),/FINANCIAL_OBSERVATION/);assert.equal(notes.saves,0);
+ const control=catchupFixture();control.options.guard=async()=>{throw Error('CONTROL_CHANGED');};await assert.rejects(prepareChefLinkedCatchupPublish(control.options),/CONTROL_CHANGED/);assert.equal(control.reads,0);assert.equal(control.saves,0);
+ const expired=catchupFixture();expired.options.guard=async()=>validateChefLinkedApprovalTime(expired.options.approval,Date.parse(expired.options.approval.expiresAt));await assert.rejects(prepareChefLinkedCatchupPublish(expired.options),/APPROVAL_TIME/);assert.equal(expired.reads,0);assert.equal(expired.saves,0);
+ const fork=catchupFixture();fork.options.canonical=chefLinkedInvocationCanonical(()=>({sample:async()=>({sourceId:'independent-fixture',checkedAt:time,head:header(2102)}),header:async h=>h===1500?{...header(h),time:new Date(Date.parse(time)+1).toISOString()}:header(h)}));await assert.rejects(prepareChefLinkedCatchupPublish(fork.options),/HISTORICAL_CANONICAL_REORG/);
+ const moving=catchupFixture(),read=moving.options.readCurrent;let count=0;moving.options.readCurrent=async()=>{const value=await read();return++count===3?{...value,checkpoint:{height:2101,hash:hash(2101)}}:value;};await assert.rejects(prepareChefLinkedCatchupPublish(moving.options),/CURRENT_TAIL_CHANGED/);assert.equal(moving.traversals,1);
+});
+test('combined final stage refuses incomplete/oversized suffix and fresh M/S conflicts without a second traversal',async()=>{
+ const incomplete=catchupFixture();incomplete.options.journal={...incomplete.options.journal,proofs:incomplete.options.journal.proofs.slice(0,1)};await assert.rejects(prepareChefLinkedCatchupPublish(incomplete.options),/COMPLETE_PREFIX_REQUIRED/);assert.equal(incomplete.reads,0);
+ const large=catchupFixture(),read=large.options.readCurrent;large.options.readCurrent=async()=>{const value=await read();return{...value,checkpoint:{height:3100,hash:hash(3100)}};};await assert.rejects(prepareChefLinkedCatchupPublish(large.options),/FINAL_SUFFIX_TOO_LARGE/);assert.equal(large.traversals,0);assert.equal(large.saves,0);
+ for(const which of ['M','S']){const f=catchupFixture(),fresh=f.options.canonical.freshHeader;let m=0;f.options.canonical.freshHeader=async(h,signal)=>{const value=await fresh(h,signal);if(h===2100)m++;return(which==='M'&&h===2100&&m===3||which==='S'&&h===2102)?{...value,hash:hash(9999)}:value;};await assert.rejects(prepareChefLinkedCatchupPublish(f.options),which==='M'?/TARGET_REORG/:/CANONICAL_HEAD_CHANGED/);assert.equal(f.traversals,1);}
+});
+test('combined final cancellation reaches selected source, tail and cached canonical reads before any save',async()=>{
+ const f=catchupFixture(),controller=new AbortController(),original=f.options.readCurrent;let selectedSignal:AbortSignal|undefined;
+ const readCurrent=async(signal?:AbortSignal)=>{selectedSignal=signal;return original();};
+ const traverse=async(_range:{fromHeight:number;throughHeight:number},reader:LinkedCanonical,signal:AbortSignal)=>{assert.equal(signal,selectedSignal);controller.abort(Error('FINAL_WINDOW_EXPIRED'));await reader.header(100,new AbortController().signal);return range(2087,2100,2100);};
+ await assert.rejects(prepareChefLinkedCatchupPublish({...f.options,readCurrent,traverse,finalSignal:controller.signal}),/FINAL_WINDOW_EXPIRED/);assert.equal(f.saves,0);
+});
+test('intent fsync crossing final deadline retains durable intent and rejects before metadata publisher proceeds',async()=>{
+ const controller=new AbortController();let intent=false,leaseChecked=false,metadataWrites=0;
+ await assert.rejects((async()=>{await chefLinkedPublicationFence(controller.signal,async()=>{intent=true;controller.abort(Error('FSYNC_WINDOW_EXPIRED'));},async()=>{leaseChecked=true;});metadataWrites++;})(),/FSYNC_WINDOW_EXPIRED/);
+ assert.equal(intent,true);assert.equal(leaseChecked,true);assert.equal(metadataWrites,0);
+ let untouched=true;await assert.rejects(chefLinkedPublicationFence(controller.signal,async()=>{untouched=false;},async()=>{}),/FSYNC_WINDOW_EXPIRED/);assert.equal(untouched,true);
+});
 test('V2 metadata approval has its own two-hour expiry and pins while preserving proof/output/commit boundaries',async()=>{
  const{p,context}=fixture(),at=Date.parse(p.verifiedAt),v2:ChefLinkedApproval={...p,version:2,status:'ROOT_CHEF_LINKED_SUFFIX_METADATA_RECOVERY_APPROVED',publicCommit:'a'.repeat(40),freshCanonicalAudit:{path:context.stateRoot+'/current-audit.private.json',sha256:hash(70)},expiresAt:new Date(at+7200000).toISOString()};
  assert.equal(validateChefLinkedApproval(v2,context,at),v2);

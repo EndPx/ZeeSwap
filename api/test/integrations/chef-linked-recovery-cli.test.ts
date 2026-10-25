@@ -1,7 +1,12 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,unlink,rm} from 'node:fs/promises';import {join} from 'node:path';import {tmpdir} from 'node:os';
 import {requireChefRecoveryMarkersClear} from '../../scripts/observe-linux-chef.ts';
-import {parseChefLinkedArgs,validateChefLinkedPersistedBindings,validateChefLinkedIssuanceEvidence,chefLinkedCanonicalReader} from '../../scripts/recover-linux-chef-linked.ts';
+import {parseChefLinkedArgs,requireChefLinkedCampaignActive,validateChefLinkedPersistedBindings,validateChefLinkedIssuanceEvidence,chefLinkedCanonicalReader} from '../../scripts/recover-linux-chef-linked.ts';
+test('retired campaign refuses reentry without recreating marker or altering its retirement proof',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'chef-retired-')),path=join(directory,'abandoned-without-publication.private.json'),raw='Root no-effect retirement receipt\n';
+ try{await requireChefLinkedCampaignActive(directory);await writeFile(path,raw);await assert.rejects(requireChefLinkedCampaignActive(directory),/RETIRED_CAMPAIGN_NO_REPLAY/);const{readFile,lstat}=await import('node:fs/promises');assert.equal(await readFile(path,'utf8'),raw);await assert.rejects(lstat(join(directory,'linked-recovery-in-progress')),{code:'ENOENT'});}finally{await rm(directory,{recursive:true,force:true});}
+});
+test('combined catchup-publish requires an explicit three-argument one-shot command',()=>{const p='/opt/zeeswap-testnet/state/chef-recovery/approval.private.json',sha='a'.repeat(64);assert.equal(parseChefLinkedArgs(['catchup-publish',p,sha]).step,'catchup-publish');for(const args of [['catchup-publish',p,sha,'1'],['catchup-publish',p],['catchup-publish','/tmp/a',sha]])assert.throws(()=>parseChefLinkedArgs(args),/EXPLICIT_ARGUMENTS/);});
 test('V2 issuance requires current physical capital observations; it cannot renew archived observations by changing verification time',()=>{
  const at=Date.now(),stamp=new Date(at).toISOString(),h='a'.repeat(64),a:any={version:2,profileSha256:h,control:{epoch:'10',xmin:'42'},financialDigest:'b'.repeat(64),verifiedAt:stamp};
  const inactive={version:1,status:'ROOT_NORMAL_CHEF_OBSERVER_STOPPED',normalObserverStopped:true,profileSha256:h,verifiedAt:stamp};

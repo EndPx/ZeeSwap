@@ -113,3 +113,85 @@ After exact metadata publication and cursor completion, clear markers through
 the existing classified commit path and verify the ordinary consumer's 1,000-
 header bound before resuming it. Observer resumption does not enable settlement
 or reopen the intentionally stopped historical G5 run.
+
+## Actual V2 preparation and refused publication
+
+Root subsequently deployed the published V2 revision and passed 74 focused tests
+on the VPS plus full API typechecking. A fresh independent R4 canonical audit,
+current capital checks and an explicit metadata-only approval supported actual
+private recovery. Six complete proofs covered the selected target through
+4540483. Two separately requested recover-one/publish attempts both refused
+`CURRENT_TAIL_REQUIRED` before any publication intent or completion file existed.
+No application SQL publication occurred and the observer was not resumed.
+These refusals preserve the source/metadata gate; they are not completed recovery.
+
+The source Core advances while the command performs expensive canonical scans.
+The original schedule verifies the persisted prefix at entry and again before
+publication, then performs dense history verification late in the final snapshot.
+A completed private target can therefore age behind Core before the exact-tail
+check. The following explicit scheduling path addresses that cost without
+stopping Core or weakening source freshness or exact equality.
+
+## Explicit one-shot catch-up and publication
+
+`catchup-publish <Root-approval-path> <raw-SHA256>` is a new three-argument command.
+The existing recover, publish and reconcile schedules remain unchanged. The new
+command requires an already complete independent linked prefix; initial full
+coverage must still be collected through bounded recover commands. It performs
+the expensive persisted-native canonical scan once and captures the exact
+persisted-state identity, rechecking it in all existing prepublication guards.
+
+One bounded invocation-local canonical cache pre-verifies every historical
+proof header, source head/witness target and required financial anchor **before**
+selecting the final fresh Core target. It keeps all dense verified headers and
+fetches only missing tail ranges, comparing duplicate full headers, parent links
+at old/new seams and fresh sampled heads at chunk boundaries. The cache never
+survives an invocation. Source samples and explicit fresh headers remain uncached.
+
+After bulk verification, the command selects Core once, traverses at most one
+remaining suffix of at most 1,000 headers with the existing nine-header overlap,
+decoder and zero-observation/output rules, then uses the original final snapshot
+validation. The final selection/tail/snapshot window is bounded to 30 seconds.
+The final signal is shared by source HTTP, traversal HTTP/decoder and canonical
+reads; their own shorter timeouts still apply. The publication callback checks
+this deadline after its guard/XID read and again after intent fsync and the lease
+fence. Fresh uncached M/S checks, six-block lag, unchanged
+final exact Core equality, authority expiry, controls/books, marker and COMMIT
+classification remain required. A source-window refusal occurs before intent.
+If intent fsync itself crosses the deadline, the publisher refuses/rolls back and
+retains that durable intent and marker for exact no-replay classification.
+Non-cancellable SQL/filesystem waits are fenced after completion; this deadline
+does not claim to kill the process at exactly 30 seconds. There is no tail-chasing
+loop, SQL retry, fabricated height, skipped
+range or Core pause. Another attempt must be explicitly requested.
+
+Root may retire an unsuccessful old campaign only after an independently audited
+no-effect proof under its original journal lock. The CLI itself does not close or
+erase it. If `abandoned-without-publication.private.json` exists in a campaign,
+every command refuses entry before database connection or marker creation; the
+check is repeated under the journal lock. Original authorities, proofs and retired
+marker bytes remain archived. A new approval/audit must bind the newly published
+code and a new campaign; an old approval is not assumed to authorize this path.
+
+Local fixture checks cover producer advancement during bulk verification and
+selection of only the later final tail, reuse of all old verified history,
+incremental seam conflicts, incomplete/oversized suffixes, fresh M/S conflicts,
+notes, changed control/expiry fences, moving final Core and retired-campaign
+refusal without marker recreation. They do not establish actual performance or
+a successful SQL publication. New code publication, fresh Root issuance,
+independent full coverage and actual combined execution remain pending.
+
+Final local verification passed **82 focused tests with zero skips**, full API
+typechecking and diff checks. Independent peer review passed **25 linked
+model/CLI tests with zero skips** after correcting final-signal propagation and
+the post-intent-fsync deadline fence. These are separate local verification
+runs. The new cancellation test exercises the actual bounded reader with the
+shared signal; the fsync seam test retains its durable intent while refusing to
+return to the metadata publisher. No new live publication, isolated PostgreSQL
+fixture, financial action or actual performance result is claimed by these tests.
+
+The public deployment import closure adds
+`api/src/integrations/observation/chef-linked-catchup.ts` to the previously
+reviewed CLI dependencies. Install it with the same published CLI revision and
+compare Git/LF bytes; no worker, profile, private authority or Core image change
+is required by this scheduling implementation.
