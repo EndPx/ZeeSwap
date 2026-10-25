@@ -9,14 +9,14 @@ export type CoherentExport = {
   snapshotToken: string; expiresAt: string; batch: ReplaceRange;
 };
 /** This is a ZeeSwap-owned export protocol, NOT a claimed HyperIndex endpoint. */
-export async function consumeEnvioExport(value: unknown, policy: Policy, canonical: CanonicalReader, now = Date.now(), signal = AbortSignal.timeout(30_000), clock: () => number = () => performance.now()): Promise<ReplaceRange> {
+export async function consumeEnvioExport(value: unknown, policy: Policy, canonical: CanonicalReader, now = Date.now(), signal = AbortSignal.timeout(30_000), clock: () => number = () => performance.now(), verificationSourceId = policy.canonicalSourceId): Promise<ReplaceRange> {
   const localStarted = clock();
   const r = object(value, ["protocol", "isolation", "snapshotToken", "expiresAt", "batch"]);
   requireThat(policy.adapter === "envio-hyperindex" && r.protocol === "zee-envio-export-v1" && r.isolation === "repeatable-read-read-only", "COHERENT_EXPORT_REQUIRED");
   text(r.snapshotToken); requireThat(Date.parse(utc(r.expiresAt)) > now && Date.parse(r.expiresAt as string) <= now + 60_000, "SNAPSHOT_EXPIRED");
   const batch = validateRange(r.batch, policy, now);
   const sample = await canonical.sample(signal);
-  fresh(sample.checkedAt, now); requireThat(sample.sourceId === policy.canonicalSourceId, "WRONG_CANONICAL_SOURCE");
+  fresh(sample.checkedAt, now); requireThat(sample.sourceId === verificationSourceId, "WRONG_CANONICAL_SOURCE");
   const head = parseHeader(sample.head, policy.network);
   requireThat(head.height >= batch.coverage.sourceHead.height && head.height >= batch.coverage.through.height, "SOURCE_HEAD_REGRESSION");
   requireThat(stable(await canonical.header(batch.coverage.sourceHead.height, signal)) === stable(batch.coverage.sourceHead), "SOURCE_HASH_CONFLICT");
@@ -47,14 +47,14 @@ export async function consumeEnvioExport(value: unknown, policy: Policy, canonic
   requireThat(Date.parse(r.expiresAt as string) > completed, "SNAPSHOT_EXPIRED");
   return validateRange(batch, policy, completed);
 }
-export async function fetchEnvioExport(url: string, token: string, fromHeight: number, policy: Policy, canonical: CanonicalReader, now = Date.now(), fetcher: typeof fetch = fetch): Promise<ReplaceRange> {
+export async function fetchEnvioExport(url: string, token: string, fromHeight: number, policy: Policy, canonical: CanonicalReader, now = Date.now(), fetcher: typeof fetch = fetch, verificationSourceId = policy.canonicalSourceId): Promise<ReplaceRange> {
   const started = performance.now();
   const endpoint = safeEndpoint(url); height(fromHeight); requireThat(token.length > 0, "AUTH_REQUIRED");
   const signal = AbortSignal.timeout(30_000);
   const response = await fetcher(new URL(`/zee-observation/export?from=${fromHeight}`, endpoint), { headers: { authorization: `Bearer ${token}` }, redirect: "error", signal });
   requireThat(response.ok, response.status === 409 || response.status === 503 ? "WAIT_ENVIO_EXPORT" : "ENVIO_HTTP_ERROR");
   const payload = await readJson(response, signal, 8_000_000);
-  const batch = await consumeEnvioExport(payload, policy, canonical, now + performance.now() - started, signal);
+  const batch = await consumeEnvioExport(payload, policy, canonical, now + performance.now() - started, signal, undefined, verificationSourceId);
   requireThat(batch.coverage.fromHeight === fromHeight, "EXPORT_RANGE_MISMATCH"); return batch;
 }
 

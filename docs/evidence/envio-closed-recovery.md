@@ -66,3 +66,50 @@ independent peer review. Actual corrected live preflight, original campaign
 retirement, new code-bound metadata approval and successful publication remain
 Root operator gates at this preparation checkpoint. No new financial authority,
 activation, payment or G5 continuation is claimed.
+
+## Completed-parent metadata child and bounded current tail
+
+Preparation adds explicit validation for a completed closed-history parent,
+including its pinned original approval, wrapped coverage and producer witnesses,
+exact publication intent/derived anchor rows, original admission and committed
+receipt. The child starts at the exact committed checkpoint with a new empty
+journal; all old proofs remain archived. Parent original-XID status must be
+committed, and unchanged financial books/control/source identity/archive pins
+are mandatory. Unknown/in-progress/aborted parent transactions refuse.
+
+An explicit Root reseal-continuity proof supports ciphertext changes only when
+real decryption proves exact equality of the complete plaintext. It never accepts
+new hints, checkpoint progress or additional fields. Observation age is bound
+to child issuance; current raw hashes/semantics and child expiry remain guarded.
+Private issuer preparation permits the ordinary Native observer to continue
+while Base/financial writers are stopped. It performs no financial SQL.
+
+Publication supports at most three actual fresh append attempts under one
+unchanged30-second deadline; only a partial current tail permits the next append.
+No freshness, finality, canonical-header, source-floor or head-lag bound changes.
+
+Local verification: full API typecheck and16 focused pure tests passed with
+zero skips. The actual isolated PostgreSQL fixture passed1/1, zero skips,2.61s.
+It retains the original lost-COMMIT-ACK parent case, then checks its actual XID,
+exact completed-parent archive and changed-ciphertext/equal-plaintext admission.
+An injected plaintext field is rejected before SQL and the snapshot is unchanged.
+A new child starts with zero copied proofs and publishes its own exact metadata
+CAS while preserving all financial books/control. The test uses synthetic source
+and admission fixtures in an invocation-owned schema; that schema is cleaned.
+Private child issuer strict standalone TypeScript compilation also passed.
+No new child approval, live metadata recovery, normal-overlay deployment or
+financial action was executed by this coding agent.
+
+Root independently reran the completed-parent implementation: 25 combined
+closed-recovery, normal-overlay and launch cases passed without skips, API
+typechecking passed, and the actual isolated child PostgreSQL case passed
+without skips. A separate regression run passed 39 cases; its two optional
+database cases were explicitly skipped and are not counted as verified.
+
+The original live campaign subsequently committed exactly with 323 range proofs.
+Root independently read the original committed transaction and exact checkpoint,
+rows and control. The ordinary Base handoff started, but its normal RPC returned
+a lower finalized view and subsequent reads exceeded their deadline. Root
+stopped the consumer. The financial snapshot remains 70 rows with no new
+authorizations, orders or payments. The new child/normal-reader deployment is
+still pending; successful historical publication is not sustained readiness.

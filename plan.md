@@ -80,6 +80,18 @@ implementation proofs. The Base metadata campaign is still recovering retained
 history; the new application migrations, fee allocation, permit, worker startup
 and actual browser-backed funded circle remain pending live execution.
 
+Later operator checkpoint (26 October, 19:45 UTC on 25 October): the original
+Base metadata campaign committed exactly with 323 retained-range proofs and
+unchanged financial books/control. Its ordinary handoff started successfully,
+but a weaker finalized view from the normal RPC stalled observation; Root
+stopped that consumer. The Native consumer is continuously following again.
+The explicit [normal canonical reader](docs/evidence/envio-normal-canonical-overlay.md)
+and a completed-parent Base catch-up preserve the original producer identity,
+all archived proofs and the current admission payload. Root independently passed
+25 focused cases, the isolated child PostgreSQL case and typechecking; additional
+regression tests passed 39 cases with two optional database cases skipped.
+New source qualification/deployment and sustained Base following remain open.
+
 The separate [closed-history Base recovery](docs/evidence/envio-closed-recovery.md)
 passed focused and isolated PostgreSQL tests plus peer review. It binds an
 independent metadata-only approval to current control/books/admission and

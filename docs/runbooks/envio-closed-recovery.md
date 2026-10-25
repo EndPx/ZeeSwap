@@ -133,3 +133,55 @@ random schema and removes only that invocation-owned schema. It runs the shipped
 runtime-lock/reorg-trigger definitions and production metadata CAS. Synthetic
 database/role labels are explicitly projected to exercise production snapshot
 validation; actual deployed worker privileges remain Root's separate live check.
+
+## Child of a committed closed-history campaign
+
+A new Root metadata approval can start at an already committed closed-history
+checkpoint. Add the parent's `closed-<approvalSHA>` directory to the historical
+inventory, retaining the original three archives, and add an `approval` pin for
+the parent's original Root0600 approval. Coverage remains the original wrapped
+`{version,approvalSha256,journal,producerWitnesses}` file. Pin its intent, completed
+receipt and original admission as before. The parent's original XID must actually
+be committed. Its complete proof chain and producer witnesses stay archived;
+the child starts a NEW journal with zero copied proofs at the exact parent
+committed checkpoint. No partial-prefix adoption is part of this change.
+
+The child must retain the same financial books/counts, frozen control, source
+identity and prior archive pins. Parent approval expiry remains historical; it
+is validated at its original issue time and never extended. The child requires
+a new code-bound canonical audit, stopped Base/financial-writer proof and fresh
+metadata authority. The ordinary Native observer may continue: no financial
+worker may run, and full books/control must remain unchanged during the audit.
+
+If the normal observer legitimately resealed an unchanged admission, the child
+may use a separate Root-pinned `admissionResealProof`. Both the original parent
+candidate ciphertext and actual current ciphertext are decrypted with the real
+PrivateData key; their COMPLETE plaintext must be exactly equal, including
+version2, empty hints, exact checkpoint/hash/generation/projection and every
+other field. The proof binds both raw hashes, plaintext digest, identity, exact
+checkpoint/control/full-books digest and UID986:G9780600 mode. Any field change
+or checkpoint progress refuses. No ciphertext is written back or relabeled.
+The proof must be observed within60s before child issuance; this is an archival
+issuance relationship, not a recovery heartbeat. Actual current raw bytes,
+plaintext, full books/control and child expiry remain checked on every guard.
+
+The private child issuer takes the original issuer config plus
+`completedParent:{directory,approval:{path,sha256}}` and explicit
+`allowExactAdmissionReseal:true` when needed. Root executes it only after code
+review/deployment. It checks original committed parent XID, independently audits
+all current persisted/financial Base anchors, actual source baseline/M, and
+current admission. It writes the reseal proof at actual audit completion before
+the new approval. Original approvals and receipts remain untouched.
+
+Publication now permits at most THREE fresh bounded selected-export appends
+within ONE existing30-second deadline. Each append retains full selected-header
+and actual producer-M verification. Only CURRENT_TAIL_REQUIRED permits another
+append; canonical/finality/expiry/gap errors stop immediately. An unfinished
+third append never becomes a checkpoint, and no publication intent or SQL write
+is emitted until completeEnvioRecovery verifies the actual current frontier.
+The same deadline continues through durable intent and SQL publication.
+
+A normal canonical-source overlay is a separate Root authority and deployment
+step. It does not alter the recovery identity or old profiles. The old A2
+handoff helper is specific to its original approval/code/unit and must not be
+reused for a child or a changed normal-source environment.

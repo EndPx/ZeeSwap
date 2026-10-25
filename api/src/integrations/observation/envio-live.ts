@@ -29,7 +29,7 @@ export function replaceEnvioFundingHints(previous:FundingHint[],batch:ReplaceRan
   pending.set(`${orderId}:${event.txHash}`,{orderId,txHash:event.txHash as `0x${string}`,height:event.block.height,blockHash:event.block.hash});}
  requireThat(pending.size<=500,'FUNDING_HINT_LIMIT');return{pending,unknownEvents};
 }
-export async function observeEnvioOnce(pool:pg.Pool,keys:PrivateData,base:BaseContract,config:{url:string;token:string;policy:Policy;canonical:CanonicalReader;hints:FundingHintJournal}) {
+export async function observeEnvioOnce(pool:pg.Pool,keys:PrivateData,base:BaseContract,config:{url:string;token:string;policy:Policy;canonical:CanonicalReader;hints:FundingHintJournal;verificationSourceId?:string}) {
  requireThat(base.registry.chainId===84532&&config.policy.network==='eip155:84532'
   &&config.policy.contract===base.registry.contracts.ZeeSwapSettlement.address.toLowerCase()
   &&config.policy.token===base.registry.contracts.MockUSDC.address.toLowerCase(),'LIVE_BASE_PROFILE_MISMATCH');
@@ -42,10 +42,11 @@ export async function observeEnvioOnce(pool:pg.Pool,keys:PrivateData,base:BaseCo
  const previous=(await pool.query("SELECT scanned_height::text FROM zee.scanner_checkpoints WHERE network='base-sepolia'")).rows[0];
  const accepted=Number((await pool.query('SELECT count(*)::text AS count FROM zee.orders')).rows[0]?.count);
  const from=envioAdmissionFrom(config.policy,Number(status.checkpoint.through!.height),previous?Number(previous.scanned_height):undefined,admission,accepted);
- const batch=await fetchEnvioExport(config.url,config.token,from,config.policy,config.canonical);
+ const batch=await fetchEnvioExport(config.url,config.token,from,config.policy,config.canonical,Date.now(),fetch,config.verificationSourceId);
  fresh(batch.coverage.sourceSampledAt,Date.now());
  requireThat(batch.coverage.sourceHead.height-batch.coverage.through.height<=40,'WAIT_ENVIO_BEHIND_HEAD');
  const sample=await config.canonical.sample(signal);
+ requireThat(sample.sourceId===(config.verificationSourceId??config.policy.canonicalSourceId),'WRONG_CANONICAL_SOURCE');fresh(sample.checkedAt,Date.now());
  requireThat(sample.finalized&&sample.finalized.height<=batch.coverage.through.height,'WAIT_ENVIO_FINALITY');
  const finalized=sample.finalized;
  requireThat(stable(await config.canonical.header(finalized.height,signal))===stable(finalized),'FINALIZED_HEADER_CONFLICT');
@@ -81,5 +82,5 @@ export async function observeEnvioOnce(pool:pg.Pool,keys:PrivateData,base:BaseCo
   if(hint.height<=finalized.height){const result=await observeEscrowFunding(pool,keys,base,hint.orderId,hint.txHash);if(result.status==='READY'){pending.delete(id);fundingHints++;}}
  }
  await config.hints.save({...next,hints:[...pending.values()]});
- return {status:'ENVIO_TESTNET_OBSERVED',fromHeight:batch.coverage.fromHeight,through:batch.coverage.through.height,sourceHead:batch.coverage.sourceHead.height,sourceSampledAt:batch.coverage.sourceSampledAt,sourceAgeMs:Date.now()-Date.parse(batch.coverage.sourceSampledAt),requiredAnchors:anchors.length,persistedAnchorUpdates:uniqueBlocks.length,finalized:finalized.height,events:batch.observations.length,fundingHints,pendingFundingHints:pending.size,unknownEvents,dispatchAuthority:false};
+ return {status:'ENVIO_TESTNET_OBSERVED',producerCanonicalSourceId:config.policy.canonicalSourceId,verificationCanonicalSourceId:sample.sourceId,fromHeight:batch.coverage.fromHeight,through:batch.coverage.through.height,sourceHead:batch.coverage.sourceHead.height,sourceSampledAt:batch.coverage.sourceSampledAt,sourceAgeMs:Date.now()-Date.parse(batch.coverage.sourceSampledAt),requiredAnchors:anchors.length,persistedAnchorUpdates:uniqueBlocks.length,finalized:finalized.height,events:batch.observations.length,fundingHints,pendingFundingHints:pending.size,unknownEvents,dispatchAuthority:false};
 }

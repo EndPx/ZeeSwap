@@ -5,7 +5,8 @@ import {randomUUID} from 'node:crypto';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {setTimeout as delay} from 'node:timers/promises';
-import {loadLinuxEnvioProfile,readLinuxEnvioPin,requireLinuxEnvioBootstrap} from '../src/linux-envio-profile.ts';
+import {readLinuxEnvioPin,requireLinuxEnvioBootstrap} from '../src/linux-envio-profile.ts';
+import {loadLinuxEnvioNormalProfile,verifyNormalEnvioOverlay} from '../src/linux-envio-normal-profile.ts';
 import {connect} from '../src/db.ts';
 import {PrivateData} from '../src/private-data.ts';
 import {BaseContract} from '../src/base-contract.ts';
@@ -13,11 +14,11 @@ import {observeEnvioOnce,type EnvioAdmissionState} from '../src/integrations/obs
 import {canonicalRpc} from '../src/integrations/observation/canonical-rpc.ts';
 import {requireThat} from '../src/integrations/observation/types.ts';
 import {requireNoEnvioRecovery} from '../src/integrations/observation/envio-recovery.ts';
-export function normalEnvioCanonical(url:string,sourceId:string,seam:Pick<Parameters<typeof canonicalRpc>[0],'fetch'|'now'|'diagnostic'>={}){return canonicalRpc({url,sourceId,network:'eip155:84532',headerBatchSize:5,maxMethodsPerSecond:11,fetch:seam.fetch,now:seam.now,diagnostic:seam.diagnostic});}
+export function normalEnvioCanonical(url:string,sourceId:string,seam:Pick<Parameters<typeof canonicalRpc>[0],'fetch'|'now'|'diagnostic'>={},transport?:{headerBatchSize:10;maxMethodsPerSecond:24}){if(transport)requireThat(transport.headerBatchSize===10&&transport.maxMethodsPerSecond===24,'NORMAL_OVERLAY_PACING');return canonicalRpc({url,sourceId,network:'eip155:84532',headerBatchSize:transport?.headerBatchSize??5,maxMethodsPerSecond:transport?.maxMethodsPerSecond??11,fetch:seam.fetch,now:seam.now,diagnostic:seam.diagnostic});}
 async function main(){
 const [path,flag]=process.argv.slice(2);
 requireThat(path&&process.argv.length<=4&&(!flag||['--once','--initialize-empty-consumer'].includes(flag)),'LINUX_ENVIO_EXPLICIT_COMMAND');
-const {profile:p,runtime,registry,source,token}=await loadLinuxEnvioProfile(path);
+const {profile:p,runtime,registry,source,token,normal}=await loadLinuxEnvioNormalProfile(path);
 const keys=new PrivateData(Buffer.from(runtime.payloadKeyHex,'hex'),Buffer.from(runtime.lookupKeyHex,'hex'));
 const context='envio-funding-hints:br-broad-pine-ao79wemx:zee_app_20261023:v1';
 const pool=connect(runtime.workerUrl,2),lease=await pool.connect();
@@ -54,7 +55,8 @@ try{
    if(state.checkpoint)requireThat(Number.isSafeInteger(state.checkpoint.height)&&/^0x[0-9a-f]{64}$/.test(state.checkpoint.hash)&&state.checkpoint.generation===source.generation&&state.checkpoint.projectionDigest===source.policy.projectionDigest,'INVALID_HINT_JOURNAL');return state;
   },async save(state:EnvioAdmissionState){const tmp=p.admissionPath+'.'+randomUUID()+'.tmp',fd=await open(tmp,'wx',0o600);try{await fd.writeFile(keys.seal(state,context));await fd.sync();}finally{await fd.close();}await rename(tmp,p.admissionPath);}};
   await hints.load();const base=new BaseContract(registry),stop=new AbortController();
-  const canonical=normalEnvioCanonical(p.canonicalRpcUrl,source.policy.canonicalSourceId);
+  const canonical=normalEnvioCanonical(normal.url,normal.sourceId,{},normal.overlay);
+  if(normal.overlay)await verifyNormalEnvioOverlay(normal.overlay,canonical,AbortSignal.timeout(30000));
   lease.on('error',()=>stop.abort());process.once('SIGTERM',()=>stop.abort());process.once('SIGINT',()=>stop.abort());
   do{
    const cycleStarted=performance.now();
@@ -63,7 +65,7 @@ try{
     const status=await fetch(p.sourceUrl+'/zee-observation/status',{headers:{authorization:`Bearer ${token}`},signal:AbortSignal.timeout(10000),redirect:'error'});
     requireThat(status.ok,'WAIT_ENVIO_EXPORT');const body=await status.json() as {protocol?:string;checkpoint?:{generation?:string}};
     requireThat(body.protocol==='zee-envio-status-v1'&&body.checkpoint?.generation===source.generation,'ENVIO_ADMISSION_GENERATION_CHANGED');
-    const result=await observeEnvioOnce(pool,keys,base,{url:p.sourceUrl,token,policy:source.policy,hints,canonical});console.log(JSON.stringify({event:'linux-envio-observation',cycleMs:Math.round(performance.now()-cycleStarted),...result}));}
+    const result=await observeEnvioOnce(pool,keys,base,{url:p.sourceUrl,token,policy:source.policy,hints,canonical,verificationSourceId:normal.sourceId});console.log(JSON.stringify({event:'linux-envio-observation',cycleMs:Math.round(performance.now()-cycleStarted),...result}));}
    catch(e){const code=(e as {code?:string}).code??'LINUX_ENVIO_OBSERVATION_FAILED';console.log(JSON.stringify({event:'linux-envio-observation',status:'WAIT_SOURCE',code,cycleMs:Math.round(performance.now()-cycleStarted),financialAction:false}));if(flag==='--once'||['ENVIO_ADMISSION_GAP','ENVIO_ADMISSION_JOURNAL_REQUIRED','ENVIO_ADMISSION_GENERATION_CHANGED','ENVIO_ADMISSION_REORG_BLOCK','INVALID_HINT_JOURNAL'].includes(code))throw e;}
    if(flag!=='--once')await delay(observerCadenceDelay(cycleStarted,performance.now()),undefined,{signal:stop.signal}).catch(()=>{});
   }while(flag!=='--once'&&!stop.signal.aborted);
