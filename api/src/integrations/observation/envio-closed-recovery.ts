@@ -7,6 +7,9 @@ import {campaignBaselineSql,rawSha,type CampaignCheckpoint,type CampaignControl}
 import type {EnvioAdmissionState} from './envio-live.ts';
 import type {Header} from './types.ts';
 import {digest,stable,requireThat,parseHeader} from './types.ts';
+import {verifySelectedExport,validateSelectedExport,type VerifiedEnvioSelection} from './envio-selected-export.ts';
+import {readJson,safeEndpoint,type CanonicalReader} from './chef.ts';
+import type {Policy} from './types.ts';
 const need=(v:unknown,c:string)=>requireThat(v,'ENVIO_CLOSED_'+c);
 const hash=(v:unknown)=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v)&&v!=='0'.repeat(64);
 export type ClosedPin={path:string;sha256:string};
@@ -93,3 +96,13 @@ export async function publishClosedRecovery(c:Pick<pg.PoolClient,'query'>,guard:
 export async function finishClosedBoundary(status:string,s:ClosedSnapshot,i:ClosedIntent,io:{lease():Promise<void>;readAdmission():Promise<void>;installAdmission():Promise<void>;writeCompletion():Promise<void>;removeMarker():Promise<void>}){need(classifyClosedCommit(status,s,i)==='COMMITTED_EXACT','COMMIT_NOT_CONFIRMED_NO_REPLAY');await io.lease();await io.readAdmission();await io.lease();await io.installAdmission();await io.lease();await io.writeCompletion();await io.lease();await io.removeMarker();}
 export function requireClosedProducerWitness(j:EnvioRecoveryJournal,witnesses:Header[]){need(witnesses.length===j.proofs.length,'PRODUCER_WITNESS_COUNT');for(let n=0;n<witnesses.length;n++){parseHeader(witnesses[n],j.identity.policy.network);need(stable(witnesses[n])===stable(j.proofs[n]!.selection.producer.through),'PRODUCER_WITNESS');}}
 export function requireClosedCommand(step:string,hasIntent:boolean,hasCompletion:boolean,hasMarker:boolean){need(['recover','publish','reconcile'].includes(step),'COMMAND');need(!hasCompletion||hasMarker,'COMPLETED_NO_REPLAY');need(!hasCompletion||hasIntent,'COMPLETION_WITHOUT_INTENT');need(hasIntent?step==='reconcile':step!=='reconcile','INTENT_RECONCILE_ONLY');}
+/** Actual CLI selection I/O, exported for Root's read-only live preflight.
+ * The canonical verification frame is deliberately removed at the RAW schema boundary. */
+export async function readClosedEnvioSelection(o:{sourceUrl:string;token:string;from:number;policy:Policy;generation:string;canonical:CanonicalReader;signal:AbortSignal;fetch?:typeof fetch}):Promise<VerifiedEnvioSelection>{
+ const response=await(o.fetch??fetch)(new URL(`/zee-observation/export?from=${o.from}&through=latest`,safeEndpoint(o.sourceUrl)),{headers:{authorization:'Bearer '+o.token},redirect:'error',signal:o.signal});need(response.ok,'WAIT_SELECTED_EXPORT');
+ const v=await verifySelectedExport(await readJson(response,o.signal,8000000),o.policy,o.canonical,o.signal);need(v.producer.generation===o.generation&&v.range.fromHeight===o.from&&v.range.through.height===Math.min(v.producer.through.height,o.from+255),'SELECTED_RANGE_OR_GENERATION');
+ const M=await o.canonical.header(v.producer.through.height,o.signal);need(stable(M)===stable(v.producer.through),'PRODUCER_CANONICAL_MISMATCH');o.signal.throwIfAborted();
+ const{verification:_,...raw}=v;validateSelectedExport(raw,o.policy,Date.now());need(Date.now()-Date.parse(v.range.readStartedAt)<=30000,'SELECTED_READ_BUDGET');return v;
+}
+export type ClosedRetirement={version:1;status:'ROOT_ENVIO_CLOSED_CAMPAIGN_RETIRED_WITHOUT_PUBLICATION';approvalSha256:string;campaignDirectory:string;coverageSha256:string;activeAdmissionSha256:string;markerSha256:string;control:CampaignControl;baseline:CampaignCheckpoint;financialDigest:string;proofCount:0;publicationIntentAbsent:true;completionAbsent:true;sqlMutation:false;financialAction:false;retiredAt:string};
+export function validateClosedRetirement(r:ClosedRetirement,a:ClosedApproval,approvalSha256:string,directory:string,coverageSha256:string,markerSha256:string){need(r?.version===1&&r.status==='ROOT_ENVIO_CLOSED_CAMPAIGN_RETIRED_WITHOUT_PUBLICATION'&&r.approvalSha256===approvalSha256&&r.campaignDirectory===directory&&r.coverageSha256===coverageSha256&&hash(coverageSha256)&&r.activeAdmissionSha256===a.activeAdmissionSha256&&r.markerSha256===markerSha256&&stable(r.control)===stable(a.control)&&stable(r.baseline)===stable(a.baseline)&&r.financialDigest===a.financialDigest&&r.proofCount===0&&r.publicationIntentAbsent===true&&r.completionAbsent===true&&r.sqlMutation===false&&r.financialAction===false&&Number.isFinite(Date.parse(r.retiredAt))&&Date.parse(r.retiredAt)>=Date.parse(a.verifiedAt),'RETIREMENT_RECEIPT_INVALID');return r;}

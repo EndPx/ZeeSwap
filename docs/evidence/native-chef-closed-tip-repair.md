@@ -167,3 +167,36 @@ other than the explicitly selected isolated `neondb` host and owner connection;
 a missing URL is a skip, not a PostgreSQL pass. Live application access, SSH,
 wallet calls, signing, service changes and Git publication were not performed by
 the implementation agent.
+
+## Actual Root repair and independent verification
+
+Root published and remotely verified `2bfc3a240103008106338d5376ad28487169071c`,
+verified a 40-file Git-byte dependency manifest on the VPS, and installed only
+the five new source/test files. The unchanged 35 dependencies matched. The five
+pure cases and API typechecking passed on the VPS. Root also independently
+passed the five pure cases and one actual isolated restricted-role PostgreSQL
+case, with zero skips and fixture cleanup.
+
+The real worker reported a five-minute idle transaction timeout and zero
+transaction timeout; no setting or grant was widened. Inspection completed at
+17:12:06 UTC on 25 October. Root reviewed it and issued a separate metadata-only
+approval after another full canonical verification, then explicitly applied it
+once. The application unit finished successfully with a committed-exact result.
+
+Independent Root readback at 17:21:08 UTC (26 October in Asia/Jakarta) verified:
+
+- E219 / transaction version 550318, still paused and requiring reconciliation.
+- Exactly the intended tip replacement and checkpoint/cursor rewind to 4540628.
+- Original final height 4540620, finalized time and observation time unchanged.
+- Canonical final/common/replacement anchors on fresh independent reads.
+- Exact 19-table/70-row financial digest unchanged and zero authorization rows.
+- Service-owned mode-0600 cursor installed and both application recovery markers clear.
+
+The completion receipt SHA-256 is
+`aa2cedbb376b9922e76bed2701afa2db353d515f512031c0782dc8367fbeaa04`;
+the installed cursor SHA-256 is
+`27e45ec663292c135dc6e63d1389c9c706fec7c861ea64d3a55443a8ba008b62`.
+Root retained the original approval, diagnostic, before-state, intent and cursor
+privately. Both ordinary application observers remain stopped until Base's
+separate recovery completes. This actual metadata repair created no financial
+authority, order, signature, payment or G5 execution.

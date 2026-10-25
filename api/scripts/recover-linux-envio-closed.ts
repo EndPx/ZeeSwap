@@ -7,11 +7,11 @@ import {PrivateData} from '../src/private-data.ts';
 import {loadLinuxEnvioProfile,readLinuxEnvioPin} from '../src/linux-envio-profile.ts';
 import {canonicalRpc} from '../src/integrations/observation/canonical-rpc.ts';
 import {readJson} from '../src/integrations/observation/chef.ts';
-import {verifySelectedExport,validateSelectedExport,type VerifiedEnvioSelection} from '../src/integrations/observation/envio-selected-export.ts';
+import type {VerifiedEnvioSelection} from '../src/integrations/observation/envio-selected-export.ts';
 import {envioRecoveryTransport,validateEnvioRecovery,nextEnvioRecoveryRange,appendEnvioRecovery,recheckEnvioRecovery,completeEnvioRecovery,type EnvioRecoveryJournal} from '../src/integrations/observation/envio-recovery.ts';
 import {requiredEnvioAnchors} from '../src/integrations/observation/envio-required-anchors.ts';
 import {rawSha,campaignBaselineSql} from '../src/integrations/observation/envio-linked-campaign.ts';
-import {validateClosedApproval,readClosedSnapshot,validateClosedSnapshot,validateClosedAuthorityArchive,validateClosedAudit,validateClosedHistoricalArchive,beginClosedRecovery,publishClosedRecovery,classifyClosedCommit,finishClosedBoundary,requireClosedProducerWitness,requireClosedCommand,type ClosedApproval,type ClosedPin,type ClosedAudit,type ClosedSnapshot,type ClosedIntent} from '../src/integrations/observation/envio-closed-recovery.ts';
+import {validateClosedApproval,readClosedSnapshot,validateClosedSnapshot,validateClosedAuthorityArchive,validateClosedAudit,validateClosedHistoricalArchive,beginClosedRecovery,publishClosedRecovery,classifyClosedCommit,finishClosedBoundary,requireClosedProducerWitness,requireClosedCommand,readClosedEnvioSelection,validateClosedRetirement,type ClosedApproval,type ClosedPin,type ClosedAudit,type ClosedSnapshot,type ClosedIntent} from '../src/integrations/observation/envio-closed-recovery.ts';
 import {stable,digest,requireThat,type Header} from '../src/integrations/observation/types.ts';
 const root='/opt/zeeswap-testnet',state=root+'/state/envio',marker=state+'/recovery-in-progress';
 const need=(v:unknown,c:string)=>requireThat(v,'ENVIO_CLOSED_'+c);
@@ -27,9 +27,13 @@ const json=(v:unknown)=>Buffer.from(JSON.stringify(v)+'\n');
 const raw=await bytes(approvalPath!,0,262144);need(rawSha(raw)===approvalSha,'APPROVAL_RAW');const a=JSON.parse(raw.toString()) as ClosedApproval;
 const{profile:p,runtime,source,token}=await loadLinuxEnvioProfile(root+'/secrets/linux-envio-profile.private.json');
 const operator=JSON.parse((await readLinuxEnvioPin(p.operatorProfile)).toString());need(a.openingProofSha256===operator.immutable.openingProof.sha256,'OPENING_IDENTITY');
-const transport=envioRecoveryTransport(source.policy,process.env.ZEESWAP_RECOVERY_RPC_PACING),identity={profileSha256:p.operatorProfile.sha256,handoffSha256:p.relocationProof.sha256,generation:source.generation,policy:transport.policy};validateClosedApproval(a,identity);
+const transport=envioRecoveryTransport(source.policy,process.env.ZEESWAP_RECOVERY_RPC_PACING),identity={profileSha256:p.operatorProfile.sha256,handoffSha256:p.relocationProof.sha256,generation:source.generation,policy:transport.policy};
 const keys=new PrivateData(Buffer.from(runtime.payloadKeyHex,'hex'),Buffer.from(runtime.lookupKeyHex,'hex')),context='envio-funding-hints:br-broad-pine-ao79wemx:zee_app_20261023:v1',opened=(b:Buffer)=>keys.open(b,context);
 const{policy:_,...rpc}=transport,canonical=canonicalRpc(rpc),directory=state+'/closed-'+approvalSha,coveragePath=directory+'/coverage.private.json',intentPath=directory+'/publication-intent.private.json',completionPath=directory+'/completed.private.json',markerRaw=Buffer.from('closed-history:'+approvalSha+'\n');
+// Retirement is checked before a database connection or marker creation. A malformed
+// receipt is also a hard stop, never permission to replay an old approval.
+if(await exists(directory+'/retired-without-publication.private.json')){validateClosedRetirement(JSON.parse((await bytes(directory+'/retired-without-publication.private.json')).toString()),a,approvalSha!,directory,rawSha(await bytes(coveragePath)),rawSha(markerRaw));throw Error('ENVIO_CLOSED_RETIRED_CAMPAIGN_NO_REPLAY');}
+validateClosedApproval(a,identity);
 const pool=connect(runtime.workerUrl,2),lease=await pool.connect();let locked=false,fileLocked=false,lost=false;lease.on('error',()=>{lost=true;});
 async function fence(){validateClosedApproval(a,identity);need(!lost,'LEASE_LOST');await lease.query('SELECT 1');need(!lost,'LEASE_LOST');validateClosedApproval(a,identity);}
 async function activeAdmission(){const b=await bytes(p.admissionPath,986,8388608),s=await lstat(p.admissionPath);need(s.gid===978,'ADMISSION_GROUP');return b;}
@@ -50,8 +54,7 @@ async function canonicalRows(s:ClosedSnapshot,signal=AbortSignal.timeout(90000))
 type Coverage={version:1;approvalSha256:string;journal:EnvioRecoveryJournal;producerWitnesses:Header[]};
 function validateCoverage(v:Coverage){need(v?.version===1&&v.approvalSha256===approvalSha,'COVERAGE_IDENTITY');validateEnvioRecovery(v.journal,identity);requireClosedProducerWitness(v.journal,v.producerWitnesses);need(v.journal.originalAdmissionSha256===a.activeAdmissionSha256&&stable(v.journal.originalSql)===stable(campaignBaselineSql(a.baseline)),'COVERAGE_BASELINE');return v;}
 async function selection(from:number,signal:AbortSignal):Promise<VerifiedEnvioSelection>{
- const response=await fetch(p.sourceUrl+`/zee-observation/export?from=${from}&through=latest`,{headers:{authorization:'Bearer '+token},redirect:'error',signal});need(response.ok,'WAIT_SELECTED_EXPORT');const v=await verifySelectedExport(await readJson(response,signal,8000000),identity.policy,canonical,signal);need(v.producer.generation===identity.generation&&v.range.fromHeight===from&&v.range.through.height===Math.min(v.producer.through.height,from+255),'SELECTED_RANGE_OR_GENERATION');
- const M=await canonical.header(v.producer.through.height,signal);need(stable(M)===stable(v.producer.through),'PRODUCER_CANONICAL_MISMATCH');signal.throwIfAborted();validateSelectedExport(v,identity.policy,Date.now());need(Date.now()-Date.parse(v.range.readStartedAt)<=30000,'SELECTED_READ_BUDGET');return v;
+ return readClosedEnvioSelection({sourceUrl:p.sourceUrl,token,from,policy:identity.policy,generation:identity.generation,canonical,signal});
 }
 async function append(v:Coverage,signal:AbortSignal){const r=nextEnvioRecoveryRange(v.journal,v.journal.proofs.at(-1)?.selection.producer.through.height??a.baseline.height);const selected=await selection(r.from,signal);const j=appendEnvioRecovery(v.journal,selected);const next=validateCoverage({...v,journal:j,producerWitnesses:[...v.producerWitnesses,selected.producer.through]});signal.throwIfAborted();await atomic(coveragePath,json(next),fence);signal.throwIfAborted();return next;}
 function checkedIntent(i:ClosedIntent,v:Coverage){

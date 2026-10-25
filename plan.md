@@ -1,6 +1,6 @@
 # ZeeSwap implementation plan
 
-Last updated: 2026-10-25 (Asia/Jakarta), for the isolated Linux testnet deployment. Execution evidence below retains its recorded dates.
+Last updated: 2026-10-26 (Asia/Jakarta), for the isolated Linux testnet deployment. Execution evidence below retains its recorded dates.
 
 Deployment decision (25 October): the user selected Docker on the existing VPS.
 The Chef query API and one watch-only follower now run there in separate
@@ -14,7 +14,7 @@ and released its locks before starting the container writer. Container startup
 does not authorize a project reset, financial activation or a payment. Docker
 remains prohibited on the laptop; do not provision local PostgreSQL there.
 
-Current application incident checkpoint (25 October): the application Chef
+Application incident observation (25 October): the application Chef
 consumer recorded a prepublication Core checkpoint mismatch and then persisted
 cursor conflicts. Its supervisor reached 209 restarts while control epochs
 advanced; Root stopped it for review. The 16:09:50 UTC frozen readback is paused,
@@ -32,6 +32,17 @@ supervisor policy; the isolated actual exit-78 fixture did not restart, and 25
 focused VPS tests plus typechecking passed. Separately reviewed closed-history
 recovery remains pending. No source/cursor repair or financial action is claimed. See
 [fatal supervision incident](docs/evidence/native-chef-fatal-supervision.md).
+
+Current application repair checkpoint (26 October, 17:21 UTC on 25 October):
+Root completed the exact Native metadata transaction and cursor boundary.
+Independent readback proved committed-exact E219 / version 550318, canonical
+620/628/629 anchors, cursor 4540628, clear markers and unchanged 19-table/70-row
+financial digest with zero authorizations. Final height 4540620 and the original
+observation time were preserved. Both application observers remain stopped for
+the separate Base recovery. Its first attempt stopped on a CLI verified/raw
+selection-format bug with zero proofs, no intent and no SQL/admission mutation;
+that empty attempt is being preserved and retired before a reviewed correction
+and new metadata approval. Financial activation and the funded circle remain open.
 
 Live application acceptance (25 October): the user requested all repairs and an
 actually usable testnet app. Complete these bounded milestones in order:

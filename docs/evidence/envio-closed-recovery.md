@@ -36,3 +36,33 @@ No actual closed-history approval or live publication is claimed by this
 preparation. Native canonical repair, actual operator issuance/publication,
 ordinary healthy observer cycles and financial readiness remain separate gates.
 See the [operator runbook](../runbooks/envio-closed-recovery.md).
+
+## First actual attempt refused and reader correction
+
+Root's25October17:25UTC attempt stopped before its first private proof. The
+selected-export verifier correctly returned its additional `verification` frame,
+but the CLI then passed that verified object to the strict raw-export schema,
+which refused `INVALID_FIELDS`. Root readback recorded zero proofs, no publication
+intent/completion, and unchanged SQL checkpoint, active admission, paused controls,
+financial books and authorizations. The shared recovery marker remained present.
+This failed attempt is not a source recovery or a settlement.
+
+The corrected CLI now calls an exported actual selection I/O reader, so Root can
+preflight precisely that HTTP/canonical/M/read-budget path without an approval,
+database connection, marker or SQL write. It verifies all selected headers and
+actual producer M, then removes only the verification frame when rechecking the
+raw schema. Generation, source floor, exact range, source freshness and deadline
+guards are unchanged. The new regression runs that same reader through its real
+raw-to-verified-to-raw boundary, with an independently checked canonical fixture.
+
+An explicit zero-proof retirement receipt also fences an abandoned campaign
+before database connection or marker creation. Both valid retirement and malformed
+retirement state stop replay. Root must preserve the original approval/coverage/
+admission and durably record retirement before archiving its matching marker;
+retirement is not an unknown-COMMIT classification or permission to reuse authority.
+
+The correction passed13 focused checks with zero skips, full API typechecking and
+independent peer review. Actual corrected live preflight, original campaign
+retirement, new code-bound metadata approval and successful publication remain
+Root operator gates at this preparation checkpoint. No new financial authority,
+activation, payment or G5 continuation is claimed.
