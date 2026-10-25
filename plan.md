@@ -28,6 +28,19 @@ zero authorization rows. The application observer remains stopped at stale
 activation or G5. No crash/reboot recovery test or new payment is claimed. See
 [normal continuous handoff](docs/evidence/native-chef-normal-follow.md).
 
+Application metadata preparation (25 October): version-two linked recovery now
+has a separate Root metadata-only expiry of at most two hours and a freshly
+pinned canonical audit. The expired financial authority is validated only as
+an immutable closed-history archive at its own original verification time;
+financial expiry/admission rules remain unchanged. Current controls/books,
+capital observations, canonical anchors and commit/marker fences remain required.
+The local suite passed 74 cases; Root independently passed 60 focused cases,
+both with zero skips, and API typechecking passed. The deployed 0.7 artifact
+parser already passed 24 VPS adapter tests and full API typechecking. No new
+version-two metadata approval has been issued, no linked live publication or
+new PostgreSQL fixture is claimed, and the application observer remains stopped.
+See [linked metadata preparation](docs/evidence/native-chef-linked-suffix-recovery.md).
+
 Earlier Chef 0.7.0 live checkpoint (25 October): the existing namespace backup and actual
 container/scanner fixture checks passed. The primary authenticated query API and
 one official writer now run in Docker with the original generation; the native

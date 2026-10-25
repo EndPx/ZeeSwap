@@ -1,10 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {appendChefLinkedRecoveryProof,chefLinkedCampaignDirectory,chefLinkedRecoveryHeaders,chefLinkedRecoverySnapshot,classifyChefLinkedCommit,extendChefLinkedRecoveryTarget,finishChefLinkedFileBoundary,initialChefLinkedRecovery,nextChefLinkedRecoveryRange,validateChefLinkedApproval,validateChefLinkedRecovery,type ChefLinkedApproval,type ChefLinkedApprovalContext,type ChefLinkedJournal,type ChefLinkedState} from '../../src/integrations/observation/chef-linked-recovery.ts';
+import {appendChefLinkedRecoveryProof,chefLinkedCampaignDirectory,chefLinkedRecoveryHeaders,chefLinkedRecoverySnapshot,classifyChefLinkedCommit,extendChefLinkedRecoveryTarget,finishChefLinkedFileBoundary,initialChefLinkedRecovery,nextChefLinkedRecoveryRange,validateChefLinkedApproval,validateChefLinkedApprovalTime,validateChefLinkedRecovery,type ChefLinkedApproval,type ChefLinkedApprovalContext,type ChefLinkedJournal,type ChefLinkedState} from '../../src/integrations/observation/chef-linked-recovery.ts';
 import {chefPersistedCanonical} from '../../src/integrations/observation/chef-live.ts';
 import {contentDigest,digest,type Header,type ReplaceRange,type ChefHistoricalWitness} from '../../src/integrations/observation/types.ts';
 import type {Snapshot} from '../../src/observer.ts';
 const hash=(n:number)=>n.toString(16).padStart(64,'0'),time=new Date().toISOString(),header=(height:number):Header=>({height,hash:hash(height),parentHash:hash(height-1),time}),sha=hash(999);
+test('V2 metadata approval has its own two-hour expiry and pins while preserving proof/output/commit boundaries',async()=>{
+ const{p,context}=fixture(),at=Date.parse(p.verifiedAt),v2:ChefLinkedApproval={...p,version:2,status:'ROOT_CHEF_LINKED_SUFFIX_METADATA_RECOVERY_APPROVED',publicCommit:'a'.repeat(40),freshCanonicalAudit:{path:context.stateRoot+'/current-audit.private.json',sha256:hash(70)},expiresAt:new Date(at+7200000).toISOString()};
+ assert.equal(validateChefLinkedApproval(v2,context,at),v2);
+ assert.doesNotThrow(()=>validateChefLinkedApproval({...p,expiresAt:new Date(at+86400000).toISOString()},context,at));
+ for(const patch of [{expiresAt:new Date(at+7200001).toISOString()},{status:p.status},{freshCanonicalAudit:{...v2.freshCanonicalAudit,path:'/tmp/elsewhere'}},{financialDigest:hash(99)},{identity:{...p.identity,generation:'other'}}])assert.throws(()=>validateChefLinkedApproval({...v2,...patch},context,at));
+ assert.throws(()=>validateChefLinkedApprovalTime(v2,at+7200000),/APPROVAL_TIME/);
+ const target=header(1200),r=range(1091,1200,1200),j=initialChefLinkedRecovery(v2,sha,target);
+ const done=appendChefLinkedRecoveryProof(j,v2,sha,target,r.batch,r.snapshot);assert.equal(nextChefLinkedRecoveryRange(done),null);
+ assert.throws(()=>appendChefLinkedRecoveryProof(j,v2,sha,target,r.batch,{...r.snapshot,outputs:[{} as any]}),/FINANCIAL_OBSERVATION/);
+ assert.throws(()=>validateChefLinkedRecovery(done,v2,sha,{...target,hash:hash(90)}),/TARGET_REORG/);
+ let removed=false;const before={checkpoint:v2.baseline.checkpoint,control:v2.control},after={...before,checkpoint:{...before.checkpoint,xmin:'900'}};
+ await assert.rejects(finishChefLinkedFileBoundary('committed',after,before,after,{leaseGuard:async()=>validateChefLinkedApprovalTime(v2,at+7200000),readCursor:async()=>{},installCursor:async()=>{},writeCompletion:async()=>{},removeMarker:async()=>{removed=true;}}),/APPROVAL_TIME/);assert.equal(removed,false);
+});
 function fixture(){
  const identity={project:'fixture',generation:'fixture-generation',policy:{adapter:'zeer-chef' as const,network:'zcash-testnet' as const,birthday:100,registryDigest:hash(1),projectionDigest:hash(2),canonicalSourceId:'independent-fixture',accountFingerprint:'fixture-account',maxBlocks:1000}},root='/isolated/state',ref=(name:string)=>({path:root+'/'+name,sha256:hash(3)}),cursor={version:1 as const,identityDigest:digest(identity),processedThrough:1100,tipHash:hash(1100),snapshotDigest:hash(4)},control={epoch:'17',xmin:'321',accepting_orders:false as const,dispatch_enabled:false as const,reconciliation_required:true as const},checkpoint={scanned_height:'1100',finalized_height:'1091',tip_hash:hash(1100),finalized_time:time,observed_at:time.replace('Z','000Z'),xmin:'322'};
  const p:ChefLinkedApproval={version:1,status:'ROOT_CHEF_LINKED_SUFFIX_RECOVERY_APPROVED',verifiedAt:time,expiresAt:new Date(Date.parse(time)+3600000).toISOString(),metadataOnly:true,noFinance:true,profileSha256:hash(10),handoffSha256:hash(11),openingProofSha256:hash(12),financialDigest:hash(13),control,baseline:{cursor:{...ref('chef-recovery/live-cursor.private.json'),value:cursor},checkpoint},legacyJournal:ref('chef-recovery/journal.private.json'),identity,continuationAuthority:ref('continuation/authority.private.json'),capitalProof:ref('capital.private.json'),observerInactiveProof:ref('observer-inactive.private.json')};
