@@ -1,6 +1,6 @@
 import { fundEscrow } from './escrow-funding.ts';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { ApiError, apiOrigin, ZeeApi } from './api.ts';
+import { ApiError, apiOrigin, ZeeApi, type QuoteBounds } from './api.ts';
 import { amountForApi, assets, decodePrivateOrders, flip, formatUnits, indicativeOutput, pair, quoteBody, statusCopy, terminal, type Asset, type Direction, type OrderView, type PrivateOrder, type QuoteBody } from './protocol.ts';
 import { Button, Copy, Dialog, Icon, Notice, TokenMark } from './ui.tsx';
 import { useWallet } from './wallet.ts';
@@ -27,7 +27,8 @@ export default function App(){
   const [quoteExpired,setQuoteExpired]=useState(false);
   const [from,to]=pair(direction),estimate=indicativeOutput(amount,direction),active=entries.find(entry=>entry.access.id===selected),order=active?.view;
   const update=useCallback((access:PrivateOrder,view:OrderView,body?:QuoteBody)=>setEntries(current=>{const existing=current.find(entry=>entry.access.id===access.id);return [{access,view,body:body??existing?.body},...current.filter(entry=>entry.access.id!==access.id)].slice(0,20);}),[]);
-  const [quoteBounds,setQuoteBounds]=useState<{inputAmountAtomic:'100000';maxAcceptedPerDirection:1}|undefined>();
+  const [quoteBounds,setQuoteBounds]=useState<QuoteBounds|undefined>();
+  const directionLimit=quoteBounds?('maxAcceptedPerDirection'in quoteBounds?quoteBounds.maxAcceptedPerDirection:quoteBounds.maxAcceptedByDirection[direction]):undefined;
   useEffect(()=>{if(quoteBounds)setAmount(formatUnits(quoteBounds.inputAmountAtomic,assets[pair(direction)[0]].decimals));},[quoteBounds,direction]);
   const checkHealth=useCallback(async()=>{setConnection('checking');setHealthError('');try{const health=await api.health(AbortSignal.timeout(4500));setQuoteBounds(health.quoteBounds);setConnection('online');}catch(error){setConnection('offline');setHealthError(humanError(error));}},[api]);
   const refresh=useCallback(async(entry:Entry)=>{const id=entry.access.id;if(reads.has(id))return;reads.add(id);const epoch=fence.begin(id);
@@ -88,9 +89,9 @@ export default function App(){
             {fieldErrors.amount&&<p id="amount-error" className="field-error" role="alert">{fieldErrors.amount}</p>}
             <div className="route-summary"><div className="route-icons"><TokenMark asset={from} small/><span className="route-dashes"/><TokenMark asset={to} small/></div><div><strong>{assets[from].network}<Icon name="arrow" size={13}/>{assets[to].network}</strong><span>{direction==='ZCASH_TO_BASE'?'Shielded in. More possibilities out.':'Back to your shielded balance.'}</span></div><Icon name="shield" size={18}/></div>
             <div className="quote-facts"><span>1 TAZ = 100 mockUSDC <span className="fixture-tag">Fixture rate</span></span><button aria-label="About the indicative fixture rate" onClick={()=>open('help')}><Icon name="info" size={15}/></button></div>
-            {quoteBounds&&<p className="fine-print">Bounded testnet run: exactly 0.001 TAZ or 0.1 mockUSDC. One accepted order in each direction; operator reconciliation is required before another run.</p>}
+            {quoteBounds&&<p className="fine-print">Bounded testnet run: exactly 0.001 TAZ or 0.1 mockUSDC. Current policy limit: {directionLimit} accepted {from} to {to} {directionLimit===1?'order':'orders'}. Previously accepted orders count toward this limit; this is not remaining capacity.</p>}
             <Button variant="orange" className="review-button" onClick={review}>Review swap<Icon name="arrow" size={19}/></Button>
-            <div className={`service-line service-${connection}`} role="status"><span className="service-dot"/>{connection==='checking'?'Checking swap service…':connection==='online'?'Service connected · pricing is a fixture':'Preview mode · swap service offline'}<button aria-label="Check service connection again" onClick={()=>{void checkHealth();}}><Icon name="refresh" size={13}/></button></div>
+            <div className={`service-line service-${connection}`} role="status"><span className="service-dot"/>{connection==='checking'?'Checking swap service…':connection==='online'?'API connected · swap readiness not verified':'Preview mode · service status unavailable'}<button aria-label="Check service connection again" onClick={()=>{void checkHealth();}}><Icon name="refresh" size={13}/></button></div>
           </div>
           <p className="card-footnote"><Icon name="lock" size={14}/>Your keys stay in your wallet. Test assets have no monetary value.</p>
         </section>

@@ -27,10 +27,35 @@ exit-78 plus systemd restart-prevention correction passed focused tests and peer
 review. The independent 16:20 UTC diagnostic compared all 1,671 Native and 267
 Base retained rows and found exactly one orphan Native tip at 4540629, with
 common ancestor 4540628 and no financial-anchor or Base-anchor conflicts.
-Persistent state remained unchanged. Actual policy installation and separately
-reviewed closed-history recovery remain pending. No source/cursor repair or
-financial action is claimed. See
+Persistent state remained unchanged. Root installed and verified the fatal-exit
+supervisor policy; the isolated actual exit-78 fixture did not restart, and 25
+focused VPS tests plus typechecking passed. Separately reviewed closed-history
+recovery remains pending. No source/cursor repair or financial action is claimed. See
 [fatal supervision incident](docs/evidence/native-chef-fatal-supervision.md).
+
+Live application acceptance (25 October): the user requested all repairs and an
+actually usable testnet app. Complete these bounded milestones in order:
+
+1. Reconcile only the independently proven orphan Native tip, preserving closed
+   financial history and normal triggers. Recover every missing Base observation
+   range without skipping headers/events or replacing the true source floor.
+   Verify both ordinary consumers following fresh blocks again.
+2. Correct the web/API health schema mismatch and verify the deployed browser.
+   Connectivity must not imply admission or settlement readiness. The existing
+   expired, directional-owner continuation is a finite operator test policy;
+   ordinary random browser capabilities cannot bypass it.
+3. Prepare a separately reviewed bounded testnet service policy for ordinary
+   browser capabilities, exact amounts, atomic capacity/inventory/fee limits and
+   supervised settlement. Preserve historical sessions, receipts and accounting;
+   do not remove limits, reuse expired authority or resume the stopped G5 soak.
+4. Pass fresh source/capital/readiness gates, execute an actual browser-backed
+   two-way circle, independently verify destination receipts and ledger closure,
+   and expose the truthful available/paused/exhausted app state. A deployed UI,
+   passing mock tests or source health alone does not close this acceptance gate.
+
+The prepared [web health compatibility](docs/evidence/live-app-health-compatibility.md)
+passes local unit/build/browser tests. Its actual publication and deployment are
+recorded separately from financial activation.
 
 Earlier application recovery checkpoint (25 October): the new published fast
 path passed 82 VPS cases and typechecking. After a fresh independent audit,

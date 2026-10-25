@@ -98,3 +98,25 @@ metadata repair, actual policy installation and subsequent ordinary following
 remain required. The financial snapshot and paused epoch-217 controls remained
 unchanged. Earlier passing source or application snapshots cannot replace those
 current checks.
+
+## VPS supervisor installation and acceptance
+
+Root published and remotely verified commit `c3165eb6f5e8192e4bdf7b3ed2699d2ef5d3ae75`,
+then selectively installed the two changed source files, focused test and the
+application-only drop-in from Git archive bytes. The archive SHA-256 was
+`7b97e79fc3ead58c30f06e01a393519a5f80c0f01460e3b271ff0c456ca17fbe`.
+Source and drop-in hashes matched the reviewed manifest. The same 25 focused
+cases passed on the VPS with zero skips; API typechecking also passed there.
+
+The actual application unit read back `Restart=on-failure` and
+`RestartPreventExitStatus=78`, with PID zero and inactive. A separate harmless
+systemd fixture using Node `process.exit(78)` returned status 78 and retained
+`NRestarts=0` on both immediate and delayed readback. It used no wallet or
+application database. The real observer was not started to exercise a conflict.
+
+A separate 16:43 UTC read confirmed paused epoch 217 / version 538330, unchanged
+19-table/70-row financial digest and zero authorization rows. Both shipped
+canonical/rewind triggers were enabled. The worker's metadata update/insert and
+observer-lock privileges were verified. Persisted metadata recovery and fresh
+ordinary observation remain distinct next gates; installing supervision alone
+does not repair the orphan or enable settlement.

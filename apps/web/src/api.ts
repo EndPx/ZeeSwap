@@ -1,5 +1,29 @@
 import { capability, decodeOrder, uuid, type OrderView, type PrivateOrder, type QuoteBody } from './protocol.ts';
 
+export type QuoteBounds={inputAmountAtomic:'100000';maxAcceptedPerDirection:1}|{
+  inputAmountAtomic:'100000';maxAcceptedByDirection:{ZCASH_TO_BASE:2|3;BASE_TO_ZCASH:1};newForwardCutoffBlocks:40;continuationSha256:string;
+};
+export interface ApiHealth {status:'ok';integrationOnly:boolean;quoteBounds?:QuoteBounds;}
+const record=(value:unknown):value is Record<string,unknown>=>typeof value==='object'&&value!==null&&!Array.isArray(value);
+const exactKeys=(value:Record<string,unknown>,keys:string[])=>Object.keys(value).sort().join(',')===[...keys].sort().join(',');
+/** Connectivity and declared limits only; this response does not establish admission readiness. */
+export function decodeHealth(value:unknown):ApiHealth {
+  if(!record(value)||!exactKeys(value,['status','integrationOnly',...(Object.hasOwn(value,'quoteBounds')?['quoteBounds']:[])])||value.status!=='ok'||typeof value.integrationOnly!=='boolean')throw new ApiError('INVALID_RESPONSE');
+  if(Object.hasOwn(value,'quoteBounds')){
+    const b=value.quoteBounds;
+    if(!record(b)||b.inputAmountAtomic!=='100000')throw new ApiError('INVALID_RESPONSE');
+    if(Object.hasOwn(b,'maxAcceptedPerDirection')){
+      if(!exactKeys(b,['inputAmountAtomic','maxAcceptedPerDirection'])||b.maxAcceptedPerDirection!==1)throw new ApiError('INVALID_RESPONSE');
+    }else{
+      const limits=b.maxAcceptedByDirection;
+      if(!exactKeys(b,['inputAmountAtomic','maxAcceptedByDirection','newForwardCutoffBlocks','continuationSha256'])||!record(limits)
+        ||!exactKeys(limits,['ZCASH_TO_BASE','BASE_TO_ZCASH'])||![2,3].includes(limits.ZCASH_TO_BASE as number)||limits.BASE_TO_ZCASH!==1
+        ||b.newForwardCutoffBlocks!==40||typeof b.continuationSha256!=='string'||!/^[a-f0-9]{64}$/.test(b.continuationSha256)||b.continuationSha256==='0'.repeat(64))throw new ApiError('INVALID_RESPONSE');
+    }
+  }
+  return value as unknown as ApiHealth;
+}
+
 export class ApiError extends Error { constructor(readonly code:string,readonly uncertain=false){super(errorCopy(code));} }
 export function errorCopy(code:string):string {
   const copy:Record<string,string>={
@@ -44,7 +68,7 @@ export class ZeeApi {
     if(!response.ok)throw new ApiError(typeof value==='object'&&value&&'error'in value&&typeof value.error==='string'?value.error:'UNKNOWN_ERROR');
     return value;
   }
-  async health(signal?:AbortSignal):Promise<{status:'ok';integrationOnly:boolean;quoteBounds?:{inputAmountAtomic:'100000';maxAcceptedPerDirection:1}}>{const v=await this.call('/health',{signal}) as {status?:unknown;integrationOnly?:unknown;quoteBounds?:{inputAmountAtomic?:unknown;maxAcceptedPerDirection?:unknown}};if(v.status!=='ok'||typeof v.integrationOnly!=='boolean'||(v.quoteBounds!==undefined&&(!v.quoteBounds||v.quoteBounds.inputAmountAtomic!=='100000'||v.quoteBounds.maxAcceptedPerDirection!==1)))throw new ApiError('INVALID_RESPONSE');return v as {status:'ok';integrationOnly:boolean;quoteBounds?:{inputAmountAtomic:'100000';maxAcceptedPerDirection:1}};}
+  async health(signal?:AbortSignal):Promise<ApiHealth>{return decodeHealth(await this.call('/health',{signal}));}
   create(body:QuoteBody):Promise<{order:OrderView;access:PrivateOrder}>{
     const fingerprint=JSON.stringify(body);
     if(this.creating){if(this.request?.fingerprint!==fingerprint)return Promise.reject(new ApiError('IDEMPOTENCY_CONFLICT'));return this.creating;}
