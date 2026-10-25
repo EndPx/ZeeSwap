@@ -4,6 +4,12 @@ Recorded 25 October 2026. The existing Chef project now runs its authenticated
 query API and a single watch-only follower in Docker on the VPS. It resumed the
 retained namespace; catch-up and application readiness remain separate gates.
 
+The later [normal continuous handoff](native-chef-normal-follow.md) supersedes
+this record's pending handoff status: the bounded deadline was retired, normal
+cap-one following resumed and both roles received explicit restart supervision.
+The source became near-tip while the application consumer remained stale and
+paused. The historical observations and limits below are preserved.
+
 ## Backup, image and scanner
 
 The native API and the earlier 0.6.1 canary were stopped before upgrade. The

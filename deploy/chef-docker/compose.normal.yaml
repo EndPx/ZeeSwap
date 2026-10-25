@@ -1,0 +1,9 @@
+# Explicit normal-operation overlay only; never use for bounded source recovery.
+# Combine after compose.yaml with reviewed normal pins and no recovery deadline.
+services:
+  api:
+    restart: unless-stopped
+  follower:
+    restart: unless-stopped
+    environment:
+      CHEF_SOURCE_RECOVERY: disabled

@@ -3,9 +3,10 @@
 Last updated: 2026-10-25 (Asia/Jakarta), for the isolated Linux testnet deployment. Execution evidence below retains its recorded dates.
 
 Deployment decision (25 October): the user selected Docker on the existing VPS.
-The Chef query API and one bounded watch-only follower now run there in separate
-containers; source catch-up is ongoing and normal ready-only continuous handoff
-remains pending. Earlier native and canary execution evidence remains historical.
+The Chef query API and one watch-only follower now run there in separate
+containers under normal continuous supervision. The bounded recovery deadline
+was retired after a normal ready-only handoff. Earlier native and canary
+execution evidence remains historical.
 The existing remote Neon database, project/account identity, checkpoint and
 protected viewing-key material are preserved. Keep secrets outside
 Git, apply explicit resource limits, and verify the previous writer has stopped
@@ -13,7 +14,21 @@ and released its locks before starting the container writer. Container startup
 does not authorize a project reset, financial activation or a payment. Docker
 remains prohibited on the laptop; do not provision local PostgreSQL there.
 
-Chef 0.7.0 live checkpoint (25 October): the existing namespace backup and actual
+Current normal-follow checkpoint (25 October): the earlier owned deadline
+cleanly stopped source recovery at 12:34:49 UTC after reaching the observed tip.
+Root verified unchanged identity/entities and 201 canonical retained headers,
+then started normal cap-one following at 13:25:28.597 UTC without source-recovery
+pins or timers. Actual merged Compose validation and an in-place policy update
+put both API and follower under `unless-stopped`, preserving their processes and
+one verified writer lease. At 13:30:27 UTC the source checkpoint was 4540366
+against 4540367 (gap one), with a ready committed read gate. The 13:27:37 financial
+read preserved all 70 rows across 19 tables and paused epoch-ten controls with
+zero authorization rows. The application observer remains stopped at stale
+4537824: normal source health does not close application readiness, financial
+activation or G5. No crash/reboot recovery test or new payment is claimed. See
+[normal continuous handoff](docs/evidence/native-chef-normal-follow.md).
+
+Earlier Chef 0.7.0 live checkpoint (25 October): the existing namespace backup and actual
 container/scanner fixture checks passed. The primary authenticated query API and
 one official writer now run in Docker with the original generation; the native
 writer is disabled and exactly one advisory lease was verified. The checkpoint

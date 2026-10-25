@@ -67,9 +67,12 @@ Differences from the public reference are deliberate:
   stop grace and two 5 MiB log files. Together the proposed ceilings are one CPU
   and 1 GiB RAM plus tmpfs and Docker overhead. VPS headroom and scanner peak
   memory have not been measured; these are proposed ceilings, not validated sizing.
-- Both roles use `restart: "no"`. Fatal identity, scanner, reorg or source errors
+- Both roles in the base Compose file use `restart: "no"`. Fatal identity, scanner, reorg or source errors
   require inspection. There is no outer retry loop or host startup unit here.
   Chef's own documented source-unavailable wait behavior remains unchanged.
+  The separate `compose.normal.yaml` overlay enables continuous API/follower
+  supervision only after the normal-operation checks below; bounded source
+  recovery continues to use the base policy and its owned deadline.
 - `bounded-prep-client.mjs` wraps the official CLI client seam: outgoing payload
   queries default to one block / limit one. Private `pins.maxPayloadBlocks: 2`
   explicitly permits fixed two-block requests; absent or `1` retains one, and
@@ -210,7 +213,49 @@ cleanup and advisory-lock release, and retain independent before/after canonical
 and financial receipts. The proof expiry gates startup; it is not a built-in
 runtime watchdog. This remains preparation until actual operator evidence exists.
 
-### Optional fixed-two transport comparison: pending
+### Continuous normal-operation supervision
+
+After a reviewed source-only run completes and its deadline is retired, normal
+Chef following should keep reading Prep continuously, including after it reaches
+the tip. Use this explicit overlay only after confirming the original generation,
+fingerprint, entities and retained canonical headers, a ready committed checkpoint,
+the intended source identity, and one-writer ownership. Use freshly reviewed
+normal pins with `maxPayloadBlocks: 1` and **no `sourceRecovery` object**; retain
+the normal follower opt-in. Disable/remove the old recovery deadlines and confirm
+they cannot later stop the normal follower. This is a source-observation handoff,
+not financial activation or new financial authority.
+
+The following future VPS operator command adds continuous supervision to the
+existing base configuration without rebuilding or starting a recovery mode:
+
+```sh
+docker compose -f deploy/chef-docker/compose.yaml \
+  -f deploy/chef-docker/compose.normal.yaml --profile writer \
+  up -d --no-build api follower
+```
+
+The overlay sets both API and follower restart policies to `unless-stopped` and
+forces the follower's `CHEF_SOURCE_RECOVERY=disabled`, independently of an
+inherited shell value. The base restart policy remains `no` for bounded recovery.
+API mounts and authentication are unchanged. Normal operation has no recovery timer. Docker may restart the normal
+process after exit or daemon restart; every start still runs the same exact
+runtime/config/scanner pins and normal ready/source preflight. Fatal or
+reconciling states remain refused: restart does not reset a namespace, repair
+SQL metadata, reopen a gate or enter source recovery. Repeated preflight failures
+require operator inspection and an explicit stop/correction. The official
+follower retains its transient source-wait and canonicality behavior while it
+is running. A deliberate operator stop remains stopped under `unless-stopped`.
+
+Review the merged Compose configuration and verify both actual container restart
+policies, disabled follower recovery flag, absence of old deadlines and exact single writer
+lease after applying this mode. Record actual handoff evidence separately;
+the overlay's local configuration check does not prove it was deployed.
+
+### Optional fixed-two transport comparison: historical preparation
+
+The later actual comparison was unqualified and Root explicitly returned to cap
+one. See the [actual result](../../docs/evidence/native-chef-fixed-two-preparation.md).
+The sequence below preserves the originally declared comparison gate.
 
 The two-block cap is a bounded candidate, not a performance claim. It retains
 the original field/filter objects, options/AbortSignal, exact response identity,
