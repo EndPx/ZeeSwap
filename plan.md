@@ -70,6 +70,16 @@ published/deployed as `b567e162b6f820c601e4acbba41e31f2876094f8`. The actual fre
 public browser read at 16:53 UTC displayed the corrected connection status with
 no page errors. No quote, order, activation or payment was made.
 
+The [bounded public testnet policy](docs/evidence/bounded-testnet-service-policy.md)
+and [operator procedure](docs/runbooks/bounded-testnet-service-policy.md) prepare
+ordinary browser capabilities, two fixed-size orders per direction, one global
+active order, supervised settlement and accepted-order refunds. Root independently
+verified isolated PostgreSQL transaction boundaries, Windows-to-WSL durable local
+journals, actual Linux Root file permissions, and frontend tests. These are
+implementation proofs. The Base metadata campaign is still recovering retained
+history; the new application migrations, fee allocation, permit, worker startup
+and actual browser-backed funded circle remain pending live execution.
+
 The separate [closed-history Base recovery](docs/evidence/envio-closed-recovery.md)
 passed focused and isolated PostgreSQL tests plus peer review. It binds an
 independent metadata-only approval to current control/books/admission and

@@ -50,6 +50,21 @@ def fixture(purpose='reverse'):
 
 
 class LinuxNativeScope(unittest.TestCase):
+    def test_policy_prepared_context_keeps_original_exact_guard_contract(self):
+        for purpose in ('reverse', 'refund'):
+            p, c, pinned = fixture(purpose)
+            c['policyContext'] = {'version': 1, 'policySha256': H, 'orderId': ID}
+            with patch.object(profiles, 'pinned', pinned), patch.object(profiles, 'root_reviewed'):
+                self.assertEqual(profiles.validate_native_config(c, p, purpose), ID)
+            def injected(pin, private=True):
+                value = json.loads(pinned(pin, private))
+                if pin['path'].endswith('/guard.private.json'):
+                    value['policyContext'] = c['policyContext']
+                return json.dumps(value).encode()
+            with patch.object(profiles, 'pinned', injected), patch.object(profiles, 'root_reviewed'):
+                with self.assertRaisesRegex(ValueError, 'GUARD_CONFIG'):
+                    profiles.validate_native_config(c, p, purpose)
+
     def test_actual_pinned_file_bytes_and_symlink_refuse(self):
         with tempfile.TemporaryDirectory() as root:
             path = Path(root) / 'proof.private.json'; path.write_bytes(b'fixture-proof'); path.chmod(0o600)

@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "mode": "ROOT_BOUNDED_TESTNET_SERVICE_WORKER",
+  "enabled": false,
+  "policy": {
+    "path": "/opt/zeeswap-testnet/state/service-policy/operator-issued.private.json",
+    "sha256": "ROOT_MUST_PIN_ACTUAL_POLICY_BYTES"
+  },
+  "captureScript": {
+    "path": "/opt/zeeswap-testnet/releases/REVIEWED_RELEASE/app/workers/zcash-wallet/testnet_policy_capital.py",
+    "sha256": "ROOT_MUST_PIN_INSTALLED_CAPTURE_SCRIPT"
+  },
+  "codePins": [],
+  "seedSources": [],
+  "pollSeconds": 5
+}

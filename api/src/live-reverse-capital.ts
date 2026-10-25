@@ -1,3 +1,4 @@
+import {runRefundQuery,type PolicyWorkerOrderContext} from './testnet-policy-refund.ts';
 import {createHash} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import {validatePreparedZcash,type PreparedZcashTransaction,type VerifiedZcashReceipt} from './reverse-settlement.ts';
@@ -7,7 +8,7 @@ import type {PrivateData} from './private-data.ts';
 import {depositIdentity,type DepositInput} from './repository.ts';
 export type CapitalSource={kind:'opening'|'settled-source'|'confirmed-own-change'|'refund-source'|'confirmed-refund-own-change'|'discharged-refund-residual';path:string;sha256:string;orderId?:string};
 /** Operator-reviewed immutable provenance only. Admission never credits books. */
-export async function approvedLiveReverseCapital(pool:pg.Pool,keys:PrivateData,sources:CapitalSource[],refundOrderId?:string){
+export async function approvedLiveReverseCapital(pool:pg.Pool,keys:PrivateData,sources:CapitalSource[],refundOrderId?:string,policy?:PolicyWorkerOrderContext){
  if(!Array.isArray(sources)||sources.length<1||sources.length>100)throw Error('LIVE_CAPITAL_APPROVAL_SOURCES_REQUIRED');
  const notes=new Map<string,{pool:'ironwood';txid:string;index:number;value:string}>();
  for(const source of sources){
@@ -19,7 +20,7 @@ export async function approvedLiveReverseCapital(pool:pg.Pool,keys:PrivateData,s
    additions=proof.capitalNotes;
   }else if(source.kind==='settled-source'||source.kind==='refund-source'){
    const refund=source.kind==='refund-source';
-   if(refund){if(!refundOrderId||source.orderId!==refundOrderId)throw Error('REFUND_CAPITAL_ONLY_FOR_OWN_ORDER');await pool.query('SELECT zee.check_source_refund_signing($1)',[refundOrderId]);}
+   if(refund){if(!refundOrderId||source.orderId!==refundOrderId)throw Error('REFUND_CAPITAL_ONLY_FOR_OWN_ORDER');await runRefundQuery(pool,'signing',refundOrderId,[],policy);}
    const outputs=proof.snapshot?.outputs;if(!Array.isArray(outputs)||outputs.length!==1)throw Error('EXACT_SETTLED_SOURCE_PROOF_REQUIRED');
    const output=outputs[0],identity=depositIdentity({...output,network:'zcash-testnet'} as DepositInput);
    const row=(await pool.query(`SELECT d.*,o.state,q.direction FROM zee.deposits d JOIN zee.orders o ON o.id=d.order_id JOIN zee.quotes q ON q.id=o.id

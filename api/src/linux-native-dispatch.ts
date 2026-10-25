@@ -1,3 +1,5 @@
+import {validatePolicyCapitalProof,requirePolicyCapitalProvenance} from './testnet-policy-capital.ts';
+import {requirePolicyWorkerOrder,validatePolicyWorkerOrderContext,type PolicyWorkerOrderContext} from './testnet-policy-refund.ts';
 /** Linux physical transport for the existing native reverse/refund kernels. */
 import {readFile,lstat,realpath,mkdir,open,rename} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
@@ -22,7 +24,7 @@ export type NativePurpose='reverse'|'refund';
 export type LinuxNativeConfig={version:1;mode:'LINUX_TESTNET_REVERSE'|'LINUX_TESTNET_REFUND';enabled:boolean;operatorProfile:string;
  python:string;node:PinnedFile;signerConfig:PinnedFile;handoffProof:string;protoDir:string;pollSeconds:5|10;maxCycles:number;maxAmountZatoshi:string;
  scripts:Record<'native'|'profile'|'supervisor'|'preparedKernel'|'refundKernel'|'outgoingKernel'|'preflight'|'guard'|'baseSigner',PinnedFile>};
-type NativeState=(LiveReverseState|LiveRefundState)&{operatorProfileSha256?:string;nativeConfigSha256?:string};
+type NativeState=(LiveReverseState|LiveRefundState)&{operatorProfileSha256?:string;nativeConfigSha256?:string;policyContext?:PolicyWorkerOrderContext};
 export type LoadedLinuxNative=Awaited<ReturnType<typeof loadLinuxNativeDispatch>>;
 function need(value:unknown,code:string):asserts value{if(!value)throw Error(code);}
 const inside=(p:string,root:string)=>posix.isAbsolute(p)&&posix.normalize(p)===p&&p.startsWith(root+'/');
@@ -66,20 +68,30 @@ export async function loadLinuxNativeDispatch(path:string,purpose:NativePurpose)
 
 /** Root reviews this mutable per-order file. Pinned root profiles and the
  * prefunding relocation proof never need to change after a customer deposit. */
-export async function linuxPerOrderCapital(loaded:LoadedLinuxNative,pool:pg.Pool,keys:PrivateData,id:string){
+export async function linuxPerOrderCapital(loaded:LoadedLinuxNative,pool:pg.Pool,keys:PrivateData,id:string,policyContext?:PolicyWorkerOrderContext){
  const p=loaded.verified.profile,directory=nativeOrderDirectory(p,loaded.purpose,id),path=directory+'/capital-approval.private.json';
  const s=await lstat(path);need(s.isFile()&&!s.isSymbolicLink()&&s.uid===0&&await realpath(path)===path&&(s.mode&0o027)===0,'LINUX_CAPITAL_PROTECTED_APPROVAL');
  const bytes=await readFile(path),approval=JSON.parse(bytes.toString());
- validateLinuxCapitalApproval(p,loaded.purpose,id,approval);
+ validateLinuxCapitalApproval(p,loaded.purpose,id,approval,policyContext);
  const sources:CapitalSource[]=[{kind:'opening',...p.immutable.chefOpeningProof},...approval.sources];
- const notes=await approvedLiveReverseCapital(pool,keys,sources,loaded.purpose==='refund'?id:undefined);
+ let notes=await approvedLiveReverseCapital(pool,keys,sources,loaded.purpose==='refund'?id:undefined,policyContext);
+ if(policyContext){
+  await requirePolicyWorkerOrder(pool,policyContext,id);
+  const pc=approval.policyCapital;need(pc?.version===1&&pc.policySha256===policyContext.policySha256&&inside(pc.capture?.path,directory+'/proofs')&&/^[0-9a-f]{64}$/.test(pc.capture?.sha256),'POLICY_CAPITAL_ROOT_BINDING');
+  const stat=await lstat(pc.capture.path);need(stat.isFile()&&!stat.isSymbolicLink()&&stat.uid===0&&(stat.mode&0o027)===0&&stat.size<=1048576&&await realpath(pc.capture.path)===pc.capture.path,'POLICY_CAPITAL_ROOT_FILE');
+  const raw=await readFile(pc.capture.path);need(linuxRawSha256(raw)===pc.capture.sha256,'POLICY_CAPITAL_RAW_CHANGED');
+  const current=validatePolicyCapitalProof(JSON.parse(raw.toString()),{policySha256:policyContext.policySha256,profileSha256:loaded.verified.profileSha256,loaderSha256:loaded.c.scripts.profile.sha256,captureScriptSha256:linuxRawSha256(await readFile(p.roots.release+'/app/workers/zcash-wallet/testnet_policy_capital.py'))});
+  need(pc.observedAt===current.observedAt&&JSON.stringify(pc.notes)===JSON.stringify(current.notes),'POLICY_CAPITAL_ROOT_CAPTURE_CHANGED');
+  notes=requirePolicyCapitalProvenance(current.notes,notes);
+ }
  return {notes,path,sha256:linuxRawSha256(bytes)};
 }
-export function validateLinuxCapitalApproval(p:LinuxOperatorProfile,purpose:NativePurpose,id:string,approval:any){
+export function validateLinuxCapitalApproval(p:LinuxOperatorProfile,purpose:NativePurpose,id:string,approval:any,policyContext?:PolicyWorkerOrderContext){
+ if(policyContext)validatePolicyWorkerOrderContext(policyContext,id);
  const directory=nativeOrderDirectory(p,purpose,id);
  need(approval.version===1&&approval.orderId===id&&approval.sourceFingerprint===p.identity.sourceFingerprint
   &&approval.openingProofSha256===p.immutable.chefOpeningProof.sha256&&Array.isArray(approval.sources)&&approval.sources.length<=99,'LINUX_CAPITAL_APPROVAL_IDENTITY');
- for(const source of approval.sources as CapitalSource[]){need(['settled-source','confirmed-own-change',...(purpose==='reverse'?['confirmed-refund-own-change','discharged-refund-residual']:[]),...(purpose==='refund'?['refund-source']:[])].includes(source.kind)
+ for(const source of approval.sources as CapitalSource[]){need(['settled-source','confirmed-own-change',...(purpose==='reverse'||policyContext?['confirmed-refund-own-change','discharged-refund-residual']:[]),...(purpose==='refund'?['refund-source']:[])].includes(source.kind)
   &&inside(source.path,directory+'/proofs')&&/^[0-9a-f]{64}$/.test(source.sha256),'LINUX_CAPITAL_EXPLICIT_PROOF_SCOPE');}
  if(purpose==='refund')need(approval.sources.some((source:CapitalSource)=>source.kind==='refund-source'&&source.orderId===id),'LINUX_REFUND_OWN_SOURCE_REQUIRED');
 }
@@ -91,27 +103,29 @@ async function exclusivePrivate(path:string,value:unknown){
 async function savedState(path:string,state:unknown){const bytes=JSON.stringify(state,null,2),temp=path+'.'+randomUUID()+'.tmp',file=await open(temp,'wx',0o600);try{await file.writeFile(bytes);await file.sync();}finally{await file.close();}await rename(temp,path);if(process.platform==='linux'){const dir=await open(posix.dirname(path),'r');try{await dir.sync();}finally{await dir.close();}}}
 class CancelSigner extends LocalBaseSigner{prepareCancellation():Promise<PreparedBaseTransaction>{return this.invoke({command:'prepare'});}}
 
-export function linuxNativeContexts(loaded:LoadedLinuxNative,pool:pg.Pool,keys:PrivateData,base:BaseContract){
+export function linuxNativeContexts(loaded:LoadedLinuxNative,pool:pg.Pool,keys:PrivateData,base:BaseContract,policyContext?:PolicyWorkerOrderContext){
  const {c,purpose,verified,signer}=loaded,p=verified.profile;
+
  const directory=(id:string)=>nativeOrderDirectory(p,purpose,id),file=(id:string,name:string)=>directory(id)+'/'+name;
  async function save(state:NativeState){need(state.operatorProfileSha256===verified.profileSha256,'LINUX_NATIVE_STATE_PROFILE');await savedState(file(state.orderId,'state.private.json'),state);}
- async function load(id:string):Promise<NativeState>{const dir=directory(id);await mkdir(dir,{recursive:true,mode:0o700});need(await realpath(dir)===dir,'LINUX_NATIVE_ORDER_SYMLINK');
-  try{const state=JSON.parse(await readFile(file(id,'state.private.json'),'utf8'));need(state.orderId===id&&state.operatorProfileSha256===verified.profileSha256,'LINUX_NATIVE_STATE_BINDING');return state;}
-  catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;return {version:1,orderId:id,operatorProfileSha256:verified.profileSha256};}}
+ async function load(id:string):Promise<NativeState>{const dir=directory(id);if(policyContext)await requirePolicyWorkerOrder(pool,policyContext,id);await mkdir(dir,{recursive:true,mode:0o700});need(await realpath(dir)===dir,'LINUX_NATIVE_ORDER_SYMLINK');
+  try{const state=JSON.parse(await readFile(file(id,'state.private.json'),'utf8'));need(state.orderId===id&&state.operatorProfileSha256===verified.profileSha256&&JSON.stringify(state.policyContext)===JSON.stringify(policyContext),'LINUX_NATIVE_STATE_BINDING');return state;}
+  catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;return {version:1,orderId:id,operatorProfileSha256:verified.profileSha256,...(policyContext?{policyContext}:{})};}}
  const nativeCommand=(id:string)=>[c.scripts.native.path,'--config',file(id,'prepared.private.json')];
  async function wallet(state:NativeState){need(state.approvedDigest&&state.nativeConfigSha256&&linuxRawSha256(await readFile(file(state.orderId,'prepared.private.json')))===state.nativeConfigSha256,'LINUX_NATIVE_PREPARED_STATE_CHANGED');
   return new LocalReverseWalletAdapter(c.python,[c.scripts.supervisor.path,'--kind','native','--script',...nativeCommand(state.orderId)],state.approvedDigest,true);}
  async function nativeJournal(state:NativeState){try{const j=JSON.parse(await readFile(file(state.orderId,purpose==='reverse'?'payout-intent.private.json':'refund-intent.private.json'),'utf8'));return {exists:true,broadcast:['BROADCAST_UNKNOWN','BROADCAST_ACKNOWLEDGED','DELIVERY_CONFIRMED'].includes(j.state)};}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;return {exists:false,broadcast:false};}}
  async function approveNative(state:NativeState,approved:unknown){
-  const id=state.orderId,digest=approvalDigest(approved);need(!state.approvedDigest||state.approvedDigest===digest,'LINUX_NATIVE_APPROVAL_CHANGED');
-  const approvedPath=file(id,'approved.private.json'),approvedRequestSha256=await exclusivePrivate(approvedPath,approved),capital=await linuxPerOrderCapital(loaded,pool,keys,id);
+  const id=state.orderId,digest=approvalDigest(approved);
+  if(policyContext)await requirePolicyWorkerOrder(pool,policyContext,id,{profileSha256:verified.profileSha256,handoffSha256:linuxRawSha256(await readFile(c.handoffProof)),openingProofSha256:p.immutable.openingProof.sha256,settlementContract:base.registry.contracts.ZeeSwapSettlement.address,tokenContract:base.registry.contracts.MockUSDC.address});need(!state.approvedDigest||state.approvedDigest===digest,'LINUX_NATIVE_APPROVAL_CHANGED');
+  const approvedPath=file(id,'approved.private.json'),approvedRequestSha256=await exclusivePrivate(approvedPath,approved),capital=await linuxPerOrderCapital(loaded,pool,keys,id,policyContext);
   const preflightPath=file(id,'preflight.private.json'),preflightConfigSha256=await exclusivePrivate(preflightPath,{readCommand:[p.artifacts.reader.path],rpcUrl:base.registry.rpcUrl,hashCommand:[p.artifacts.cast.path,'keccak']});
   const guardPath=file(id,'guard.private.json'),guardConfigSha256=await exclusivePrivate(guardPath,{configPath:loaded.path,orderId:id,statePath:file(id,'state.private.json'),approvedRequest:approvedPath,approvedDigest:digest});
   const prepared={liveProfile:p.profile,nativePurpose:purpose,linuxProfilePath:c.operatorProfile,linuxProfileSha256:verified.profileSha256,rootConfigPath:loaded.path,
    walletDir:p.paths.operatorWallet,operatorUfvkFile:p.paths.operatorUfvk,lockPath:p.paths.walletLock,capitalUfvkSha256:p.identity.sourceFingerprint,recipientProofMode:'operator-outgoing-recovery',
    cliCommand:[p.artifacts.zingo.path],readCommand:[p.artifacts.reader.path],verifyCommand:[p.artifacts.verify.path],protoDir:c.protoDir,
    approvedRequest:approvedPath,approvedDigest:digest,approvedRequestSha256,approvedCapitalNotes:capital.notes,capitalApprovalPath:capital.path,capitalApprovalSha256:capital.sha256,
-   journalPath:file(id,purpose==='reverse'?'payout-intent.private.json':'refund-intent.private.json'),preflightConfigSha256,guardConfigSha256,
+   ...(policyContext?{policyContext}:{}),journalPath:file(id,purpose==='reverse'?'payout-intent.private.json':'refund-intent.private.json'),preflightConfigSha256,guardConfigSha256,
    preflightCommand:[c.python,c.scripts.preflight.path,'--config',preflightPath,'--approved-request',approvedPath,'--approved-digest',digest,'--registry',p.immutable.registry.path],
    beforeBroadcastGuardCommand:[c.node.path,'--import',pathToFileURL(p.roots.release+'/app/api/node_modules/tsx/dist/loader.mjs').href,c.scripts.guard.path,guardPath]};
   state.nativeConfigSha256=await exclusivePrivate(file(id,'prepared.private.json'),prepared);state.approvedDigest=digest;await save(state);
@@ -128,7 +142,7 @@ export function linuxNativeContexts(loaded:LoadedLinuxNative,pool:pg.Pool,keys:P
    await approveNative(state,{version:1,orderId:id,settlementId:terms.id,recipient:q.recipient,amountZatoshi:q.amountZatoshi,maxFeeZatoshi:q.maxFeeZatoshi,
     base:{chainId:84532,contract:base.registry.contracts.ZeeSwapSettlement.address,token:terms.token,payer:terms.payer,refundRecipient:terms.refundRecipient,amountAtomic:terms.amount,cancellationAvailableAt:terms.cancellationAvailableAt,commitTxHash:proof.transactionHash,commitBlockNumber:String(proof.blockHeight),commitBlockHash:proof.blockHash}});}
  };
- const refund:LiveRefundContext={...shared,
+ const refund:LiveRefundContext={...shared,policyContext,
   async prepareCancel(state,source){const id=state.orderId,approved={version:1,kind:'SOURCE_REFUND_BASE',orderId:id,id:source.id,phase:'CANCEL',token:base.registry.contracts.MockUSDC.address,payer:base.registry.operator,refundRecipient:base.registry.operator,amount:source.row.received_amount,cancellationAvailableAt:'0'},digest=approvalDigest(approved);
    need(!state.baseApprovedDigest||state.baseApprovedDigest===digest,'LINUX_REFUND_CANCEL_APPROVAL_CHANGED');const approvedPath=file(id,'cancel-approved.private.json');await exclusivePrivate(approvedPath,approved);
    const path=file(id,'cancel-signer.private.json');await exclusivePrivate(path,{...signer,refundApprovedRequest:approvedPath,refundApprovedDigest:digest});state.baseApprovedDigest=digest;await save(state);

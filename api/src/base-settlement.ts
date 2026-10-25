@@ -35,9 +35,9 @@ async function saveReceipt(pool:pg.Pool,keys:PrivateData,base:BaseContract,order
 }
 
 /** Reconcile recorded attempts even while dispatch is paused. Never signs or broadcasts. */
-export async function reconcileBaseReceipts(pool:pg.Pool,keys:PrivateData,base:BaseContract){
+export async function reconcileBaseReceipts(pool:pg.Pool,keys:PrivateData,base:BaseContract,orderId?:string){
  const rows=(await pool.query(`SELECT a.*,b.terms_payload FROM zee.base_attempts a JOIN zee.base_bindings b USING(order_id)
-  WHERE NOT a.confirmed ORDER BY b.created_at,CASE a.phase WHEN 'RESERVE' THEN 0 ELSE 1 END LIMIT 100`)).rows;
+  WHERE NOT a.confirmed${orderId?' AND a.order_id=$1::uuid':''} ORDER BY b.created_at,CASE a.phase WHEN 'RESERVE' THEN 0 ELSE 1 END LIMIT 100`,orderId?[orderId]:undefined)).rows;
  let finalized=0;
  for(const row of rows){
   const terms=keys.open(row.terms_payload,termsContext(row.order_id)) as PayoutTerms;
@@ -51,7 +51,7 @@ export async function reconcileBaseReceipts(pool:pg.Pool,keys:PrivateData,base:B
 /** One fenced forward-settlement step. Its durable transaction is never replaced on retry. */
 export async function dispatchBaseOnce(pool:pg.Pool,keys:PrivateData,base:BaseContract,signer:BaseSigner,refreshObservers?:()=>Promise<unknown>,orderId?:string){
  await base.preflight();
- await reconcileBaseReceipts(pool,keys,base);
+ await reconcileBaseReceipts(pool,keys,base,orderId);
  if(refreshObservers)await refreshObservers();
  const owner=randomUUID();
  const job=(await pool.query(orderId?'SELECT * FROM zee.claim_base_job_for_order($1,$2)':'SELECT * FROM zee.claim_base_job($1)',orderId?[owner,orderId]:[owner])).rows[0];

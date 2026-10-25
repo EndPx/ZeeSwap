@@ -1,4 +1,5 @@
 import { capability, decodeOrder, uuid, type OrderView, type PrivateOrder, type QuoteBody } from './protocol.ts';
+import {decodeAvailability,type ServiceAvailability} from './availability.ts';
 
 export type QuoteBounds={inputAmountAtomic:'100000';maxAcceptedPerDirection:1}|{
   inputAmountAtomic:'100000';maxAcceptedByDirection:{ZCASH_TO_BASE:2|3;BASE_TO_ZCASH:1};newForwardCutoffBlocks:40;continuationSha256:string;
@@ -69,6 +70,7 @@ export class ZeeApi {
     return value;
   }
   async health(signal?:AbortSignal):Promise<ApiHealth>{return decodeHealth(await this.call('/health',{signal}));}
+  async availability(signal?:AbortSignal):Promise<ServiceAvailability>{return decodeAvailability(await this.call('/availability',{signal}));}
   create(body:QuoteBody):Promise<{order:OrderView;access:PrivateOrder}>{
     const fingerprint=JSON.stringify(body);
     if(this.creating){if(this.request?.fingerprint!==fingerprint)return Promise.reject(new ApiError('IDEMPOTENCY_CONFLICT'));return this.creating;}

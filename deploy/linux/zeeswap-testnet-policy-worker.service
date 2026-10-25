@@ -1,0 +1,27 @@
+[Unit]
+Description=ZeeSwap explicit bounded testnet policy worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/zeeswap-testnet/current/app/api
+Environment=HOME=/opt/zeeswap-testnet/home
+Environment=NODE_OPTIONS=--max-old-space-size=256
+EnvironmentFile=/opt/zeeswap-testnet/secrets/testnet-policy-worker.env
+ExecStart=/usr/bin/node --import ./node_modules/tsx/dist/loader.mjs scripts/work-linux-testnet-policy.ts /opt/zeeswap-testnet/secrets/testnet-policy-worker.private.json ${ZEESWAP_POLICY_WORKER_CONFIG_SHA256}
+Restart=on-failure
+RestartPreventExitStatus=78
+RestartSec=10
+KillMode=process
+SendSIGKILL=no
+TimeoutStopSec=infinity
+UMask=0077
+CPUQuota=100%
+MemoryMax=1536M
+TasksMax=96
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {spawnSync} from 'node:child_process';
+test('actual policy entry import does not connect, load secrets, capture wallets or start work',()=>{const url=new URL('../scripts/work-linux-testnet-policy.ts',import.meta.url).href;const child=spawnSync(process.execPath,['--import','tsx','--input-type=module','-e',`await import(${JSON.stringify(url)});`],{encoding:'utf8',timeout:15000,windowsHide:true});assert.equal(child.status,0,child.stderr);assert.equal(child.stdout,'');assert.equal(child.stderr,'');});

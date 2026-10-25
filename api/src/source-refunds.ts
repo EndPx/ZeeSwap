@@ -1,3 +1,4 @@
+import {runRefundQuery,type PolicyWorkerOrderContext} from './testnet-policy-refund.ts';
 import { publishObserverBatch,requireObserverEpoch } from './observer-frontiers.ts';
 import type pg from 'pg';
 import {encodeFunctionData,getAddress,keccak256,parseTransaction,recoverTransactionAddress,type Hex,type Address,type TransactionSerialized} from 'viem';
@@ -65,15 +66,14 @@ export async function assertReverseRefundEligible(base:BaseContract,terms:Awaite
  if((await base.client.getBlock({blockNumber:heads.finalized.number})).hash!==heads.finalized.hash)throw Error('BASE_REORG');
  return heads;
 }
-export async function observeSourceRefundBase(pool:pg.Pool,keys:PrivateData,base:BaseContract,orderId:string,phase:RefundPhase,hash:Hex){
+export async function observeSourceRefundBase(pool:pg.Pool,keys:PrivateData,base:BaseContract,orderId:string,phase:RefundPhase,hash:Hex,policy?:PolicyWorkerOrderContext){
  const q=await sourceRefundTerms(pool,keys,orderId);
  if((phase==='CANCEL')!==(q.row.direction==='ZCASH_TO_BASE'))throw Error('SOURCE_REFUND_DIRECTION_MISMATCH');
  const proof=await verifyBaseRefund(base,q.id,phase,hash,phase==='REFUND'?await escrowTerms(pool,keys,base,orderId):undefined);
  if(!proof)return {status:'AWAITING_BASE_FINALITY'};
  const epoch=await canonicalCheckpoint(pool,proof);
- await transaction(pool,async c=>{await requireObserverEpoch(c,epoch);await c.query('SELECT zee.confirm_source_refund_base($1,$2,$3,$4,$5,$6,$7)',
-  [orderId,phase,keys.lookup('base-tx',hash),Number(proof.receipt.blockNumber),proof.receipt.blockHash.slice(2),proof.fee,
-   keys.seal({hash,phase,fee:proof.fee,blockHeight:Number(proof.receipt.blockNumber),blockHash:proof.receipt.blockHash},refundContext(orderId,phase+'-proof'))]);});
+ await transaction(pool,async c=>{await requireObserverEpoch(c,epoch);await runRefundQuery(c,'confirmBase',orderId,[phase,keys.lookup('base-tx',hash),Number(proof.receipt.blockNumber),proof.receipt.blockHash.slice(2),proof.fee,
+   keys.seal({hash,phase,fee:proof.fee,blockHeight:Number(proof.receipt.blockNumber),blockHash:proof.receipt.blockHash},refundContext(orderId,phase+'-proof'))],policy);});
  return {status:phase==='CANCEL'?'CANCELLATION_FINALIZED':'REFUNDED'};
 }
 export async function forwardRefundPayoutTerms(pool:pg.Pool,keys:PrivateData,orderId:string):Promise<ReversePayoutTerms>{
@@ -81,12 +81,12 @@ export async function forwardRefundPayoutTerms(pool:pg.Pool,keys:PrivateData,ord
  if(q.row.direction!=='ZCASH_TO_BASE')throw Error('FORWARD_SOURCE_REFUND_REQUIRED');
  return {orderId,operationId:orderId,recipient:q.recipient,amountZatoshi:q.row.received_amount,maxFeeZatoshi:q.row.refund_fee};
 }
-export async function storeForwardRefund(pool:pg.Pool,keys:PrivateData,orderId:string,p:PreparedZcashTransaction,verifier:ReverseZcashVerifier){
- await pool.query('SELECT zee.check_source_refund_signing($1)',[orderId]);
+export async function storeForwardRefund(pool:pg.Pool,keys:PrivateData,orderId:string,p:PreparedZcashTransaction,verifier:ReverseZcashVerifier,policy?:PolicyWorkerOrderContext){
+ await runRefundQuery(pool,'signing',orderId,[],policy);
  const q=await forwardRefundPayoutTerms(pool,keys,orderId);validatePreparedZcash(p,q);await verifier.verifyPrepared(p,q);
- await pool.query('SELECT zee.store_source_refund_zcash($1,$2,$3,$4,$5)',[orderId,keys.lookup('zcash-tx',p.txid),keys.seal(p,refundContext(orderId,'ZCASH')),p.feeZatoshi,p.expiryHeight]);
+ await runRefundQuery(pool,'storeZcash',orderId,[keys.lookup('zcash-tx',p.txid),keys.seal(p,refundContext(orderId,'ZCASH')),p.feeZatoshi,p.expiryHeight],policy);
 }
-export async function observeForwardRefund(pool:pg.Pool,keys:PrivateData,orderId:string,verifier:ReverseZcashVerifier){
+export async function observeForwardRefund(pool:pg.Pool,keys:PrivateData,orderId:string,verifier:ReverseZcashVerifier,policy?:PolicyWorkerOrderContext){
  const row=(await pool.query('SELECT * FROM zee.source_refunds WHERE order_id=$1',[orderId])).rows[0];
  if(!row?.zcash_payload)throw Error('DURABLE_SOURCE_REFUND_MISSING');
  const p=keys.open(row.zcash_payload,refundContext(orderId,'ZCASH')) as PreparedZcashTransaction,q=await forwardRefundPayoutTerms(pool,keys,orderId);
@@ -101,6 +101,6 @@ export async function observeForwardRefund(pool:pg.Pool,keys:PrivateData,orderId
  const receiptEpoch=await publishObserverBatch(pool,'forward-refund-receipt',[],[{network:'zcash-testnet',height:proof.blockHeight,hash:proof.blockHash,time:new Date(proof.observedAt)}],proof.blockHeight);
  await transaction(pool,async c=>{
   await requireObserverEpoch(c,receiptEpoch);
-  await c.query('SELECT zee.confirm_source_refund_zcash($1,$2,$3,$4,$5,$6)',[orderId,keys.lookup('zcash-tx',p.txid),proof.blockHeight,proof.blockHash,p.feeZatoshi,keys.seal(proof,refundContext(orderId,'ZCASH-proof'))]);
+  await runRefundQuery(c,'confirmZcash',orderId,[keys.lookup('zcash-tx',p.txid),proof.blockHeight,proof.blockHash,p.feeZatoshi,keys.seal(proof,refundContext(orderId,'ZCASH-proof'))],policy);
  });return {status:'REFUNDED'};
 }
