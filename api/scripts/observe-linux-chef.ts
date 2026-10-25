@@ -12,7 +12,7 @@ import {isObserverWait} from '../src/observer-frontiers.ts';
 import {ChefCanonicalHeadChanged,SourceCheckpointMismatch,ChefAdapter,parseChefStatus,readJson,safeEndpoint} from '../src/integrations/observation/chef.ts';
 import {localChefCanonical} from '../src/integrations/observation/chef-canonical-local.ts';
 import {ChefWalletBridge,localChefDecoder} from '../src/integrations/observation/chef-wallet-bridge.ts';
-import {chefFinancialCheckHeights,readChefPersistedState,chefHeadChangeCanWait,chefPersistedCanonical,chefDiagnosticCode,chefFailureMetadata,diagnoseSourceCheckpointMismatch,chefCheckpointSourceUnchanged} from '../src/integrations/observation/chef-live.ts';
+import {chefFinancialCheckHeights,readChefPersistedState,chefHeadChangeCanWait,chefPersistedCanonical,chefDiagnosticCode,chefFailureMetadata,chefObserverExitStatus,reconcileChefObserverFailure,diagnoseSourceCheckpointMismatch,chefCheckpointSourceUnchanged} from '../src/integrations/observation/chef-live.ts';
 import {withChefRecoveryJournal,validateChefRecoveryJournal,nextChefRecoveryRange,type ChefRecoveryIdentity} from '../src/integrations/observation/chef-recovery.ts';
 import {chefLiveFrom,commitChefLiveCycle,type ChefLiveCursor} from '../src/integrations/observation/chef-live-cursor.ts';
 import {persistChefReceiptEvidence} from '../src/integrations/observation/chef-receipt-evidence.ts';
@@ -27,7 +27,7 @@ export async function runObserveLinuxChef(path:string,once:boolean){
  process.once('SIGINT',()=>stop.abort());process.once('SIGTERM',()=>stop.abort());
  const source=async()=>{const signal=AbortSignal.timeout(15000),r=await fetch(new URL('/status',safeEndpoint(c.sourceUrl)),{headers:{authorization:`Bearer ${env.CHEF_API_TOKEN}`},signal,redirect:'error'});requireThat(r.ok,'CHEF_HTTP_ERROR');return parseChefStatus(await readJson(r,signal),c.project,Date.now());};
  const canonical=()=>localChefCanonical(c.pythonPath,[c.headerScript,'--config',c.decoderConfigPath],c.canonicalSourceId);
- let connectedScope=false,publicationAttempted=false,phase='INITIALIZE';
+ let connectedScope=false,publicationAttempted=false,phase='INITIALIZE',fatalFailure:unknown;
  async function diagnostic(error:unknown,waitVerified=false){const f=await open(c.recoveryDirectory+'/observer-diagnostic-'+Date.now()+'-'+randomUUID()+'.private.json','wx',0o600);try{await f.writeFile(JSON.stringify({event:waitVerified?'CHEF_OBSERVER_SAFE_WAIT_VERIFIED':'CHEF_OBSERVER_FAILURE',recheckProof:waitVerified?{allPersistedAnchorsCanonical:true,persistedStateUnchanged:true,sourceIdentityUnchanged:error instanceof SourceCheckpointMismatch,publicationAttempted:false}:null,at:new Date().toISOString(),phase:publicationAttempted?'AFTER_PUBLICATION':phase,publicationAttempted,code:chefDiagnosticCode(error),checkpointMismatch:error instanceof SourceCheckpointMismatch?{expectedCore:error.expectedCore,actualHeader:error.actualHeader,origin:error.origin,freshCanonicalHeader:error.freshCanonicalHeader??null,freshCanonicalFailure:error.freshCanonicalFailure instanceof Error?{name:error.freshCanonicalFailure.name,message:error.freshCanonicalFailure.message}:null}:null,headChange:error instanceof ChefCanonicalHeadChanged?{expected:error.expected,actual:error.actual,phase:error.phase,recheckFailure:error.recheckFailure instanceof Error?{name:error.recheckFailure.name,message:error.recheckFailure.message,stack:error.recheckFailure.stack}:null}:null,error:error instanceof Error?{name:error.name,message:error.message,stack:error.stack}:null}));await f.sync();}finally{await f.close();}const d=await open(c.recoveryDirectory,'r');try{await d.sync();}finally{await d.close();}}
  async function connected(){const r=(await pool.query('SELECT current_database() database,current_user role')).rows[0];requireThat(r?.database==='zee_app_20261023'&&r.role==='zee_app_worker_20261023','CHEF_LINUX_CONNECTED_DATABASE');connectedScope=true;}
  const cursorPath=c.recoveryDirectory+'/live-cursor.private.json';
@@ -65,14 +65,18 @@ export async function runObserveLinuxChef(path:string,once:boolean){
   }while(!once&&!stop.signal.aborted);
   return {status:'CHEF_LINUX_OBSERVER_STOPPED',dispatchAuthority:false};
  });}catch(error){
+  if(chefObserverExitStatus(error)===78)fatalFailure=error;
   try{Object.defineProperty(error,'chefPhase',{value:publicationAttempted?'AFTER_PUBLICATION':phase,configurable:true});}catch{}
-  const code=chefDiagnosticCode(error);try{await diagnostic(error);}catch{/* Diagnostic failure must not replace the original reconciliation error. */}
-  if(connectedScope&&['CHEF_LIVE_CURSOR_REORG','CHEF_LIVE_GENERATION_CHANGED','CHEF_RECOVERY_TARGET_REORG','CHEF_RECOVERY_OVERLAP_REORG','CHEF_LIVE_CURSOR_IDENTITY',
-   'CHEF_LIVE_SOURCE_REGRESSION','CHEF_RECOVERY_IDENTITY_CHANGED','CANONICAL_CHECKPOINT_MISMATCH','HEADER_GAP_OR_FORK','CANONICAL_NOTE_MISMATCH','CANONICAL_HEAD_CHANGED'].includes(code))await pool.query('SELECT zee.enter_reconciliation()');
+  try{await diagnostic(error);}catch{/* Diagnostic failure must not replace the original reconciliation error. */}
+  const outcome=await reconcileChefObserverFailure(error,connectedScope,()=>pool.query('SELECT zee.enter_reconciliation()'));
+  try{Object.defineProperty(error,'chefReconciliationOutcome',{value:outcome,configurable:true});}catch{}
   throw error;
- }finally{await pool.end();}
+ }finally{try{await pool.end();}catch(error){throw fatalFailure??error;}}
+}
+export async function chefObserverCli(args:string[],run:(path:string,once:boolean)=>Promise<unknown>=runObserveLinuxChef){
+ try{const [path,...flags]=args;requireThat(path&&flags.every(f=>f==='--once')&&flags.length<=1,'CHEF_LINUX_CLI');return{exitCode:0,value:await run(path!,flags.includes('--once'))};}
+ catch(error){const phase=(error as {chefPhase?:unknown})?.chefPhase,rawOutcome=(error as {chefReconciliationOutcome?:unknown})?.chefReconciliationOutcome,exitCode=chefObserverExitStatus(error);return{exitCode,value:{event:'linux-chef-observation',status:'BLOCKED_RECONCILE_PRIVATE_CURSOR',...chefFailureMetadata(error,phase==='AFTER_PUBLICATION',String(phase)),dispatchAuthority:false,exitCode,operatorReviewRequired:exitCode===78,reconciliationOutcome:['NOT_REQUESTED','ACKNOWLEDGED','UNKNOWN'].includes(String(rawOutcome))?rawOutcome:'UNRECORDED'}};}
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href){
- try{const [path,...flags]=process.argv.slice(2);requireThat(path&&flags.every(f=>f==='--once')&&flags.length<=1,'CHEF_LINUX_CLI');console.log(JSON.stringify(await runObserveLinuxChef(path,flags.includes('--once'))));}
- catch(error){const phase=(error as {chefPhase?:unknown})?.chefPhase;console.error(JSON.stringify({event:'linux-chef-observation',status:'BLOCKED_RECONCILE_PRIVATE_CURSOR',...chefFailureMetadata(error,phase==='AFTER_PUBLICATION',String(phase)),dispatchAuthority:false}));process.exitCode=1;}
+ const result=await chefObserverCli(process.argv.slice(2));(result.exitCode===0?console.log:console.error)(JSON.stringify(result.value));process.exitCode=result.exitCode;
 }

@@ -14,7 +14,25 @@ and released its locks before starting the container writer. Container startup
 does not authorize a project reset, financial activation or a payment. Docker
 remains prohibited on the laptop; do not provision local PostgreSQL there.
 
-Current application recovery checkpoint (25 October): the new published fast
+Current application incident checkpoint (25 October): the application Chef
+consumer recorded a prepublication Core checkpoint mismatch and then persisted
+cursor conflicts. Its supervisor reached 209 restarts while control epochs
+advanced; Root stopped it for review. The 16:09:50 UTC frozen readback is paused,
+reconciling epoch 217 / transaction version 538330, with the original 19-table,
+70-row financial digest and zero authorization rows unchanged. The application
+cursor remains 4540629; Core/Prep reported 4540746 and ready. Base application
+admission failed separately after a regressed finalized view. Financial
+preparation is on hold: the earlier E10/E11 basis is invalid. A local Chef fatal
+exit-78 plus systemd restart-prevention correction passed focused tests and peer
+review. The independent 16:20 UTC diagnostic compared all 1,671 Native and 267
+Base retained rows and found exactly one orphan Native tip at 4540629, with
+common ancestor 4540628 and no financial-anchor or Base-anchor conflicts.
+Persistent state remained unchanged. Actual policy installation and separately
+reviewed closed-history recovery remain pending. No source/cursor repair or
+financial action is claimed. See
+[fatal supervision incident](docs/evidence/native-chef-fatal-supervision.md).
+
+Earlier application recovery checkpoint (25 October): the new published fast
 path passed 82 VPS cases and typechecking. After a fresh independent audit,
 capital captures and a separate metadata-only approval, Root completed exact
 publication through 4540584 from the old 4537824 checkpoint. Independent

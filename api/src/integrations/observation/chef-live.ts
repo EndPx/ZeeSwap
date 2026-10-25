@@ -94,6 +94,14 @@ export async function chefHeadChangeCanWait(error:unknown,publicationAttempted:b
 }
 export const chefDiagnosticCodes=['CANONICAL_HEAD_CHANGED','OBSERVER_EPOCH_CHANGED','CHEF_LIVE_CURSOR_REORG','CHEF_LIVE_GENERATION_CHANGED','CHEF_RECOVERY_TARGET_REORG','CHEF_RECOVERY_OVERLAP_REORG','CHEF_LIVE_CURSOR_IDENTITY','CHEF_LIVE_SOURCE_REGRESSION','CHEF_RECOVERY_IDENTITY_CHANGED','CANONICAL_CHECKPOINT_MISMATCH','HEADER_GAP_OR_FORK','CANONICAL_NOTE_MISMATCH','CHEF_HTTP_ERROR','CHEF_CANONICAL_HEADER_FAILED','CANONICAL_RPC_HTTP_ERROR','CHEF_PERSISTED_STATE_BOUND'] as const;
 export function chefDiagnosticCode(error:unknown){const e=error as {code?:unknown;message?:unknown};const code=typeof e?.code==='string'?e.code:e?.message;return chefDiagnosticCodes.includes(code as typeof chefDiagnosticCodes[number])?String(code):'UNCLASSIFIED_PRIVATE_ERROR';}
+/** Exactly the existing persisted/source conflict set that requires reconciliation. */
+export const chefFatalReconciliationCodes=['CHEF_LIVE_CURSOR_REORG','CHEF_LIVE_GENERATION_CHANGED','CHEF_RECOVERY_TARGET_REORG','CHEF_RECOVERY_OVERLAP_REORG','CHEF_LIVE_CURSOR_IDENTITY','CHEF_LIVE_SOURCE_REGRESSION','CHEF_RECOVERY_IDENTITY_CHANGED','CANONICAL_CHECKPOINT_MISMATCH','HEADER_GAP_OR_FORK','CANONICAL_NOTE_MISMATCH','CANONICAL_HEAD_CHANGED'] as const;
+export function chefObserverExitStatus(error:unknown):1|78{return chefFatalReconciliationCodes.includes(chefDiagnosticCode(error) as typeof chefFatalReconciliationCodes[number])?78:1;}
+/** One invocation attempts the existing SQL function once. Unknown acknowledgement stays fatal. */
+export async function reconcileChefObserverFailure(error:unknown,connectedScope:boolean,reconcile:()=>Promise<unknown>):Promise<'NOT_REQUESTED'|'ACKNOWLEDGED'|'UNKNOWN'>{
+ if(!connectedScope||chefObserverExitStatus(error)!==78)return'NOT_REQUESTED';
+ try{await reconcile();return'ACKNOWLEDGED';}catch{return'UNKNOWN';}
+}
 
 /** Existing dense canonical reader verifies every intervening parent once;
  * retained SQL rows then share that bounded cache rather than spawn per row. */

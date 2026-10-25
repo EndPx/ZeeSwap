@@ -18,6 +18,7 @@ Environment=PATH=/usr/local/bin:/usr/bin:/bin
 UMask=0077
 ExecStart=/usr/bin/node --import tsx scripts/observe-linux-chef.ts /opt/zeeswap-testnet/secrets/chef-runtime.private.json
 Restart=on-failure
+RestartPreventExitStatus=78
 RestartSec=10
 TimeoutStopSec=60
 KillMode=control-group
