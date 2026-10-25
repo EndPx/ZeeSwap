@@ -1,11 +1,14 @@
 # Private Chef observation project
 
-This is a new, isolated Zcash **testnet** watch-only project for the observation
+This is the Zcash **testnet** watch-only Chef project for the observation
 integration. It projects exact Orchard/Ironwood received-note bytes and block
 metadata, then an independently configured canonical reader checks them before
 publishing a private **SHADOW** mirror. Nothing here imports the accepted-order
-database, wallet SDK, payout signer or dispatcher. No running private Chef project
-or live note comparison has been established by these local tests.
+database, wallet SDK, payout signer or dispatcher. The one-shot SHADOW example
+below is a legacy observation harness; the existing VPS Linux observer uses
+independent compact headers and has separate live evidence in
+[`native-linux-live-checkpoint.md`](../../docs/evidence/native-linux-live-checkpoint.md).
+Local project tests alone do not establish live readiness.
 
 `@zeer-dev/chef` is pinned to `0.6.1`; `package-lock.json` records the installed
 registry tarball integrity. Its inspected source is Zeer commit
@@ -18,7 +21,7 @@ Chef/PostgreSQL deployment or native UFVK scanner.
 
 `schema.graphql` indexes `blockHeight` and preserves block hash/time, account
 fingerprint, exact integer note value, receiver component and all 512 memo bytes.
-`chef.config.ts` uses a fresh `zeeswap_shadow_*` project and explicit birthday,
+`chef.config.ts` uses an explicit `zeeswap_shadow_*` project and birthday,
 UFVK fingerprint and scanner paths. `projection.ts` binds receipts to their
 block/account and refuses unsupported pools or malformed bytes. The projection
 does not infer sender identity, classify fully shielded funding, decode a Unified
@@ -41,16 +44,33 @@ CLI/RPC/private-file publication/replay. Mocked PostgreSQL exporter tests verify
 the SQL transaction and keyset contract; they do not prove a deployed Envio
 integration's rollback or repeatable-read behavior under concurrent writes.
 
+On 25 October 2026, the environment-example cleanup passed the existing project
+typecheck and all six project tests, with zero failures/skips. A scoped reference
+search found no remaining obsolete shadow-token alias in this directory.
+These were local checks; no private environment or running deployment changed.
+
 ## Private setup
 
-Create a protected private environment file from `.env.example`. Provide a
-dedicated private Chef PostgreSQL database; do not reuse a financial database,
-another Chef namespace or any of the existing stopped G5 runtime files.
-Choose a new project name, explicit account ID, inspected testnet UFVK fingerprint
-and wallet birthday at or before the earliest retained receiver. The adapter's
+For a **new isolated setup**, create a protected private environment file from
+`.env.example` and use a dedicated Chef database, separate from financial state
+and historical G5 runtime files. Choose a new project name, explicit account ID,
+inspected testnet UFVK fingerprint and wallet birthday at or before the earliest
+retained receiver. For the **existing deployment**, retain its exact namespace,
+account, fingerprint, birthday, source, database and checkpoint; do not replace
+them with fresh example values or reinitialize it. The adapter's
 `birthday` must equal that configured Chef scan start. Never use `latest` as a
 recovery birthday. Reusing the project after a schema, key, account or birthday
 change requires a reviewed rebuild, not a live configuration edit.
+
+The Chef example has nine required settings and one optional Prep token, grouped
+by identity, source, database, follower scanner/key paths and API authentication.
+Its public Prep URL is a fresh-setup default; a blank optional token does not
+authorize clearing a deployed token. `observer.env.example` separately holds the
+same API token and the legacy zcashd authorization. The latter is not a Chef
+requirement. The VPS Linux observer's independent compact-header reader does not
+use that legacy RPC authorization setting. Keep scanner/UFVK paths out of the
+query API environment; the [Docker preparation](../../deploy/chef-docker/README.md)
+documents the metadata-only API setup and pending existing-VPS transition.
 
 The maintained native `zeer-scanner` executable and an operator-owned UFVK file
 are external setup inputs. Build/pin the scanner from the inspected Zeer source
@@ -97,8 +117,10 @@ Copy `shadow.config.example.json` into an absolute protected path beneath
 `.deploy-local/observation-shadow/`. Replace **every** placeholder and set the
 explicit numeric birthday (the template `0` is not a recommended scan start).
 Point `storePath` to a separate `.json` mirror in the same protected subtree.
-Set the private Chef token environment variable and the zcashd Basic
-authorization environment variable. Use a maintained canonical zcashd testnet
+Create a separate protected `zeeswap-observer.env` from `observer.env.example`.
+Set `CHEF_API_TOKEN` to the query server's existing secret and set the legacy
+zcashd Basic authorization variable. Do not load the follower's UFVK/scanner
+environment into this consumer. Use a maintained canonical zcashd testnet
 RPC with its current consensus branch ID pinned in the config. A branch/network
 mismatch blocks the read; the adapter never bypasses TLS validation.
 
@@ -111,7 +133,7 @@ pnpm observation:shadow C:/protected/.deploy-local/observation-shadow/chef.confi
 Alternatively load the environment without copying secrets into command flags:
 
 ```powershell
-node --env-file=C:/protected/zeeswap-chef.env --import ./api/node_modules/tsx/dist/loader.mjs api/src/integrations/observation/shadow-cli.ts C:/protected/.deploy-local/observation-shadow/chef.config.json
+node --env-file=C:/protected/zeeswap-observer.env --import ./api/node_modules/tsx/dist/loader.mjs api/src/integrations/observation/shadow-cli.ts C:/protected/.deploy-local/observation-shadow/chef.config.json
 ```
 
 The CLI reads `/status`, traverses complete height windows with every opaque

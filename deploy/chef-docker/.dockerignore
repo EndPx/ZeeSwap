@@ -1,0 +1,12 @@
+**
+!Dockerfile
+!runtime.mjs
+!stage-context.mjs
+!project/
+!project/package.json
+!project/package-lock.json
+!project/chef.config.ts
+!project/chef.generated.ts
+!project/projection.ts
+!project/schema.graphql
+!project/bounded-prep-client.mjs

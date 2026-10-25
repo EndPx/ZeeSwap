@@ -18,10 +18,11 @@ import {chefLiveFrom,commitChefLiveCycle,type ChefLiveCursor} from '../src/integ
 import {persistChefReceiptEvidence} from '../src/integrations/observation/chef-receipt-evidence.ts';
 import {digest,requireThat} from '../src/integrations/observation/types.ts';
 
+export async function requireChefRecoveryMarkersClear(directory:string){await requireNoAppMetadataRepair(directory+'/app-metadata-repair-in-progress');await requireNoAppMetadataRepair(directory+'/linked-recovery-in-progress');}
 export async function runObserveLinuxChef(path:string,once:boolean){
  const {c,runtime,env,policy,openingCapital,profile}=await loadLinuxChefRuntime(path);requireThat([5,10].includes(c.pollSeconds),'CHEF_LINUX_POLL_INTERVAL');
  const configIdentity=digest({c,runtime,env,policy,profile});
- await requireNoAppMetadataRepair(c.recoveryDirectory+'/app-metadata-repair-in-progress');
+ await requireChefRecoveryMarkersClear(c.recoveryDirectory);
  const pool=connect(runtime.workerUrl,1),keys=new PrivateData(Buffer.from(runtime.payloadKeyHex,'hex'),Buffer.from(runtime.lookupKeyHex,'hex')),stop=new AbortController();
  process.once('SIGINT',()=>stop.abort());process.once('SIGTERM',()=>stop.abort());
  const source=async()=>{const signal=AbortSignal.timeout(15000),r=await fetch(new URL('/status',safeEndpoint(c.sourceUrl)),{headers:{authorization:`Bearer ${env.CHEF_API_TOKEN}`},signal,redirect:'error'});requireThat(r.ok,'CHEF_HTTP_ERROR');return parseChefStatus(await readJson(r,signal),c.project,Date.now());};

@@ -2,6 +2,27 @@
 
 Last updated: 2026-10-25 (Asia/Jakarta), for the isolated native Linux deployment. Execution evidence below retains its recorded dates.
 
+Deployment decision (25 October): the user selected Docker on the existing VPS
+for the next ZeeSwap Chef deployment, with separate follower and query API
+processes. This migration is pending; earlier native execution evidence remains
+historical evidence. Reuse the existing remote Neon database, project/account
+identity, checkpoint and protected viewing-key material. Keep secrets outside
+Git, apply explicit resource limits, and verify the previous writer has stopped
+and released its locks before starting the container writer. Container startup
+does not authorize a project reset, financial activation or a payment. Docker
+remains prohibited on the laptop; do not provision local PostgreSQL there.
+
+Independent preparation checkpoint (25 October): the linked Chef suffix recovery
+passed 48 coordinator checks, API typechecking and one actual isolated PostgreSQL
+fixture, without live publication. The existing-project Docker preparation passed
+13 no-Docker wrapper/staging checks; its image build, scanner compatibility,
+resource sizing and VPS cutover remain unverified. The Chef environment example
+now separates ten Chef settings (one optional Prep token) from the legacy shadow
+consumer's two settings; six indexer tests and typechecking passed. No private
+environment, project identity, source service or financial state changed for this
+preparation. See [linked recovery](docs/evidence/native-chef-linked-suffix-recovery.md)
+and [Chef Docker preparation](deploy/chef-docker/README.md).
+
 Latest readiness checkpoint: the next full window refused a 21,627-ms sample
 gap when its moving export returned 24 headers. Root verified unchanged paused
 controls and financial books, with no new admission or payment. Readiness now

@@ -1,0 +1,43 @@
+name: zeeswap-chef
+x-runtime: &runtime
+  # A reviewed, built image digest is required. Compose never builds implicitly.
+  image: ${CHEF_IMAGE:?Set reviewed image name@sha256 digest}
+  user: "${CHEF_UID:-986}:${CHEF_GID:-978}"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs: ["/tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777"]
+  cpus: 0.50
+  mem_limit: 512m
+  memswap_limit: 512m
+  pids_limit: 64
+  stop_grace_period: 30s
+  restart: "no"
+  logging:
+    driver: json-file
+    options: {max-size: "5m", max-file: "2"}
+
+services:
+  api:
+    <<: *runtime
+    command: [api]
+    ports: ["127.0.0.1:39375:39375"]
+    volumes:
+      - {type: bind, source: "${CHEF_PRIVATE_DIR:?Set protected absolute directory}/metadata.json", target: /run/chef/metadata.json, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${CHEF_PRIVATE_DIR}/pins.json", target: /run/chef/pins.json, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${CHEF_PRIVATE_DIR}/database-url", target: /run/chef/database-url, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${CHEF_PRIVATE_DIR}/api-token", target: /run/chef/api-token, read_only: true, bind: {create_host_path: false}}
+  follower:
+    <<: *runtime
+    profiles: [writer]
+    command: [follower]
+    environment:
+      # No default: profile selection alone does not enable the writer.
+      CHEF_ENABLE_FOLLOWER: ${CHEF_ENABLE_FOLLOWER:-disabled}
+    volumes:
+      - {type: bind, source: "${CHEF_PRIVATE_DIR}/metadata.json", target: /run/chef/metadata.json, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${CHEF_PRIVATE_DIR}/pins.json", target: /run/chef/pins.json, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${CHEF_PRIVATE_DIR}/database-url", target: /run/chef/database-url, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${CHEF_PRIVATE_DIR}/prep-token", target: /run/chef/prep-token, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${CHEF_PRIVATE_DIR}/testnet.ufvk", target: /run/chef/testnet.ufvk, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${CHEF_SCANNER_PATH:-/nonexistent-zeeswap-scanner}", target: /run/chef/zeer-scanner, read_only: true, bind: {create_host_path: false}}

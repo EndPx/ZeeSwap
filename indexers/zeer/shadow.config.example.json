@@ -14,7 +14,7 @@
   },
   "storePath": "REPLACE_WITH_ABSOLUTE_PROTECTED_PATH/.deploy-local/observation-shadow/chef-mirror.json",
   "sourceUrl": "http://127.0.0.1:39375",
-  "tokenEnv": "ZEESWAP_SHADOW_CHEF_TOKEN",
+  "tokenEnv": "CHEF_API_TOKEN",
   "project": "zeeswap_shadow_REPLACE_WITH_SAME_FRESH_NAMESPACE",
   "canonicalRpcUrl": "http://127.0.0.1:18232",
   "canonicalAuthorizationEnv": "ZEESWAP_ZCASH_RPC_AUTHORIZATION",
