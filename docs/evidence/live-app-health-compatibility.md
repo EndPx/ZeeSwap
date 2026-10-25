@@ -66,3 +66,23 @@ separately approved financial policy, passing the unchanged readiness/capital
 gates, operating settlement workers and proving the actual browser-funded circle
 remain separate tasks. A finite continuation policy is not an unrestricted
 public service policy.
+
+## Actual web deployment
+
+Root independently passed the 31 unit cases, production build and all 12 mocked
+browser cases, then published and remotely verified
+`b567e162b6f820c601e4acbba41e31f2876094f8`. The separate production build used
+the explicit HTTPS app origin. Root backed up the previous VPS dist, installed
+the generated assets and atomically replaced its HTML entry point. Nginx
+configuration validation passed; no API or financial process was restarted.
+
+The generated public archive SHA-256 was
+`6fd4226815e0e15ef463cf94cd8286350c9e9f513f470d6d7372e1f198221618`.
+The resulting HTML SHA-256 was
+`81642feb2df710ca4c154ca5507cc537227e4e06bc1802615bb5063c75719590`.
+A fresh real browser load and an independent Chromium read at 16:53:52 UTC
+returned HTTP 200, displayed the exact 0.001 TAZ amount, forward policy limit
+three and the corrected API-connected/readiness-unverified status. Chromium
+reported no page errors. Only reads were performed; there was no quote, order,
+wallet request or payment. This verifies deployed compatibility, not admission
+or settlement availability.

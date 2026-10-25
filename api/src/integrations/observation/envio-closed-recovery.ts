@@ -1,0 +1,95 @@
+/** Separate Root metadata authority over immutable closed books. No financial execution. */
+import type pg from 'pg';
+import {continuationTables,continuationDigest,validateContinuationApproval,validateContinuationSnapshot} from '../../native-circle-continuation.ts';
+import type {ReconciledApproval} from '../../native-circle-reconciled.ts';
+import {initialEnvioRecovery,validateEnvioRecovery,completeEnvioRecovery,type EnvioRecoveryJournal,type RecoveryIdentity} from './envio-recovery.ts';
+import {campaignBaselineSql,rawSha,type CampaignCheckpoint,type CampaignControl} from './envio-linked-campaign.ts';
+import type {EnvioAdmissionState} from './envio-live.ts';
+import type {Header} from './types.ts';
+import {digest,stable,requireThat,parseHeader} from './types.ts';
+const need=(v:unknown,c:string)=>requireThat(v,'ENVIO_CLOSED_'+c);
+const hash=(v:unknown)=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v)&&v!=='0'.repeat(64);
+export type ClosedPin={path:string;sha256:string};
+export type ClosedRows={height:number;blockHash:string}[];
+export type ClosedSnapshot={database:string;role:string;control:CampaignControl;checkpoint:CampaignCheckpoint;books:Record<string,any[]>;authorizationRows:number;rows:ClosedRows};
+export type ClosedArchive={directory:string;coverage:ClosedPin;intent:ClosedPin;completed:ClosedPin;originalAdmission:ClosedPin};
+export interface ClosedApproval{
+ version:1;status:'ROOT_ENVIO_CLOSED_HISTORY_METADATA_RECOVERY_APPROVED';metadataOnly:true;noFinance:true;verifiedAt:string;expiresAt:string;publicCommit:string;
+ branchId:'br-broad-pine-ao79wemx';database:'zee_app_20261023';profileSha256:string;handoffSha256:string;openingProofSha256:string;identity:RecoveryIdentity;
+ control:CampaignControl;financialDigest:string;financialTableCounts:Record<string,number>;authorizationRows:0;baseline:CampaignCheckpoint;activeAdmissionSha256:string;
+ closedAuthorityArchive:ClosedPin;historicalRecoveryArchives:ClosedArchive[];observerInactiveProof:ClosedPin;freshCanonicalAudit:ClosedPin;
+}
+export type ClosedAudit={version:1;status:'ROOT_ENVIO_CURRENT_CANONICAL_METADATA_AUDITED';startedAt:string;completedAt:string;publicCommit:string;profileSha256:string;identityDigest:string;control:CampaignControl;financialDigest:string;baseline:CampaignCheckpoint;admissionSha256:string;rows:ClosedRows;rowsDigest:string;canonical:{allBaseRows:true;checkpoint:true;finalized:true;admission:true;financialAnchors:true};sqlMutation:false};
+export const closedSnapshotSql=`SELECT current_database() database,current_user role,
+ (SELECT jsonb_build_object('epoch',epoch::text,'xmin',xmin::text,'accepting_orders',accepting_orders,'dispatch_enabled',dispatch_enabled,'reconciliation_required',reconciliation_required) FROM zee.runtime_control WHERE singleton) control,
+ (SELECT jsonb_build_object('height',scanned_height,'hash',tip_hash,'finalizedHeight',finalized_height,'finalizedTime',to_char(finalized_time AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),'observedAt',to_char(observed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),'xmin',xmin::text) FROM zee.scanner_checkpoints WHERE network='base-sepolia') checkpoint,
+ jsonb_build_object(${continuationTables.map(t=>`'${t}',(SELECT COALESCE(jsonb_agg(row ORDER BY row::text),'[]'::jsonb) FROM (SELECT to_jsonb(t) row FROM zee.${t} t ORDER BY to_jsonb(t)::text LIMIT 129) bounded)`).join(',')}) books,
+ (SELECT count(*)::integer FROM zee.root_native_circle_authorizations) "authorizationRows",
+ (SELECT COALESCE(jsonb_agg(r ORDER BY (r->>'height')::bigint),'[]'::jsonb) FROM (SELECT jsonb_build_object('height',height,'blockHash',block_hash) r FROM zee.chain_observations WHERE network='base-sepolia' ORDER BY height LIMIT 20001) b) rows`;
+export async function readClosedSnapshot(c:Pick<pg.PoolClient,'query'>){return(await c.query(closedSnapshotSql)).rows[0] as ClosedSnapshot;}
+function pin(p:ClosedPin){need(p&&p.path.startsWith('/opt/zeeswap-testnet/state/')&&!p.path.includes('..')&&!p.path.includes('\\')&&hash(p.sha256),'PIN');}
+function control(c:CampaignControl){need(c&&/^(0|[1-9][0-9]*)$/.test(c.epoch)&&BigInt(c.epoch)<=9223372036854775807n&&/^[1-9][0-9]*$/.test(c.xmin)&&BigInt(c.xmin)<=4294967295n&&c.accepting_orders===false&&c.dispatch_enabled===false&&c.reconciliation_required===true,'PAUSED_CONTROL');}
+export function validateClosedApproval(a:ClosedApproval,identity:RecoveryIdentity,now=Date.now()){
+ need(a?.version===1&&a.status==='ROOT_ENVIO_CLOSED_HISTORY_METADATA_RECOVERY_APPROVED'&&a.metadataOnly===true&&a.noFinance===true&&a.branchId==='br-broad-pine-ao79wemx'&&a.database==='zee_app_20261023','SCOPE');
+ const at=Date.parse(a.verifiedAt),end=Date.parse(a.expiresAt);need(Number.isFinite(at)&&at<=now+5000&&end>now&&end>at&&end-at<=7200000,'TIME');
+ need(/^[a-f0-9]{40}$/.test(a.publicCommit)&&a.publicCommit!=='0'.repeat(40)&&[a.profileSha256,a.handoffSha256,a.openingProofSha256,a.financialDigest,a.activeAdmissionSha256].every(hash),'IDENTITY_HASHES');
+ need(stable(a.identity)===stable(identity)&&a.profileSha256===identity.profileSha256&&a.handoffSha256===identity.handoffSha256&&identity.policy.adapter==='envio-hyperindex'&&identity.policy.network==='eip155:84532','IDENTITY');
+ control(a.control);campaignBaselineSql(a.baseline);need(/^[1-9][0-9]*$/.test(a.baseline.xmin)&&hash(a.baseline.hash)&&Number.isSafeInteger(a.baseline.height)&&a.baseline.height>=identity.policy.birthday&&Number.isSafeInteger(a.baseline.finalizedHeight)&&a.baseline.finalizedHeight>=0&&a.baseline.finalizedHeight<=a.baseline.height,'BASELINE');
+ need(a.authorizationRows===0&&Object.keys(a.financialTableCounts??{}).sort().join(',')===[...continuationTables].sort().join(',')&&Object.values(a.financialTableCounts).every(n=>Number.isInteger(n)&&n>=0&&n<=128),'BOOK_COUNTS');
+ for(const p of [a.closedAuthorityArchive,a.observerInactiveProof,a.freshCanonicalAudit])pin(p);
+ need(Array.isArray(a.historicalRecoveryArchives)&&a.historicalRecoveryArchives.length>0&&a.historicalRecoveryArchives.length<=32&&new Set(a.historicalRecoveryArchives.map(x=>x.directory)).size===a.historicalRecoveryArchives.length,'ARCHIVE_INVENTORY');
+ for(const x of a.historicalRecoveryArchives){need(/^\/opt\/zeeswap-testnet\/state\/envio\/(?:prefunding-recovery|catchup-[a-f0-9]{64})$/.test(x.directory),'ARCHIVE_DIRECTORY');for(const[k,name]of [['coverage','coverage.private.json'],['intent','publication-intent.private.json'],['completed','completed.private.json'],['originalAdmission','original-admission.bin']]as const){pin(x[k]);need(x[k].path===x.directory+'/'+name,'ARCHIVE_PATH');}}
+ need(a.historicalRecoveryArchives.some(x=>x.directory.endsWith('/prefunding-recovery')),'ORIGINAL_PARENT_REQUIRED');return a;
+}
+export function validateClosedSnapshot(s:ClosedSnapshot,a:ClosedApproval,allowCheckpoint?:CampaignCheckpoint){
+ need(s?.database===a.database&&s.role==='zee_app_worker_20261023'&&stable(s.control)===stable(a.control)&&s.authorizationRows===0,'CURRENT_CONTROL_OR_ROLE');
+ need(s.books&&Object.keys(s.books).sort().join(',')===[...continuationTables].sort().join(',')&&continuationTables.every(t=>Array.isArray(s.books[t])&&s.books[t]!.length===a.financialTableCounts[t]&&s.books[t]!.length<=128)&&continuationDigest(s.books)===a.financialDigest,'FULL_BOOKS_CHANGED');
+ need(stable(s.checkpoint)===stable(allowCheckpoint??a.baseline),'CHECKPOINT_CHANGED');
+ need(Array.isArray(s.rows)&&s.rows.length>0&&s.rows.length<=20000&&s.rows.every((r,i)=>Number.isSafeInteger(r.height)&&r.height>=0&&hash(r.blockHash)&&(!i||s.rows[i-1]!.height<r.height)),'ROWS');return s;
+}
+/** Original expiry and E10 are archive facts; current control is separately Root-bound. */
+export function validateClosedAuthorityArchive(value:unknown,a:ClosedApproval,s:ClosedSnapshot){const p=value as ReconciledApproval;need(p?.version===3,'ARCHIVE_V3');validateContinuationApproval(p,Date.parse(p.verifiedAt));validateContinuationSnapshot(s.books,p);need(p.profileSha256===a.profileSha256&&p.postRefundSnapshotSha256===a.financialDigest&&p.sourceIdentity.envioGeneration===a.identity.generation&&p.sourceIdentity.envioProjectionDigest===a.identity.policy.projectionDigest&&Date.parse(p.verifiedAt)<=Date.parse(a.verifiedAt),'ARCHIVE_IDENTITY');return p;}
+export function validateClosedAudit(v:ClosedAudit,a:ClosedApproval,s:ClosedSnapshot){
+ need(v?.version===1&&v.status==='ROOT_ENVIO_CURRENT_CANONICAL_METADATA_AUDITED'&&v.publicCommit===a.publicCommit&&v.profileSha256===a.profileSha256&&v.identityDigest===digest(a.identity)&&stable(v.control)===stable(a.control)&&v.financialDigest===a.financialDigest&&stable(v.baseline)===stable(a.baseline)&&v.admissionSha256===a.activeAdmissionSha256&&v.sqlMutation===false,'AUDIT_BINDING');
+ const start=Date.parse(v.startedAt),end=Date.parse(v.completedAt),issued=Date.parse(a.verifiedAt);need(Number.isFinite(start)&&end>=start&&end-start<=1200000&&issued>=end&&issued-end<=60000,'AUDIT_TIME');
+ need(v.canonical&&['allBaseRows','checkpoint','finalized','admission','financialAnchors'].every(k=>(v.canonical as any)[k]===true)&&v.rowsDigest===digest(v.rows)&&v.rows.length>0&&v.rows.length<=20000&&v.rows.every((r,i)=>Number.isSafeInteger(r.height)&&hash(r.blockHash)&&(!i||v.rows[i-1]!.height<r.height)),'AUDIT_ROWS');
+ const actual=new Map(s.rows.map(r=>[r.height,r.blockHash]));need(v.rows.every(r=>actual.get(r.height)===r.blockHash),'AUDIT_PREFIX_CHANGED');
+ // Before publication there may be no unreviewed added rows. After publication only the exact new anchors are permitted by the classifier.
+ return v;
+}
+export function validateClosedAdmission(bytes:Buffer,open:(b:Buffer)=>unknown,a:ClosedApproval){need(rawSha(bytes)===a.activeAdmissionSha256,'ADMISSION_RAW');const v=open(bytes) as EnvioAdmissionState;need(v?.version===2&&Array.isArray(v.hints)&&v.hints.length===0&&v.checkpoint?.height===a.baseline.height&&v.checkpoint.hash==='0x'+a.baseline.hash&&v.checkpoint.generation===a.identity.generation&&v.checkpoint.projectionDigest===a.identity.policy.projectionDigest,'ADMISSION_BASELINE_OR_HINTS');return v;}
+export function beginClosedRecovery(a:ClosedApproval,bytes:Buffer,open:(b:Buffer)=>unknown){return initialEnvioRecovery(a.identity,validateClosedAdmission(bytes,open,a),a.activeAdmissionSha256,campaignBaselineSql(a.baseline));}
+export function validateClosedHistoricalArchive(b:{coverage:Buffer;intent:Buffer;completed:Buffer;originalAdmission:Buffer},a:ClosedApproval,open:(b:Buffer)=>unknown){
+ const j=JSON.parse(b.coverage.toString()) as EnvioRecoveryJournal,i=JSON.parse(b.intent.toString()),r=JSON.parse(b.completed.toString());validateEnvioRecovery(j,a.identity);need(j.proofs.length>0&&rawSha(b.originalAdmission)===j.originalAdmissionSha256&&stable(open(b.originalAdmission))===stable(j.originalAdmission),'ARCHIVE_ORIGINAL');
+ const last=j.proofs.at(-1)!.selection,complete=completeEnvioRecovery(j,Math.max(Date.parse(last.range.readCompletedAt),Date.parse(last.verification.checkedAt))),candidate=Buffer.from(i.candidateAdmissionBase64??'','base64');
+ need(i.version===1&&i.journalDigest===digest(j)&&i.originalAdmissionSha256===j.originalAdmissionSha256&&rawSha(candidate)===i.candidateAdmissionSha256&&stable(open(candidate))===stable(complete.admission)&&r.financialAction===false,'ARCHIVE_INTENT');
+ need(r.version===1,'ARCHIVE_RECEIPT_VERSION');
+ if(r.status==='ENVIO_PREFUNDING_RECOVERY_COMMITTED')need(j.proofs.length===542&&complete.sql.height===49672405&&r.intentSha256===digest(i)&&stable(i.originalSql)===stable(j.originalSql)&&stable(i.candidateSql)===stable(complete.sql),'ARCHIVE_PARENT_CLOSURE');
+ else{const parent=a.historicalRecoveryArchives.find(x=>x.directory.endsWith('/prefunding-recovery'))!;control(i.control);need(i.purpose==='POST_PUBLICATION_PREFUNDING_ENVIO_CATCHUP'&&hash(i.approvalSha256)&&r.approvalSha256===i.approvalSha256&&stable(i.parent)===stable({coverageSha256:parent.coverage.sha256,intentSha256:parent.intent.sha256,completedSha256:parent.completed.sha256,originalAdmissionSha256:parent.originalAdmission.sha256})&&stable(r.parent)===stable(i.parent)&&/^[1-9][0-9]*$/.test(i.transactionId)&&i.expectedXmin===(BigInt(i.transactionId)%4294967296n).toString()&&i.after?.xmin===i.expectedXmin&&stable(campaignBaselineSql(i.before))===stable(j.originalSql),'ARCHIVE_LINKED_IDENTITY');need(r.status==='ENVIO_LINKED_CAMPAIGN_COMMITTED_EXACT'&&r.intentDigest===digest(i)&&stable(r.checkpoint)===stable(i.after)&&i.after.height===complete.sql.height&&i.after.hash===complete.sql.hash&&i.after.finalizedHeight===complete.sql.finalizedHeight&&Date.parse(i.after.observedAt)===Date.parse(complete.sql.observedAt)&&Date.parse(i.after.finalizedTime)===Date.parse(complete.sql.finalizedTime),'ARCHIVE_LINKED_CLOSURE');}return j;
+}
+export type ClosedIntent={version:1;purpose:'ENVIO_CLOSED_HISTORY_METADATA_RECOVERY';approvalSha256:string;journalDigest:string;transactionId:string;expectedXmin:string;control:CampaignControl;financialDigest:string;before:CampaignCheckpoint;after:CampaignCheckpoint;beforeRows:ClosedRows;afterRows:ClosedRows;originalAdmissionSha256:string;candidateAdmissionSha256:string;candidateAdmissionBase64:string};
+export function classifyClosedCommit(status:string,s:ClosedSnapshot,i:ClosedIntent){
+ if(stable(s.control)!==stable(i.control)||continuationDigest(s.books)!==i.financialDigest||s.authorizationRows!==0)return'UNKNOWN_OR_INTERVENED_NO_REPLAY' as const;
+ if(status==='committed'&&stable(s.checkpoint)===stable(i.after)&&s.checkpoint.xmin===i.expectedXmin&&stable(s.rows)===stable(i.afterRows))return'COMMITTED_EXACT' as const;
+ if(status==='aborted'&&stable(s.checkpoint)===stable(i.before)&&stable(s.rows)===stable(i.beforeRows))return'ABORTED_EXACT_BEFORE' as const;
+ return'UNKNOWN_OR_INTERVENED_NO_REPLAY' as const;
+}
+export async function publishClosedRecovery(c:Pick<pg.PoolClient,'query'>,guard:()=>Promise<ClosedSnapshot>,a:ClosedApproval,approvalSha256:string,j:EnvioRecoveryJournal,candidate:Buffer,open:(b:Buffer)=>unknown,persist:(i:ClosedIntent)=>Promise<void>,signal:AbortSignal){
+ let commitSent=false;await c.query('BEGIN');try{
+ await c.query("SET LOCAL statement_timeout='30000ms'");await c.query("SET LOCAL idle_in_transaction_session_timeout='30000ms'");
+ await c.query('SELECT zee.lock_observer_cycle()');const s=await guard();validateClosedSnapshot(s,a);signal.throwIfAborted();
+ const done=completeEnvioRecovery(j);need(j.originalAdmissionSha256===a.activeAdmissionSha256&&stable(j.originalSql)===stable(campaignBaselineSql(a.baseline))&&stable(open(candidate))===stable(done.admission)&&done.admission.hints.length===0,'CANDIDATE');
+ const xid=String((await c.query('SELECT pg_current_xact_id()::text id')).rows[0]?.id);need(/^[1-9][0-9]*$/.test(xid)&&(await c.query('SELECT pg_xact_status($1::xid8) status',[xid])).rows[0]?.status==='in progress','XID_STATUS');
+ const xmin=(BigInt(xid)%4294967296n).toString(),six=(x:string)=>new Date(x).toISOString().replace(/\.(\d{3})Z$/,'.$1000Z'),after={...done.sql,finalizedTime:six(done.sql.finalizedTime),observedAt:six(done.sql.observedAt),xmin};
+ need(after.height>=a.baseline.height&&after.finalizedHeight>=a.baseline.finalizedHeight&&Date.parse(after.observedAt)>=Date.parse(a.baseline.observedAt),'FRONTIER_REGRESSION');
+ const all=new Map<number,string>();for(const p of j.proofs)for(const h of p.selection.range.headers){const old=all.get(h.height);need(!old||old===h.hash.slice(2),'PROOF_CONFLICT');all.set(h.height,h.hash.slice(2));}all.set(done.finalized.height,done.finalized.hash.slice(2));need(s.rows.every(r=>!all.has(r.height)||all.get(r.height)===r.blockHash),'STORED_CONFLICT');
+ const rows=new Map(s.rows.map(r=>[r.height,r]));for(const h of[j.proofs.at(-1)!.selection.range.through,done.finalized])rows.set(h.height,{height:h.height,blockHash:h.hash.slice(2)});
+ const i:ClosedIntent={version:1,purpose:'ENVIO_CLOSED_HISTORY_METADATA_RECOVERY',approvalSha256,journalDigest:digest(j),transactionId:xid,expectedXmin:xmin,control:s.control,financialDigest:a.financialDigest,before:s.checkpoint,after,beforeRows:s.rows,afterRows:[...rows.values()].sort((x,y)=>x.height-y.height),originalAdmissionSha256:a.activeAdmissionSha256,candidateAdmissionSha256:rawSha(candidate),candidateAdmissionBase64:candidate.toString('base64')};
+ signal.throwIfAborted();await persist(i);signal.throwIfAborted();await c.query('SELECT 1');signal.throwIfAborted();completeEnvioRecovery(j);
+ for(const h of[j.proofs.at(-1)!.selection.range.through,done.finalized])await c.query("INSERT INTO zee.chain_observations(network,height,block_hash,block_time) VALUES('base-sepolia',$1,$2,$3::timestamptz) ON CONFLICT(network,height) DO NOTHING",[h.height,h.hash.slice(2),h.time]);
+ signal.throwIfAborted();completeEnvioRecovery(j);const b=a.baseline,r=await c.query("UPDATE zee.scanner_checkpoints SET scanned_height=$1,tip_hash=$2,finalized_height=$3,finalized_time=$4::timestamptz,observed_at=$5::timestamptz WHERE network='base-sepolia' AND xmin::text=$6 AND scanned_height=$7 AND tip_hash=$8 AND finalized_height=$9 AND finalized_time=$10::timestamptz AND observed_at=$11::timestamptz RETURNING xmin::text",[after.height,after.hash,after.finalizedHeight,after.finalizedTime,after.observedAt,b.xmin,b.height,b.hash,b.finalizedHeight,b.finalizedTime,b.observedAt]);need(r.rows.length===1&&r.rows[0].xmin===xmin,'CHECKPOINT_CAS');signal.throwIfAborted();commitSent=true;await c.query('COMMIT');return i;
+ }catch(e){if(!commitSent)await c.query('ROLLBACK').catch(()=>{});throw e;}
+}
+export async function finishClosedBoundary(status:string,s:ClosedSnapshot,i:ClosedIntent,io:{lease():Promise<void>;readAdmission():Promise<void>;installAdmission():Promise<void>;writeCompletion():Promise<void>;removeMarker():Promise<void>}){need(classifyClosedCommit(status,s,i)==='COMMITTED_EXACT','COMMIT_NOT_CONFIRMED_NO_REPLAY');await io.lease();await io.readAdmission();await io.lease();await io.installAdmission();await io.lease();await io.writeCompletion();await io.lease();await io.removeMarker();}
+export function requireClosedProducerWitness(j:EnvioRecoveryJournal,witnesses:Header[]){need(witnesses.length===j.proofs.length,'PRODUCER_WITNESS_COUNT');for(let n=0;n<witnesses.length;n++){parseHeader(witnesses[n],j.identity.policy.network);need(stable(witnesses[n])===stable(j.proofs[n]!.selection.producer.through),'PRODUCER_WITNESS');}}
+export function requireClosedCommand(step:string,hasIntent:boolean,hasCompletion:boolean,hasMarker:boolean){need(['recover','publish','reconcile'].includes(step),'COMMAND');need(!hasCompletion||hasMarker,'COMPLETED_NO_REPLAY');need(!hasCompletion||hasIntent,'COMPLETION_WITHOUT_INTENT');need(hasIntent?step==='reconcile':step!=='reconcile','INTENT_RECONCILE_ONLY');}

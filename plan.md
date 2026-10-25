@@ -53,9 +53,18 @@ actually usable testnet app. Complete these bounded milestones in order:
    and expose the truthful available/paused/exhausted app state. A deployed UI,
    passing mock tests or source health alone does not close this acceptance gate.
 
-The prepared [web health compatibility](docs/evidence/live-app-health-compatibility.md)
-passes local unit/build/browser tests. Its actual publication and deployment are
-recorded separately from financial activation.
+The [web health compatibility](docs/evidence/live-app-health-compatibility.md)
+passed Root's 31 unit and 12 mocked browser cases plus production build, and was
+published/deployed as `b567e162b6f820c601e4acbba41e31f2876094f8`. The actual fresh
+public browser read at 16:53 UTC displayed the corrected connection status with
+no page errors. No quote, order, activation or payment was made.
+
+The separate [closed-history Base recovery](docs/evidence/envio-closed-recovery.md)
+passed focused and isolated PostgreSQL tests plus peer review. It binds an
+independent metadata-only approval to current control/books/admission and
+preserves expired financial authority strictly as an archive. Actual issuance,
+complete retained-range traversal, exact publication and ordinary following
+remain pending; the Native one-tip repair is a separate preceding operation.
 
 Earlier application recovery checkpoint (25 October): the new published fast
 path passed 82 VPS cases and typechecking. After a fresh independent audit,
