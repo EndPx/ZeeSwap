@@ -1,6 +1,8 @@
 import {validateContinuationApproval,readRootReplacementClosure,readRootNoRepairAudit,readRootContinuationAuthority,requireContinuationPaused,readContinuationSnapshot,validateContinuationSnapshot,continuationDigest,validateContinuationWindow,type ContinuationWindow} from '../src/native-circle-continuation.ts';
 /** Root-only observation window. No SQL writes, control changes or SDK wallet calls. */
 import {readFile,open} from 'node:fs/promises';
+import {resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
 import {setTimeout as delay} from 'node:timers/promises';
 import {loadLinuxChefRuntime} from './recover-linux-chef.ts';
 import {loadLinuxEnvioProfile} from '../src/linux-envio-profile.ts';
@@ -13,6 +15,7 @@ import {validateSourceWindow,type WindowSample} from '../src/linux-control.ts';
 import {requireProtectedNoRepairState} from '../src/native-circle-reconciled.ts';
 import {digest as observerDigest} from '../src/integrations/observation/types.ts';
 import {connect} from '../src/db.ts';
+export function continuationWindowCanonical(url:string,sourceId:string,seam:Pick<Parameters<typeof canonicalRpc>[0],'fetch'|'now'|'diagnostic'>={}){return canonicalRpc({url,sourceId,network:'eip155:84532',headerBatchSize:4,maxMethodsPerSecond:4,fetch:seam.fetch,now:seam.now,diagnostic:seam.diagnostic});}
 const root='/opt/zeeswap-testnet';
 function need(v:unknown,c:string):asserts v{if(!v)throw Error('LINUX_WINDOW_'+c);}
 async function main(){
@@ -27,7 +30,7 @@ try{
  let binding:Parameters<typeof validateSourceWindow>[1]|undefined;
  do{
   const cycleStarted=Date.now(),signal=AbortSignal.timeout(30000),response=await fetch(new URL('/status',safeEndpoint(chef.c.sourceUrl)),{headers:{authorization:`Bearer ${chef.env.CHEF_API_TOKEN}`},signal,redirect:'error'});need(response.ok,'CHEF_SOURCE_UNAVAILABLE');const cs=parseChefStatus(await readJson(response,signal),chef.c.project,Date.now());
-  const ec=canonicalRpc({url:envio.profile.canonicalRpcUrl,sourceId:envio.source.policy.canonicalSourceId,network:'eip155:84532',headerBatchSize:10,maxMethodsPerSecond:12});
+  const ec=continuationWindowCanonical(envio.profile.canonicalRpcUrl,envio.source.policy.canonicalSourceId);
   const er=await fetch(envio.profile.sourceUrl+'/zee-observation/status',{headers:{authorization:'Bearer '+envio.token},signal,redirect:'error'});need(er.ok,'ENVIO_SOURCE_UNAVAILABLE');const es=await readJson(er,signal) as any;need(es.protocol==='zee-envio-status-v1'&&es.checkpoint?.complete===true&&Number.isSafeInteger(es.checkpoint.through?.height),'ENVIO_COHERENT_CHECKPOINT');
   // Reuse the production coherent export validator, including every returned
   // range header, sampled-head and finalized-header independent comparisons.
@@ -51,4 +54,4 @@ try{
 }catch{await record({event:'WINDOW_REFUSED',samples:samples.length});console.error(JSON.stringify({status:'LINUX_SOURCE_WINDOW_REFUSED',samples:samples.length,partialAttemptRetained:true}));process.exitCode=1;}finally{await attempt.close();await pool.end();}
 
 }
-await main().catch(error=>{console.error(JSON.stringify({status:"LINUX_SOURCE_WINDOW_REFUSED",reason:error instanceof Error&&error.message.startsWith("LINUX_WINDOW_")?error.message:"VERIFY_PRIVATE_INPUT_OR_JOURNAL"}));process.exitCode=1;});
+if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href)await main().catch(error=>{console.error(JSON.stringify({status:"LINUX_SOURCE_WINDOW_REFUSED",reason:error instanceof Error&&error.message.startsWith("LINUX_WINDOW_")?error.message:"VERIFY_PRIVATE_INPUT_OR_JOURNAL"}));process.exitCode=1;});
