@@ -2,15 +2,17 @@
 
 Last updated: 2026-10-25 (Asia/Jakarta), for the isolated native Linux deployment. Execution evidence below retains its recorded dates.
 
-Latest readiness checkpoint: one later window passed 31 samples over 301,406 ms
-but its transport handoff stalled and its expired proof was not used. Other
-attempts refused continuous Base freshness, with actual HTTP 429 responses and
-a failed consumer cycle recorded. Root verified unchanged paused controls,
-full closed history, zero admission rows and no new financial journals. The
-reviewed auxiliary readiness reader now uses four-method pacing and batches,
-while normal Envio observation, provider identity and 300/60/20 gates remain
-unchanged. Root checks passed 44 focused tests and typechecking. Concurrent live
-evaluation, activation and the funded circle remain pending. See
+Latest readiness checkpoint: the actual concurrent trial with auxiliary
+four-method pacing failed continuous Base freshness, recording 18 HTTP 429
+responses and a 196-header recovery cycle. Root verified unchanged paused
+controls, full closed history, zero admission rows and no new financial effects.
+The next bounded configuration uses normal batches/rate five/eleven and
+auxiliary one/one. Their independent queues have a configured sum of twelve;
+this is not a shared aggregate rate limiter or a provider-quota claim. Complete
+canonical checks, admission history and all freshness/read-budget gates remain
+unchanged. Root verification passed 45 focused tests with zero skips and API
+typechecking. Concurrent acceptance, activation and the funded circle remain
+pending. See
 [readiness RPC budget](docs/evidence/native-readiness-rpc-budget.md).
 
 Latest operator checkpoint (25 October): new diagnostics recorded three later

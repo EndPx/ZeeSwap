@@ -15,7 +15,7 @@ import {validateSourceWindow,type WindowSample} from '../src/linux-control.ts';
 import {requireProtectedNoRepairState} from '../src/native-circle-reconciled.ts';
 import {digest as observerDigest} from '../src/integrations/observation/types.ts';
 import {connect} from '../src/db.ts';
-export function continuationWindowCanonical(url:string,sourceId:string,seam:Pick<Parameters<typeof canonicalRpc>[0],'fetch'|'now'|'diagnostic'>={}){return canonicalRpc({url,sourceId,network:'eip155:84532',headerBatchSize:4,maxMethodsPerSecond:4,fetch:seam.fetch,now:seam.now,diagnostic:seam.diagnostic});}
+export function continuationWindowCanonical(url:string,sourceId:string,seam:Pick<Parameters<typeof canonicalRpc>[0],'fetch'|'now'|'diagnostic'>={}){return canonicalRpc({url,sourceId,network:'eip155:84532',headerBatchSize:1,maxMethodsPerSecond:1,fetch:seam.fetch,now:seam.now,diagnostic:seam.diagnostic});}
 const root='/opt/zeeswap-testnet';
 function need(v:unknown,c:string):asserts v{if(!v)throw Error('LINUX_WINDOW_'+c);}
 async function main(){

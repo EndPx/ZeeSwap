@@ -2,6 +2,8 @@ import {observerCadenceDelay} from '../src/observer-cadence.ts';
 /** Native Linux consumer only. Contains no signer or dispatch adapter. */
 import {readFile,open,rename,lstat} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
+import {resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
 import {setTimeout as delay} from 'node:timers/promises';
 import {loadLinuxEnvioProfile,readLinuxEnvioPin,requireLinuxEnvioBootstrap} from '../src/linux-envio-profile.ts';
 import {connect} from '../src/db.ts';
@@ -11,6 +13,8 @@ import {observeEnvioOnce,type EnvioAdmissionState} from '../src/integrations/obs
 import {canonicalRpc} from '../src/integrations/observation/canonical-rpc.ts';
 import {requireThat} from '../src/integrations/observation/types.ts';
 import {requireNoEnvioRecovery} from '../src/integrations/observation/envio-recovery.ts';
+export function normalEnvioCanonical(url:string,sourceId:string,seam:Pick<Parameters<typeof canonicalRpc>[0],'fetch'|'now'|'diagnostic'>={}){return canonicalRpc({url,sourceId,network:'eip155:84532',headerBatchSize:5,maxMethodsPerSecond:11,fetch:seam.fetch,now:seam.now,diagnostic:seam.diagnostic});}
+async function main(){
 const [path,flag]=process.argv.slice(2);
 requireThat(path&&process.argv.length<=4&&(!flag||['--once','--initialize-empty-consumer'].includes(flag)),'LINUX_ENVIO_EXPLICIT_COMMAND');
 const {profile:p,runtime,registry,source,token}=await loadLinuxEnvioProfile(path);
@@ -50,7 +54,7 @@ try{
    if(state.checkpoint)requireThat(Number.isSafeInteger(state.checkpoint.height)&&/^0x[0-9a-f]{64}$/.test(state.checkpoint.hash)&&state.checkpoint.generation===source.generation&&state.checkpoint.projectionDigest===source.policy.projectionDigest,'INVALID_HINT_JOURNAL');return state;
   },async save(state:EnvioAdmissionState){const tmp=p.admissionPath+'.'+randomUUID()+'.tmp',fd=await open(tmp,'wx',0o600);try{await fd.writeFile(keys.seal(state,context));await fd.sync();}finally{await fd.close();}await rename(tmp,p.admissionPath);}};
   await hints.load();const base=new BaseContract(registry),stop=new AbortController();
-  const canonical=canonicalRpc({url:p.canonicalRpcUrl,sourceId:source.policy.canonicalSourceId,network:'eip155:84532',headerBatchSize:10,maxMethodsPerSecond:12});
+  const canonical=normalEnvioCanonical(p.canonicalRpcUrl,source.policy.canonicalSourceId);
   lease.on('error',()=>stop.abort());process.once('SIGTERM',()=>stop.abort());process.once('SIGINT',()=>stop.abort());
   do{
    const cycleStarted=performance.now();
@@ -65,3 +69,6 @@ try{
   }while(flag!=='--once'&&!stop.signal.aborted);
  }
 }finally{await lease.query('SELECT pg_advisory_unlock(84532,20261024)').catch(()=>{});lease.release();await pool.end();}
+
+}
+if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href)await main();
