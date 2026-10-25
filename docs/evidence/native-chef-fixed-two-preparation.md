@@ -1,4 +1,4 @@
-# Optional fixed-two Chef transport: local preparation
+# Optional fixed-two Chef transport: preparation and unqualified actual comparison
 
 Recorded 25 October 2026. The bounded Prep client now exposes
 `fixedPayloadClient(client, maxPayloadBlocks = 1, inspect)` with accepted caps
@@ -48,7 +48,7 @@ and external-network checks remain intact. Both syntax checks and diff checking
 pass. No Docker, SSH, database connection, scanner invocation or live follower
 change occurred during this preparation.
 
-## Actual acceptance remains pending
+## Declared actual acceptance gate
 
 Root must take a five-minute cap-one baseline with the builder idle and source
 ingestion continuing, then use a reviewed new image/pins for a five-minute cap-two
@@ -62,3 +62,96 @@ small read-only pair probe is treated as a passing actual comparison.
 An unsuccessful comparison requires an explicit reviewed return to cap one;
 the implementation must not choose fallback automatically. The candidate does
 not authorize funds, renew financial authority or satisfy application readiness.
+
+## Actual comparison: no promotion; explicit return to cap one
+
+The subsequent VPS candidate image was
+`sha256:5b16752ea2ed81e0c43dda55793e4daf52e3c65132151cec7eae6f53d7e14f98`.
+Its actual pinned native scanner passed the six public, unfunded fixture notes
+and identical restart result inside the image with networking disabled. All four
+source-identity files and the installed SDK CLI bytes remained unchanged. These
+are actual container compatibility checks, separate from the local tests above.
+
+Before the candidate, the durable checkpoint was 4538875. Before and after the
+experiment, 201 retained headers matched fresh Prep reads under epoch 35, all
+three retained entities were unchanged and the original generation was retained.
+The advisory lock was acquired/released around stopped-writer checks. These
+bounded canonical checks do not establish complete application readiness.
+
+Six actual samples covered 10:33:49–10:38:49 UTC. The endpoint CLI elapsed-counter
+delta was 301.603460598 seconds; the following calculations use that interval:
+
+| Observation | Actual candidate result |
+| --- | --- |
+| Durable checkpoint | 4538891 → 4539103: 212 blocks |
+| Observed source head | 4539927 → 4539942: 15 blocks |
+| Net backlog reduction | 197 blocks; 0.653175529 blocks/second |
+| Comparison with recorded cap-one net rate | Approximately 45.629% higher than 0.448519376 blocks/second |
+| Completed-page block-counter delta | 210 blocks, different from the durable 212-block advance |
+| Observed source waits | Five during the run; no error packets observed |
+| Candidate memory peak | 127,295,488 bytes, versus baseline 79,544,320 bytes |
+
+Net catch-up includes the observed waits and exceeds the declared 15% threshold
+in this window. The historical ranges and workloads differ; this is not a
+general benchmark or evidence of resource equivalence. Both observed runs stayed
+within the 512-MiB cap without OOM or container restart, but the candidate's higher
+peak remains part of the result.
+
+The **fetch gate is unqualified**. The reported 1144.288 fetch milliseconds per
+completed-metric block is incomplete and is not accepted as a 20% improvement.
+The growing checkpoint-versus-completed-counter offsets were `[0,1,2,2,2,2]`.
+The endpoint samples both reported `progress`; this discrepancy cannot be
+explained away as comparing heartbeat packets with progress packets.
+
+Inspection of the actual installed official runtime explains a telemetry limit:
+per-block commits occur before `syncStep` returns, while the CLI adds completed
+step counters only after a successful return. A recoverable source failure can
+therefore leave a committed partial page whose blocks and fetch work are absent
+from the completed-page totals. The missing failed-step detail does not identify
+an exact HTTP status or prove which particular wait caused each offset. Dividing
+the same incomplete fetch numerator by durable checkpoint movement cannot repair
+the missing fetch measurements.
+
+Both declared performance gates and correctness/resource checks were required.
+The higher observed net rate therefore does **not** promote fixed two. Root
+explicitly stopped the candidate at checkpoint 4539123 in source reconciliation,
+verified the lease free and stopped both older deadlines. At 10:39:48 UTC, Root
+started the candidate image with explicit **cap one**, fresh source-only pins
+bound to that checkpoint and epoch 35, and the same namespace/identity. Exactly
+one writer lease was held after reversion and a second acquisition was refused;
+the original native follower remains disabled. The replacement owned deadline is
+115 minutes, approximately 12:34:48 UTC. Approval expiry gates startup; the
+separate deadline owns runtime termination. Normal ready-only continuous handoff
+remains pending. No reset, reseed, SQL metadata repair or Prep service change
+occurred.
+
+The subsequent 10:41:42 UTC cap-one readback reached checkpoint 4539174 against
+source 4539949, a 775-block gap, with a ready committed read gate. API/follower
+remained running without restart/OOM; both old deadlines were inactive and the
+new 115-minute deadline was active. Envio's three services remained
+healthy through Base block 50015049 at 10:41 UTC. This later progress does not
+retroactively qualify the fixed-two comparison or close the application gates.
+
+A 10:36:07 UTC financial read preserved exactly 70 rows across 19 tables with
+the full digest unchanged, paused
+epoch ten and transaction version 366346: acceptance/dispatch false,
+reconciliation required and zero authorization rows. The application Zcash
+checkpoint remained stale at 4537824 with its observer stopped. No payment,
+financial activation, renewed financial authority or resumed G5 run occurred.
+The three Envio services remained healthy with successive 20–21-second cycles,
+through Base block 50014115 at 10:38 UTC; a fresh joint window is still required.
+
+## Telemetry follow-up for Zeer
+
+Before repeating the fetch comparison, report acknowledged committed work
+separately from completed-step counters, and retain bounded failed-step fetch
+time/request counts with a fixed outcome category. Expose counter scope and
+reset identity so consumers can reconcile partial-page progress without
+inferring causes from missing details. Keep heartbeats advisory and preserve
+private-data redaction. No upstream telemetry or runtime code was changed by
+this documentation milestone. Actual promotion requires a new qualified
+comparison; cap one is the current explicit selection.
+
+Documentation verification: `git diff --check` passed, and relative local
+Markdown links in the three milestone documents resolved. These checks validate
+the edited documentation, not an additional runtime or financial operation.

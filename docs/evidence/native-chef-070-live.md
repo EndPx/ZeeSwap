@@ -78,8 +78,62 @@ advanced five blocks; net backlog reduction was 0.448519 blocks/second.
 This is one operational observation, not a general throughput guarantee.
 
 The optional fixed-two transport candidate is separately described in
-[its preparation evidence](native-chef-fixed-two-preparation.md). It remains
-opt-in, default one remains unchanged, and no performance promotion follows
-from local tests. Actual candidate measurement and the declared acceptance
-thresholds remain pending at this checkpoint. Private backup, key, logs and
-approval files remain outside Git.
+[its preparation and actual comparison evidence](native-chef-fixed-two-preparation.md).
+The later six-sample 10:33:49–10:38:49 UTC experiment improved observed net
+catch-up to 0.653175529 blocks/second, approximately 45.629% above the recorded
+baseline. The workloads were unequal. Durable checkpoint advancement was 212
+blocks while completed-page counters added 210; endpoint packets were both
+`progress`. Official runtime inspection confirmed that a recoverable failed
+step can leave committed partial-page work outside the CLI's completed-step
+block/fetch counters. Missing failed-step detail does not establish an exact
+HTTP cause. The reported candidate fetch ratio is incomplete, so the mandatory
+20% fetch improvement gate is unqualified. Higher net throughput alone does not
+pass the previously declared combined gate: **fixed two was not promoted**.
+
+## Explicit cap-one continuation after the comparison
+
+The candidate image
+`sha256:5b16752ea2ed81e0c43dda55793e4daf52e3c65132151cec7eae6f53d7e14f98`
+passed the actual network-isolated six-note scanner fixture and identical restart
+check. Four source-identity files and SDK CLI bytes stayed unchanged. Before and
+after the comparison, 201 retained headers matched fresh epoch-35 Prep reads,
+all three entities were unchanged and the original generation was retained.
+Candidate memory peaked at 127,295,488 bytes versus baseline 79,544,320 bytes;
+there was no OOM/restart, but these differing workloads do not prove equivalent
+resource use.
+
+Root stopped the candidate cleanly at source-reconciling checkpoint 4539123,
+verified advisory-lock release and stopped both previous deadlines. At
+10:39:48 UTC, a new bounded follower began with explicit cap one using that
+image, the existing namespace/identity and fresh source-only pins for the exact
+checkpoint and epoch 35. The native follower remains disabled. Exactly one
+advisory lease was held and a second acquisition was refused. Its new owned
+115-minute deadline is approximately 12:34:48 UTC; approval startup expiry does
+not itself terminate a running follower. Normal ready-only continuous handoff
+remains pending. No reset, reseed, SQL metadata repair or Prep service change
+was performed.
+
+At the later 10:41:42 UTC readback, cap one had advanced to checkpoint 4539174
+against source height 4539949, leaving 775 blocks. The committed read gate was
+ready; API and follower were running with no restart/OOM. Both older deadlines
+were inactive and the replacement 115-minute deadline was active.
+The three Envio services remained healthy, through Base block 50015049 at
+10:41 UTC. This fresh readback is source progress, not a completed continuous
+handoff or application readiness proof.
+
+The 10:36:07 UTC financial read retained exactly 70 rows across 19 tables with
+its full digest unchanged. Controls
+retained epoch ten, transaction version 366346, acceptance/dispatch false,
+reconciliation required and zero authorization rows. The application Zcash
+checkpoint remained stale at 4537824 and its observer stayed stopped. The three
+Envio services were healthy with successive 20–21-second cycles, through Base
+50014115 at 10:38 UTC, but that observation does not replace a fresh simultaneous
+readiness window. No new funding, G5 continuation, financial activation or new
+financial authority is claimed. Private backup, keys, raw logs and approval
+files remain outside Git.
+
+The recommended Zeer follow-up is explicit failed-step fetch/request accounting
+and acknowledged committed progress alongside completed-step metrics, with scope
+and reset identity preserved. No upstream change was made. Documentation checks
+passed `git diff --check` and resolution of the milestone's relative local
+Markdown links; they do not establish another live operation.
