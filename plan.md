@@ -1,6 +1,6 @@
 # ZeeSwap implementation plan
 
-Last updated: 2026-10-25 (Asia/Jakarta), for the isolated native Linux deployment. Execution evidence below retains its recorded dates.
+Last updated: 2026-10-25 (Asia/Jakarta), for the isolated Linux testnet deployment. Execution evidence below retains its recorded dates.
 
 Deployment decision (25 October): the user selected Docker on the existing VPS
 for the next ZeeSwap Chef deployment, with separate follower and query API
@@ -11,6 +11,17 @@ Git, apply explicit resource limits, and verify the previous writer has stopped
 and released its locks before starting the container writer. Container startup
 does not authorize a project reset, financial activation or a payment. Docker
 remains prohibited on the laptop; do not provision local PostgreSQL there.
+
+Docker operator checkpoint (25 October): the existing-project image built on the
+VPS with a bounded builder, and a network-isolated smoke test matched all seven
+deployed project files. Actual Compose validation passed. A separate query API
+container on loopback 39376 authenticated successfully and matched the native
+API's project, generation and checkpoint; the native API stays on 39375. The
+checkpoint remains reconciling and entity reads correctly remain gated with
+503. No follower or scanner was started, no primary route changed, and the
+paused application control/financial snapshot remained exact. Scanner
+compatibility, source recovery and full cutover remain pending. See
+[Docker canary evidence](docs/evidence/native-chef-docker-canary.md).
 
 Independent preparation checkpoint (25 October): the linked Chef suffix recovery
 passed 48 coordinator checks, API typechecking and one actual isolated PostgreSQL

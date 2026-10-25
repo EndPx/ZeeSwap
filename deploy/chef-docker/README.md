@@ -8,12 +8,18 @@ Retain its exact project/account, explicit birthday, inspected key fingerprint,
 Prep endpoint, schema, handler/configuration bytes and remote Neon namespace and
 checkpoint. Never copy example fresh-namespace values into that project.
 
-Status on 25 October 2026: local preparation tests passed; no Docker build,
+Initial preparation on 25 October 2026: local preparation tests passed; no Docker build,
 Compose execution, image pull, VPS change, database connection, scanner execution,
 cutover or readiness window was performed for this preparation. No financial
 activation, customer payment or settlement follows from these artifacts.
 Docker remains prohibited on the laptop. Only the user's existing VPS is the
 intended container host; it shares resources with existing applications.
+
+Subsequent coordinator execution built the image on that VPS and started a
+separate authenticated query API canary on loopback port 39376. The native API
+remains on 39375. The follower and full cutover are still pending. See the
+[actual image and canary evidence](../../docs/evidence/native-chef-docker-canary.md)
+for the precise build, identity, preserved read gate and remaining limits.
 
 ## Reviewed boundaries
 
