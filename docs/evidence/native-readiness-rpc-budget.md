@@ -88,3 +88,73 @@ The scheduling fixture has zero transport latency; it demonstrates queue
 behavior, not live recovery capacity. Independent review also checked that
 wrapping the normal CLI for importable tests preserves its existing command
 body and ordinary admission-state behavior.
+
+## Short live failure and measured diagnostic gate
+
+The combined-reader version was installed on the VPS with a graceful restart of
+only the normal Envio consumer, retaining its existing admission journal. The
+same 45 tests and API typechecking passed on the VPS. All four application and
+source services remained active.
+
+The next actual window stopped after three samples with Chef's
+`WAIT_SOURCE_UNREADY`. The three recorded sample times also contained a
+**24,651-ms gap**, exceeding the unchanged 20-second limit. No readiness proof,
+capital capture, control mutation or new customer order followed. During that
+short interval, the normal Base reader recorded three successful cycles, a
+maximum cycle duration of 22,002 ms and **zero recorded HTTP 429 responses**.
+That short result does not establish a passing five-minute window or resolved
+provider throttling. Chef subsequently reported ready with the same generation;
+Root again verified the complete unchanged financial snapshot and paused epoch.
+
+The auxiliary export has variable size. Status supplies height H, while the
+subsequent repeatable-read export can have a later through-height M. The
+consumer independently checks all **M - H + 1 headers**, plus the other source
+and SQL anchors. The failed attempt did not record the export's starting height
+or header count, so extra headers are a plausible contributor, not a measured
+explanation for the gap.
+
+The next bounded correction uses auxiliary batches/rate **two/two**, keeping
+normal observation at five/eleven. Private phase records retain range sizes,
+method counts and elapsed durations so the next decision can use measured work.
+A short diagnostic rehearsal must remain explicitly unqualified: it cannot
+write a passing readiness proof or call activation. Only a subsequent complete
+window may satisfy the existing admission gates.
+
+Chef status reads may wait briefly for HTTP 503 or an explicit unready
+checkpoint, with at most three reads and delays of 250 and 500 ms. Every read
+shares the original cycle deadline. A successful HTTP response must match the
+authorized project and generation before an unready status can be retried.
+Other failures remain fatal. The eventual actual response must pass all status,
+canonical, financial-history and source-freshness checks. Private wait records
+do not refresh source timestamps, and an excessive sample gap now refuses
+immediately instead of waiting for final window validation.
+
+Root's actual short rehearsal ran for approximately 61 seconds with both readers
+active. Its five exports contained **12, 8, 8, 5 and 12 headers**. Successive
+sample gaps were **11,288, 11,372, 9,644 and 13,552 ms**. Export verification
+took 6,268–10,684 ms; the Chef checkpoint canonical read took 526–547 ms, the
+read-only SQL snapshot 120–235 ms and SQL/cursor canonical reads 1,342–1,412 ms.
+These measurements confirm variable export size in this run and identify export
+verification as its largest measured phase. They do not establish the exact
+cause of the earlier uninstrumented gap.
+
+During that same interval, the normal observer recorded **four successful
+cycles, zero HTTP 429 responses and zero waiting cycles**, with a maximum
+20,945-ms cycle. The maximum age of a previous SQL observation at the next
+sample was 24,687 ms for Zcash and 42,155 ms for Base. No Chef status retry was
+needed, so retry behavior is supported by tests rather than this live run.
+
+The rehearsal completed with explicit `readinessQualified: false`, retained
+only its private attempt journal and wrote **no output proof**. Root's review
+accepted these measurements for proceeding to a full window; it did not accept
+them as readiness, activation or settlement evidence.
+
+Root verification passed **51 focused tests with zero skips** and API
+typechecking. Eleven factory/helper tests cover independent queues, batch/rate
+limits, original-deadline propagation, abort behavior, numeric RPC counters,
+bounded status waits, identity and full-envelope rejection, and the exact
+successive-gap boundary. Three private probe tests additionally verify its
+reversible relationship to the candidate, absence of a passing proof and private
+failure diagnostics. Independent review verified the frozen source and all
+fourteen helper/probe cases. Normal observation and its journal were unchanged
+for this correction; no service restart, migration or authority reset is needed.

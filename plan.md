@@ -2,17 +2,19 @@
 
 Last updated: 2026-10-25 (Asia/Jakarta), for the isolated native Linux deployment. Execution evidence below retains its recorded dates.
 
-Latest readiness checkpoint: the actual concurrent trial with auxiliary
-four-method pacing failed continuous Base freshness, recording 18 HTTP 429
-responses and a 196-header recovery cycle. Root verified unchanged paused
-controls, full closed history, zero admission rows and no new financial effects.
-The next bounded configuration uses normal batches/rate five/eleven and
-auxiliary one/one. Their independent queues have a configured sum of twelve;
-this is not a shared aggregate rate limiter or a provider-quota claim. Complete
-canonical checks, admission history and all freshness/read-budget gates remain
-unchanged. Root verification passed 45 focused tests with zero skips and API
-typechecking. Concurrent acceptance, activation and the funded circle remain
-pending. See
+Latest readiness checkpoint: the coupled five/eleven normal and one/one
+auxiliary configuration was installed and passed 45 focused tests plus
+typechecking on the VPS. Its actual short window stopped after three samples
+when Chef was unready; the samples also contained a 24,651-ms gap. No new
+financial or control effects occurred. The bounded correction uses auxiliary
+two/two, private phase measurements, narrowly bounded Chef status waits and an
+immediate gap check. Its actual five-sample unqualified rehearsal measured
+5–12 headers and 9,644–13,552-ms successive gaps, with four concurrent normal
+cycles and no 429/wait events during that interval. Root verification passed
+51 focused tests with zero skips, typechecking and three private probe cases.
+The rehearsal wrote no readiness proof. Complete canonical checks, admission
+history and all freshness/read-budget gates remain unchanged. Concurrent
+acceptance, activation and the funded circle remain pending. See
 [readiness RPC budget](docs/evidence/native-readiness-rpc-budget.md).
 
 Latest operator checkpoint (25 October): new diagnostics recorded three later
