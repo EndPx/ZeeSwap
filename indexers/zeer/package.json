@@ -11,6 +11,6 @@
     "sync:private": "zeer sync --config chef.config.ts --follow",
     "serve:private": "zeer serve --config chef.config.ts --listen 127.0.0.1 --port 39375"
   },
-  "dependencies": { "@zeer-dev/chef": "0.6.1" },
+  "dependencies": { "@zeer-dev/chef": "0.7.0" },
   "devDependencies": { "typescript": "7.0.2", "@types/node": "24.19.2", "tsx": "4.23.15" }
 }

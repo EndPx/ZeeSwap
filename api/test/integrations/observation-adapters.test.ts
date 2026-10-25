@@ -42,6 +42,19 @@ test("Chef independent fresh tips may advance or differ, but never cover a check
 function status(revision = "1") {
   return { project: "private-shadow", generation: "generation-one", revision, checkpoint: { height: 100, hash: hash(100), anchorHash: hash(99), status: "ready", undoFloor: 99 }, lastCommitAt: stamp, source: { status: "available", checkedAt: stamp, prepIndexedHeight: 100, sourceObservedHeight: 120, sourceObservedAt: now / 1000 } };
 }
+test("Chef accepts optional 0.7 artifact metadata without relaxing status or source gates", () => {
+  const artifact = { packageName: "@zeer-dev/chef", packageVersion: "0.7.0", buildCommit: "a".repeat(40), sourceState: "modified" };
+  assert.equal(parseChefStatus(status(), "private-shadow", now).generation, "generation-one");
+  assert.equal(parseChefStatus({ ...status(), artifact }, "private-shadow", now).generation, "generation-one");
+  assert.doesNotThrow(() => parseChefStatus({ ...status(), artifact: { ...artifact, packageVersion: "unknown", buildCommit: "unknown", sourceState: "unknown" } }, "private-shadow", now));
+  for (const malformed of [null, [], {}, { ...artifact, extra: "not-allowed" }, { ...artifact, packageName: "other" },
+    { ...artifact, packageVersion: 7 }, { ...artifact, buildCommit: "bad" }, { ...artifact, sourceState: "attested" }]) {
+    assert.throws(() => parseChefStatus({ ...status(), artifact: malformed }, "private-shadow", now));
+  }
+  assert.throws(() => parseChefStatus({ ...status(), artifact, extra: true }, "private-shadow", now), /INVALID_FIELDS/);
+  assert.throws(() => parseChefStatus({ ...status(), artifact, checkpoint: { ...status().checkpoint, status: "reconciling" } }, "private-shadow", now), /WAIT_SOURCE_UNREADY/);
+  assert.throws(() => parseChefStatus({ ...status(), artifact, source: { ...status().source, sourceObservedAt: now / 1000 - 120 } }, "private-shadow", now), /STALE_SOURCE/);
+});
 function projection(n: ZcashNote) {
   return { id: n.receiptId, network: n.network, txid: n.txid, pool: n.pool, outputIndex: n.outputIndex, blockHeight: n.block.height, blockHash: n.block.hash, valueZat: n.amountAtomic, receiverBytes: n.receiverBytes, memoHex: n.memoHex, accountFingerprint: n.accountFingerprint, scope: n.scope, origin: n.origin, coinbase: n.coinbase };
 }

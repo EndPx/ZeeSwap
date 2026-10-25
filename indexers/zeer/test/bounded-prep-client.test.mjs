@@ -35,3 +35,14 @@ test('official runtime still rejects epoch conflict and PrepClient rejects malfo
 test('official interruption forwards AbortSignal and closes without committing fixture blocks',async()=>fixture(async config=>{
  const s=store(),c=client({interrupt:true});await main(['sync','--config',config,'--to','105','--json'],{store:s,client:c.bounded,write:()=>{}});assert.deepEqual(s.applied,[]);assert.ok(s.closed);
 }));
+test('installed 0.7.0 status exposes artifact and source-reconciliation diagnostics without starting a writer',async()=>fixture(async config=>{
+ const s=store(),c=client();let status,acquired=false;
+ s.acquire=async()=>{acquired=true;};await s.markReconciling();
+ await main(['status','--config',config,'--json'],{store:s,client:c.bounded,write:text=>{status=JSON.parse(text);}});
+ assert.equal(acquired,false);assert.equal(s.applied.length,0);assert.ok(s.closed);
+ assert.equal(status.readGate,'reconciling');assert.equal(status.state,'reconciling');
+ assert.equal(status.diagnostic.artifact.packageVersion,'0.7.0');
+ assert.equal(status.diagnostic.artifact.buildCommit,'95adb373625d0a25d6369f4b6e2613e2e553cdff');
+ assert.equal(status.diagnostic.artifact.sourceState,'modified');
+ assert.deepEqual(status.diagnostic.action,{category:'reconcile',retryPolicy:'after_operator_correction'});
+}));

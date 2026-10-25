@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runRuntime, digest, validateMetadata, validateDatabase } from './runtime.mjs';
+import { runRuntime, digest, validateMetadata, validateDatabase, verifySourceRecovery, runtimeFailure } from './runtime.mjs';
 import { stageContext, projectFiles } from './stage-context.mjs';
 import { singleBlockClient } from '../../indexers/zeer/bounded-prep-client.mjs';
 
@@ -21,12 +21,12 @@ async function fixture(t) {
   await mkdir(privateDir);
   const files = {};
   for (const name of [...projectFiles, 'runtime.mjs', 'stage-context.mjs']) {
-    await writeFile(resolve(app, name), name === 'package.json' ? JSON.stringify({ dependencies: { '@zeer-dev/chef': '0.6.1' } }) : 'fixture\r\n');
+    await writeFile(resolve(app, name), name === 'package.json' ? JSON.stringify({ dependencies: { '@zeer-dev/chef': '0.7.0' } }) : 'fixture\r\n');
     files[name] = await digest(resolve(app, name));
   }
   const sdkDirectory = resolve(app, 'node_modules/@zeer-dev/chef/dist');
   await mkdir(sdkDirectory, { recursive: true });
-  await writeFile(resolve(sdkDirectory, '../package.json'), '{"version":"0.6.1"}');
+  await writeFile(resolve(sdkDirectory, '../package.json'), '{"version":"0.7.0"}');
   await writeFile(resolve(sdkDirectory, 'cli.js'), 'fixture');
   const pins = { version: 1, uid: 986, gid: 978, projectFingerprint: 'b'.repeat(64), files,
     sdkCliSha256: await digest(resolve(sdkDirectory, 'cli.js')), scannerSha256: 'c'.repeat(64), scannerPlatform: `${process.platform}-${process.arch}` };
@@ -76,6 +76,12 @@ test('SDK, UID and source identity mismatches fail closed', async t => {
   await writeFile(resolve(f.app, 'node_modules/@zeer-dev/chef/dist/cli.js'), 'fixture');
   f.sdk.projectFingerprint = () => 'e'.repeat(64);
   await assert.rejects(runRuntime(['api'], f), /PROJECT_FINGERPRINT_MISMATCH/);
+  assert.deepEqual(f.calls, []);
+});
+test('a previously deployed 0.6.1 SDK is refused by the reviewed 0.7.0 wrapper', async t => {
+  const f = await fixture(t);
+  await writeFile(resolve(f.app, 'node_modules/@zeer-dev/chef/package.json'), '{"version":"0.6.1"}');
+  await assert.rejects(runRuntime(['api'], f), /CHEF_VERSION_MISMATCH/);
   assert.deepEqual(f.calls, []);
 });
 async function scannerFixture(f) {
@@ -158,4 +164,103 @@ test('static deployment contract excludes database service, implicit build and d
   const ignore = await readFile(resolve(here, '.dockerignore'), 'utf8');
   assert.ok(ignore.startsWith('**\n'));
   assert.doesNotMatch(ignore, /!.*(?:\.env|ufvk|wallet|receipt|database)/);
+});
+function recoveryFixture() {
+  const now = 1800000000, generation = '11111111-2222-3333-4444-555555555555', hash = 'd'.repeat(64);
+  const checkpoint = { height: 100, hash, status: 'reconciling', reconcileKind: 'source' };
+  const pins = { projectFingerprint: 'b'.repeat(64), sourceRecovery: { version: 1, generation,
+    checkpoint: { ...checkpoint }, issuedAt: now - 10, expiresAt: now + 7100, maxInitialGap: 4096, prepEpoch: '35' } };
+  const status = { project: metadata.ZEESWAP_CHEF_PROJECT, fingerprint: pins.projectFingerprint,
+    checkpoint: { ...checkpoint }, state: 'reconciling', readGate: 'reconciling', diagnostic: { projectGeneration: generation }, source: { identityMatches: true } };
+  const source = { network: 'testnet', payload_kind: 'full-v1', ready: true, source_mode: 'follower', epoch: '35',
+    source_observed_at: now, source_height: 200, indexed_height: 199, archive_height: 199, start_block: 1, lag_blocks: 1 };
+  const page = { network: 'testnet', epoch: '35', next_block: 101, data: { blocks: [{ height: 100, hash }] } };
+  const reads = [];
+  const client = { getHeight: async () => { reads.push('height'); return source; }, get: async () => { reads.push('header'); return page; } };
+  return { pins, status, metadata, client, now: () => now, source, page, reads };
+}
+test('source-only proof validates actual fresh Prep and exact retained header before official replay', async () => {
+  const f = recoveryFixture(); await verifySourceRecovery(f);
+  assert.deepEqual(f.reads, ['height', 'header']);
+});
+test('source-only proof rejects generation, checkpoint, kind, expiry and oversized authority', async () => {
+  const cases = [
+    f => { f.status.diagnostic.projectGeneration = 'other'; },
+    f => { f.status.checkpoint.height++; }, f => { f.status.checkpoint.hash = 'e'.repeat(64); },
+    f => { f.status.checkpoint.reconcileKind = 'reorg'; }, f => { f.status.checkpoint.reconcileKind = 'unknown'; },
+    f => { f.status.checkpoint.status = 'blocked'; },
+    f => { f.pins.sourceRecovery.expiresAt = f.now(); },
+    f => { f.pins.sourceRecovery.expiresAt = f.now() + 7201; },
+    f => { f.pins.sourceRecovery.maxInitialGap = 4097; },
+  ];
+  for (const mutate of cases) { const f = recoveryFixture(); mutate(f); await assert.rejects(verifySourceRecovery(f)); assert.deepEqual(f.reads, []); }
+});
+test('source-only proof refuses stale/future source, lag, missing history, epoch and actual head gap', async () => {
+  const cases = [
+    f => { f.source.source_observed_at -= 61; }, f => { f.source.source_observed_at += 6; },
+    f => { f.source.epoch = '36'; }, f => { f.source.ready = false; },
+    f => { f.source.source_height += 6; f.source.lag_blocks += 6; },
+    f => { f.source.start_block = 2; }, f => { f.source.archive_height = 99; },
+    f => { f.source.source_height = 5000; f.source.indexed_height = 5000; f.source.archive_height = 5000; f.source.lag_blocks = 0; },
+    f => { f.source.source_height = 2000; f.source.indexed_height = 2000; f.source.archive_height = 1000;
+      f.source.lag_blocks = 0; f.status.checkpoint.height = 1000; f.pins.sourceRecovery.checkpoint.height = 1000; },
+    f => { f.source.source_mode = 'historical_snapshot'; }, f => { f.source.network = 'mainnet'; },
+  ];
+  for (const mutate of cases) { const f = recoveryFixture(); mutate(f); await assert.rejects(verifySourceRecovery(f), /SOURCE_RECOVERY_SOURCE_NOT_READY/); assert.deepEqual(f.reads, ['height']); }
+});
+test('source-only proof rejects changed canonical header or source epoch', async () => {
+  for (const mutate of [f => { f.page.data.blocks[0].hash = 'e'.repeat(64); }, f => { f.page.epoch = '36'; }]) {
+    const f = recoveryFixture(); mutate(f); await assert.rejects(verifySourceRecovery(f), /SOURCE_RECOVERY_HEADER_MISMATCH/);
+  }
+});
+test('source-only proof rechecks observation freshness after the checkpoint header response', async () => {
+  const f = recoveryFixture(); let clock = f.now(); f.now = () => clock;
+  f.source.source_observed_at = clock - 59;
+  f.client.get = async () => { clock += 2; return f.page; };
+  await assert.rejects(verifySourceRecovery(f), /SOURCE_RECOVERY_HEADER_MISMATCH/);
+});
+test('reconciling follower needs separate source-only opt-in and executes official follow only after proof', async t => {
+  const f = await fixture(t); await scannerFixture(f); const r = recoveryFixture();
+  Object.assign(f.status, r.status); f.pins.sourceRecovery = r.pins.sourceRecovery; await f.savePins();
+  const queries = [];
+  f.now = r.now;
+  f.prep = { PrepClient: class { async getHeight() { return r.source; } async get(query) {
+    queries.push(query); return query.from_block === 100 ? r.page : {};
+  } } };
+  await assert.rejects(runRuntime(['follower'], f), /FOLLOWER_PREFLIGHT_NOT_READY/);
+  assert.deepEqual(queries, []);
+  f.env.CHEF_SOURCE_RECOVERY = 'reviewed-source-only';
+  await runRuntime(['follower'], f);
+  assert.deepEqual(f.calls.map(call => call[0]), ['status', 'status', 'sync']);
+  assert.equal(queries[0].from_block, 100); assert.equal(queries[0].to_block, 101);
+});
+test('source recovery never swallows untyped or unrelated status errors', async t => {
+  const f = await fixture(t); await scannerFixture(f);
+  f.env.CHEF_SOURCE_RECOVERY = 'reviewed-source-only';
+  const sentinel = Error('RECONCILIATION_REQUIRED'); sentinel.code = 'RECONCILIATION_REQUIRED';
+  f.sdk.main = async () => { throw sentinel; };
+  await assert.rejects(runRuntime(['follower'], f), error => error === sentinel);
+});
+test('typed reconciliation errors require the exact captured state and still cannot bypass source proof', async t => {
+  const f = await fixture(t); await scannerFixture(f); f.env.CHEF_SOURCE_RECOVERY = 'reviewed-source-only';
+  class CliError extends Error { constructor(code) { super(code); this.code = code; } }
+  f.sdk.CliError = CliError;
+  for (const [code, state] of [['PREP_UNAUTHORIZED', 'reconciliation_needed'], ['RECONCILIATION_REQUIRED', 'reconciling']]) {
+    const sentinel = new CliError(code);
+    f.sdk.main = async (_args, dependencies) => { dependencies.write(JSON.stringify({ ...f.status, state })); throw sentinel; };
+    await assert.rejects(runRuntime(['follower'], f), error => error === sentinel);
+  }
+  f.sdk.main = async (_args, dependencies) => {
+    dependencies.write(JSON.stringify({ ...f.status, state: 'reconciliation_needed' })); throw new CliError('RECONCILIATION_REQUIRED');
+  };
+  await assert.rejects(runRuntime(['follower'], f), /SOURCE_RECOVERY_PINS_INVALID/);
+});
+test('published SDK failure advice survives without exposing arbitrary error messages or retrying', async () => {
+  const app = resolve(here, '../../indexers/zeer');
+  const auth = await runtimeFailure(Object.assign(Error('private-credential-not-for-output'), { code: 'PREP_UNAUTHORIZED' }), app);
+  assert.equal(auth.error.code, 'PREP_UNAUTHORIZED');
+  assert.deepEqual(auth.action, { category: 'fix_authentication', retryPolicy: 'after_operator_correction' });
+  const unknown = await runtimeFailure(Error('private-credential-not-for-output'), app);
+  assert.equal(unknown.error.code, 'CHEF_COMMAND_FAILED');
+  assert.doesNotMatch(JSON.stringify([auth, unknown]), /private-credential/);
 });

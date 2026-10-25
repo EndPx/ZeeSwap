@@ -49,7 +49,17 @@ export function chefSourceTimestamp(value: unknown): string {
   return new Date(parsed).toISOString();
 }
 export function parseChefStatus(value: unknown, project: string, now: number): Status {
-  const r = object(value, ["project", "generation", "revision", "checkpoint", "lastCommitAt", "source"]);
+  const rawStatus = value as Record<string, unknown>;
+  const r = object(value, ["project", "generation", "revision", "checkpoint", "lastCommitAt", "source", ...(rawStatus && Object.hasOwn(rawStatus, "artifact") ? ["artifact"] : [])]);
+  // Chef 0.7 adds advisory build identity. It grants no source or financial authority.
+  if (Object.hasOwn(r, "artifact")) {
+    const artifact = object(r.artifact, ["packageName", "packageVersion", "buildCommit", "sourceState"]);
+    requireThat(artifact.packageName === "@zeer-dev/chef"
+      && typeof artifact.packageVersion === "string" && artifact.packageVersion.length <= 80
+      && (artifact.packageVersion === "unknown" || /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(artifact.packageVersion))
+      && typeof artifact.buildCommit === "string" && (artifact.buildCommit === "unknown" || /^[0-9a-f]{40}$/.test(artifact.buildCommit))
+      && typeof artifact.sourceState === "string" && ["clean", "modified", "unknown"].includes(artifact.sourceState), "INVALID_CHEF_ARTIFACT");
+  }
   requireThat(r.project === project, "WRONG_PROJECT"); text(r.generation); decimal(r.revision);
   const raw = r.checkpoint as Record<string, unknown>;
   const checkpoint = object(raw, ["height", "hash", "anchorHash", "status", "undoFloor", ...(raw && Object.hasOwn(raw, "reconcileKind") ? ["reconcileKind"] : [])]);

@@ -34,6 +34,7 @@ services:
     environment:
       # No default: profile selection alone does not enable the writer.
       CHEF_ENABLE_FOLLOWER: ${CHEF_ENABLE_FOLLOWER:-disabled}
+      CHEF_SOURCE_RECOVERY: ${CHEF_SOURCE_RECOVERY:-disabled}
     volumes:
       - {type: bind, source: "${CHEF_PRIVATE_DIR}/metadata.json", target: /run/chef/metadata.json, read_only: true, bind: {create_host_path: false}}
       - {type: bind, source: "${CHEF_PRIVATE_DIR}/pins.json", target: /run/chef/pins.json, read_only: true, bind: {create_host_path: false}}

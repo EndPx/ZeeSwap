@@ -20,7 +20,7 @@ test("projection preserves exact note bytes and binds block, network, account an
   assert.throws(() => projectNote({ ...value, receipt: { ...value.receipt, pool: "sapling" } }, "fixture-account", "fixture-key"), /UNSUPPORTED_RECEIPT_POOL/);
   assert.throws(() => projectNote({ ...value, receipt: { ...value.receipt, value_zat: "01" } }, "fixture-account", "fixture-key"), /INVALID_RECEIPT_BYTES_OR_AMOUNT/);
 });
-test("registry-installed Chef0.6.1 serves real schema, HMAC cursors and all 205 tied-height notes to adapter", async () => {
+test("registry-installed Chef0.7.0 serves real schema, HMAC cursors and all 205 tied-height notes to adapter", async () => {
   const model = parseModel(await readFile(new URL("../schema.graphql", import.meta.url), "utf8"));
   assert.equal(model.entities.ReadableNote!.fields.blockHeight!.indexed, true);
   const rows = Array.from({ length: 205 }, (_, i) => encodeEntity(model, "ReadableNote", projectNote(input(i), "fixture-account", "fixture-key"))).sort((a, b) => a.id < b.id ? -1 : 1);

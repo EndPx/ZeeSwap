@@ -1,7 +1,7 @@
 # Existing ZeeSwap Chef: VPS Docker preparation
 
-This directory prepares a container transition for the **existing** Chef 0.6.1
-project. It is not a new indexer, database initialization or completed deployment.
+This directory prepares a container transition for the **existing** Chef project,
+now pinned locally to Chef 0.7.0. It is not a new indexer, database initialization or completed deployment.
 The existing native project is at
 `/opt/zeeswap-testnet/releases/linux-live-20261024/app/indexers/zeer`.
 Retain its exact project/account, explicit birthday, inspected key fingerprint,
@@ -15,17 +15,20 @@ activation, customer payment or settlement follows from these artifacts.
 Docker remains prohibited on the laptop. Only the user's existing VPS is the
 intended container host; it shares resources with existing applications.
 
-Subsequent coordinator execution built the image on that VPS and started a
+Subsequent coordinator execution built the historical Chef 0.6.1 image on that VPS and started a
 separate authenticated query API canary on loopback port 39376. The native API
 remains on 39375. The follower and full cutover are still pending. See the
 [actual image and canary evidence](../../docs/evidence/native-chef-docker-canary.md)
 for the precise build, identity, preserved read gate and remaining limits.
+The local 0.7.0 upgrade is a later prepared revision; its image/canary deployment
+is pending and must not be inferred from the existing 0.6.1 canary. See
+[0.7.0 upgrade evidence](../../docs/evidence/native-chef-070-upgrade.md).
 
 ## Reviewed boundaries
 
 The reference is the adjacent Zeer repository's
 `examples/chef-deployment/{Dockerfile,compose.runtime.yaml,runtime.mjs,runtime-control.mjs}`
-and `docs/CHEF_QUICKSTART.md`. The inspected installed Chef 0.6.1 CLI loads
+and `docs/CHEF_QUICKSTART.md`. The inspected installed Chef 0.7.0 CLI loads
 configuration before `serve`; it requires account metadata but instantiates the
 native scanner only for `sync`. `serve` first reads the persisted checkpoint and
 exposes the committed read API without starting a writer. Only the explicit
@@ -78,7 +81,7 @@ mapping belongs in that context.
 
 The image uses the exact Node 24.14.0 Debian trixie slim digest from the inspected
 reference. It installs existing locked production dependencies with
-`npm ci --omit=dev --ignore-scripts`, retaining Chef 0.6.1. It does not install a
+`npm ci --omit=dev --ignore-scripts`, retaining Chef 0.7.0. It does not install a
 scanner, run Rust, generate project files, migrate or start services during build.
 Verify the base digest's target platform and the built image on the VPS; no
 working image is claimed by a Dockerfile review. Later Zeer improvements require
@@ -153,6 +156,45 @@ build. Use a compatible existing/prebuilt pinned binary; do not build Rust on th
 small VPS or start Docker on the laptop. If any compatible scanner or probe is
 unavailable, **the follower transition remains blocked**.
 
+### Explicit source-only reconciliation startup
+
+Normal startup still requires a ready checkpoint. A separate, Root-reviewed
+source-only recovery may use `CHEF_SOURCE_RECOVERY=reviewed-source-only` together
+with a private `pins.json.sourceRecovery` object. This is an additional opt-in;
+it does not replace `CHEF_ENABLE_FOLLOWER`, the writer profile, runtime pins,
+scanner compatibility or positive legacy-writer exit/lock-release checks.
+
+The private object has `version: 1`, `generation` (the exact existing UUID),
+`checkpoint` with exact existing `height`, `hash`, `status: "reconciling"` and
+`reconcileKind: "source"`, `issuedAt` and `expiresAt` (integer Unix seconds,
+expiry later than issuance and at most 7,200 seconds after it), `maxInitialGap`
+(1–4,096 blocks) and `prepEpoch` (the exact reviewed decimal-string epoch).
+No actual private generation or checkpoint identity is supplied by this example.
+Root issues it only after binary compatibility and the paused financial baseline
+are independently checked. It cannot renew an expired financial authority.
+
+The wrapper requires the official status packet's matching project/fingerprint,
+generation, checkpoint and source-reconciling kind. It independently reads actual
+Prep metadata: ready testnet full-v1 follower, exact pinned epoch, birthday history,
+source/indexed/archive heights in order, both source–indexed and source–archive lag at most six blocks
+and an observed timestamp aged -5 through 60 seconds. Actual source–checkpoint
+gap must be nonnegative and at most the pinned cap. It then requests the exact
+retained checkpoint header from Prep under that epoch and requires the same
+height/hash, then rechecks that the original source sample is still within its
+freshness envelope. No head is clipped or invented. Reorg, unknown, blocked, changed
+identity, expired proof, stale source and header mismatch are refused. Only an
+exact SDK-typed reconciliation error with its corresponding captured status may
+reach these stricter checks; unrelated or untyped failures propagate.
+
+After those startup checks, the official `sync --follow` owns checkpoint
+validation, writer lock, rollback/replay, publication and read gates. The wrapper
+never edits SQL metadata or manually opens an API gate. Follow heartbeats pass
+through unchanged; their timestamp is not progress. Root must separately bound
+the source-only container run to at most 7,200 seconds, positively verify process
+cleanup and advisory-lock release, and retain independent before/after canonical
+and financial receipts. The proof expiry gates startup; it is not a built-in
+runtime watchdog. This remains preparation until actual operator evidence exists.
+
 No valid private pin file, verified image digest, scanner compatibility receipt,
 host writer-stop receipt or replacement operator authority is supplied by this
 preparation. Generating hashes does not authorize their use. The original
@@ -210,9 +252,10 @@ The preparation does not authorize migrations or a new readiness proof.
    `CHEF_ENABLE_FOLLOWER=reviewed-cutover`, then explicitly select
    `docker compose -f deploy/chef-docker/compose.yaml --profile writer up -d --no-build follower`.
    Startup checks exact source/config/SDK/UID pins and scanner hash/platform, then
-   requires an existing ready, nonempty checkpoint with a usable matching source.
+   requires an existing ready, nonempty checkpoint with a usable matching source,
+   or the separately reviewed source-only recovery path above.
    Chef independently acquires its existing Neon writer lock. Startup neither
-   initializes a namespace nor silently repairs a reconciling checkpoint. A
+   initializes a namespace nor manually repairs a reconciling checkpoint. A
    failure requires inspection with both financial controls still paused.
 7. Record the first resumed checkpoint, contiguous canonical retained history,
    unchanged identity/generation and no duplicate entities; verify independent
@@ -244,7 +287,7 @@ node --check deploy/chef-docker/stage-context.mjs
 git diff --check
 ```
 
-On 25 October 2026, Node 24.18.0 passed **13 tests, zero failures/skips**, both
+On 25 October 2026, Node 24.18.0 passed **23 tests, zero failures/skips**, both
 syntax checks and `git diff --check` (only existing CRLF conversion warnings for
 unrelated modified files). Tests verify API key/scanner isolation, explicit
 writer opt-in, forbidden mutation commands, byte/SDK/UID/fingerprint refusals,

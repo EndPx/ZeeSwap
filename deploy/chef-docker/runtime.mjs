@@ -40,6 +40,43 @@ export function validateDatabase(value) {
     || !['require', 'verify-full'].includes(url.searchParams.get('sslmode'))) fail('REMOTE_NEON_TLS_REQUIRED');
   return value;
 }
+export async function verifySourceRecovery({ pins, status, metadata, client, now = () => Date.now() / 1000 }) {
+  const proof = pins.sourceRecovery, checkpoint = status?.checkpoint;
+  const uint = value => Number.isSafeInteger(value) && value >= 0;
+  const validTime = () => proof && uint(proof.issuedAt) && uint(proof.expiresAt)
+    && proof.issuedAt <= now() + 5 && proof.expiresAt > now()
+    && proof.expiresAt > proof.issuedAt && proof.expiresAt - proof.issuedAt <= 7200;
+  if (proof?.version !== 1 || !validTime() || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(proof.generation ?? '')
+    || !uint(proof.maxInitialGap) || proof.maxInitialGap < 1 || proof.maxInitialGap > 4096
+    || !/^(0|[1-9][0-9]*)$/.test(proof.prepEpoch ?? '')
+    || !uint(proof.checkpoint?.height) || proof.checkpoint.height > 0xfffffffe
+    || proof.checkpoint.height < Number(metadata.ZEESWAP_CHEF_BIRTHDAY) || !sha(proof.checkpoint?.hash)
+    || proof.checkpoint.status !== 'reconciling' || proof.checkpoint.reconcileKind !== 'source') fail('SOURCE_RECOVERY_PINS_INVALID');
+  if (status?.project !== metadata.ZEESWAP_CHEF_PROJECT || status.fingerprint !== pins.projectFingerprint
+    || status.state !== 'reconciling' || status.readGate !== 'reconciling'
+    || status.diagnostic?.projectGeneration !== proof.generation
+    || checkpoint?.height !== proof.checkpoint.height || checkpoint.hash !== proof.checkpoint.hash
+    || checkpoint.status !== 'reconciling' || checkpoint.reconcileKind !== 'source'
+    || status.source?.identityMatches !== true) fail('SOURCE_RECOVERY_IDENTITY_MISMATCH');
+  const source = await client.getHeight({ timeoutMs: 5000 });
+  const age = now() - source.source_observed_at;
+  if (source.network !== 'testnet' || source.payload_kind !== 'full-v1' || source.ready !== true
+    || source.source_mode !== 'follower' || source.epoch !== proof.prepEpoch
+    || !uint(source.source_observed_at) || age < -5 || age > 60
+    || !uint(source.source_height) || !uint(source.indexed_height) || !uint(source.archive_height)
+    || !uint(source.start_block) || source.start_block > Number(metadata.ZEESWAP_CHEF_BIRTHDAY)
+    || source.source_height < source.indexed_height || source.indexed_height < source.archive_height
+    || !uint(source.lag_blocks) || source.lag_blocks > 6 || source.lag_blocks !== source.source_height - source.indexed_height
+    || source.source_height - source.archive_height > 6
+    || source.archive_height < checkpoint.height || source.source_height - checkpoint.height < 0
+    || source.source_height - checkpoint.height > proof.maxInitialGap) fail('SOURCE_RECOVERY_SOURCE_NOT_READY');
+  const page = await client.get({ from_block: checkpoint.height, to_block: checkpoint.height + 1, limit: 1,
+    field_selection: { block: ['height', 'hash', 'previous_hash', 'time'], transaction: [] } }, { timeoutMs: 5000 });
+  if (page.network !== 'testnet' || page.epoch !== proof.prepEpoch || page.next_block !== checkpoint.height + 1
+    || page.data?.blocks?.length !== 1 || page.data.blocks[0].height !== checkpoint.height
+    || page.data.blocks[0].hash !== checkpoint.hash || !validTime()
+    || now() - source.source_observed_at < -5 || now() - source.source_observed_at > 60) fail('SOURCE_RECOVERY_HEADER_MISMATCH');
+}
 export async function runRuntime(args = process.argv.slice(2), options = {}) {
   if (args.length !== 1 || !['api', 'check', 'follower'].includes(args[0])) fail('INVALID_ROLE');
   const role = args[0], env = options.env ?? process.env;
@@ -59,7 +96,7 @@ export async function runRuntime(args = process.argv.slice(2), options = {}) {
   }
   const chefPackage = JSON.parse(await regularFile(resolve(app, 'node_modules/@zeer-dev/chef/package.json')));
   const manifest = JSON.parse(await regularFile(resolve(app, 'package.json')));
-  if (chefPackage.version !== '0.6.1' || manifest.dependencies?.['@zeer-dev/chef'] !== '0.6.1') fail('CHEF_VERSION_MISMATCH');
+  if (chefPackage.version !== '0.7.0' || manifest.dependencies?.['@zeer-dev/chef'] !== '0.7.0') fail('CHEF_VERSION_MISMATCH');
   const cliPath = resolve(app, 'node_modules/@zeer-dev/chef/dist/cli.js');
   if (await digest(cliPath) !== pins.sdkCliSha256) fail('SDK_PIN_MISMATCH');
   // Metadata is a strict allowlist. Never load the legacy private chef.env into the API.
@@ -80,6 +117,7 @@ export async function runRuntime(args = process.argv.slice(2), options = {}) {
   const sdk = options.sdk ?? {
     ...(await import(pathToFileURL(resolve(app, 'node_modules/@zeer-dev/chef/dist/project.js')).href)),
     ...(await import(pathToFileURL(cliPath).href)),
+    ...(await import(pathToFileURL(resolve(app, 'node_modules/@zeer-dev/chef/dist/cli-error.js')).href)),
   };
   const config = resolve(app, 'chef.config.ts');
   const project = await sdk.loadProject(config);
@@ -108,20 +146,37 @@ export async function runRuntime(args = process.argv.slice(2), options = {}) {
   const { singleBlockClient } = options.bounded ?? await import(pathToFileURL(resolve(app, 'bounded-prep-client.mjs')).href);
   const client = singleBlockClient(new PrepClient({ url: metadata.ZEESWAP_CHEF_PREP_URL, ...(prepToken !== undefined ? { token: prepToken } : {}) }));
   let status;
-  await sdk.main(['status', '--config', config, '--json'], { client, write: text => { status = JSON.parse(text); } });
-  if (status?.fingerprint !== pins.projectFingerprint || status.project !== metadata.ZEESWAP_CHEF_PROJECT
-    || !['caught_up', 'backfill'].includes(status.state) || status.readGate !== 'ready'
-    || status.source?.availability !== 'available' || status.source.identityMatches !== true
-    || status.source.checkpointAheadOfPrep !== false || !Number.isSafeInteger(status.checkpoint?.height)
-    || !sha(status.checkpoint?.hash)) fail('FOLLOWER_PREFLIGHT_NOT_READY');
+  try {
+    await sdk.main(['status', '--config', config, '--json'], { client, write: text => { status = JSON.parse(text); } });
+  } catch (error) {
+    // Only the SDK's exact typed reconciliation diagnostic may reach the stricter recovery gate.
+    if (!sdk.CliError || !(error instanceof sdk.CliError) || error.code !== 'RECONCILIATION_REQUIRED'
+      || status?.state !== 'reconciliation_needed') throw error;
+  }
+  const ready = status?.fingerprint === pins.projectFingerprint && status.project === metadata.ZEESWAP_CHEF_PROJECT
+    && ['caught_up', 'backfill'].includes(status.state) && status.readGate === 'ready'
+    && status.source?.availability === 'available' && status.source.identityMatches === true
+    && status.source.checkpointAheadOfPrep === false && Number.isSafeInteger(status.checkpoint?.height)
+    && sha(status.checkpoint?.hash);
+  if (!ready && env.CHEF_SOURCE_RECOVERY === 'reviewed-source-only') {
+    await verifySourceRecovery({ pins, status, metadata, client, now: options.now });
+  } else if (!ready) fail('FOLLOWER_PREFLIGHT_NOT_READY');
   // Official CLI owns source epochs, canonicality, writer locks, commit and signal cleanup.
   // Fixed single-block requests retain the deployed response-size protection.
   await sdk.main(['sync', '--config', config, '--follow', '--json'], { client });
 }
+export async function runtimeFailure(error, app = '/app') {
+  if (error instanceof RuntimeError) return { error: { code: error.code } };
+  try {
+    // Use the published SDK's fixed vocabulary and retry advice; never serialize third-party messages.
+    const { cliFailure } = await import(pathToFileURL(resolve(app, 'node_modules/@zeer-dev/chef/dist/cli-output.js')).href);
+    return cliFailure(error, error?.code);
+  } catch { return { error: { code: 'CHEF_CONTAINER_FAILED' } }; }
+}
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  runRuntime().catch(error => {
+  runRuntime().catch(async error => {
     // Third-party errors may contain credentials, SQL or private scanner details.
-    console.error(JSON.stringify({ error: { code: error instanceof RuntimeError ? error.code : 'CHEF_CONTAINER_FAILED' } }));
+    console.error(JSON.stringify(await runtimeFailure(error)));
     process.exitCode = 1;
   });
 }
