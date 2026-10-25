@@ -158,3 +158,60 @@ reversible relationship to the candidate, absence of a passing proof and private
 failure diagnostics. Independent review verified the frozen source and all
 fourteen helper/probe cases. Normal observation and its journal were unchanged
 for this correction; no service restart, migration or authority reset is needed.
+
+## Bounding the existing selected-export read
+
+The subsequent full window refused after two samples with a **21,627-ms gap**.
+Its phase records showed nine returned headers in the first cycle and **24** in
+the second. The second export required 29 RPC methods and 16,375 ms; the complete
+cycle took 21,615 ms and reached 30 methods after the SQL Base anchor check. No
+HTTP 429 or normal-observer waiting cycle was recorded during this interval.
+Root again verified the same paused control version, unchanged full financial
+snapshot, zero authorization rows and no new order or payer/control effects.
+The preceding five-sample result did not cover this larger moving range.
+
+The correction reuses the server's **existing explicit selected-export
+protocol**, requesting `from=H&through=H`. Root verified that the live endpoint
+already returned `zee-envio-selected-export-v1`, including a producer checkpoint
+M later than requested H, and that its existing verifier module matched the
+published source. No server endpoint, source identity, configuration, database
+schema or authority change is required.
+
+Readiness validates every returned header and event in selected H through H,
+the coherent producer metadata, sampled source head and finality comparisons.
+It additionally compares the complete producer-M header against an independent
+canonical read. The readiness record uses actual producer M and its original
+source timestamp, with the actual completion time of the M check. Private
+metrics distinguish selected H, its one returned header and producer M. The
+ordinary consumer retains complete admission/export history verification.
+
+This bounds the auxiliary operation to nine Base JSON-RPC methods including the SQL Base
+anchor when no retry is needed, independently of M minus H. Normal batches/rate
+five/eleven and auxiliary two/two remain unchanged. The original cycle deadline,
+all source and financial-history checks, and the full 300/60/20-second window
+requirements still apply.
+
+Root measured the candidate in a separate actual five-sample unqualified
+rehearsal before publication. All five selected ranges contained exactly one
+header while producer M was **8, 9, 8, 7 and 8 blocks** ahead of selected H.
+Every sample used **nine Base RPC methods**, including its SQL Base-anchor read.
+Selected verification took **5,262–6,458 ms**, complete cycles took
+8,624–10,015 ms and successive sample gaps were **9,726, 9,992, 10,038 and
+11,357 ms**. During that same interval, the normal observer recorded three
+successful cycles, zero HTTP 429 responses and zero waiting cycles; its maximum
+cycle was 19,109 ms. No Chef status wait was needed.
+
+The largest previous SQL-observation age at the next sample was 21,870 ms for
+Zcash and 43,062 ms for Base. The rehearsal wrote only its private attempt
+journal and explicit unqualified summary, with no output proof or activation.
+These observations support proceeding to the complete window; they are not a
+five-minute acceptance result or cross-chain settlement.
+
+Root verification passed **73 focused tests with zero skips**, including the
+existing selected-export/recovery cases, plus API typechecking and three private
+probe tests. New tests exercise the actual selected verifier at M=H, H+24 and
+H+4,500, reject changed range/event/identity/source/finality/producer headers,
+and enforce the post-M total read-age budget. Independent review checked the
+frozen candidate and private probe. The existing selected verifier and normal
+observer remained byte-identical; only the readiness consumer and its tests
+change in this milestone.

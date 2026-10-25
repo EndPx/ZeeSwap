@@ -2,19 +2,18 @@
 
 Last updated: 2026-10-25 (Asia/Jakarta), for the isolated native Linux deployment. Execution evidence below retains its recorded dates.
 
-Latest readiness checkpoint: the coupled five/eleven normal and one/one
-auxiliary configuration was installed and passed 45 focused tests plus
-typechecking on the VPS. Its actual short window stopped after three samples
-when Chef was unready; the samples also contained a 24,651-ms gap. No new
-financial or control effects occurred. The bounded correction uses auxiliary
-two/two, private phase measurements, narrowly bounded Chef status waits and an
-immediate gap check. Its actual five-sample unqualified rehearsal measured
-5–12 headers and 9,644–13,552-ms successive gaps, with four concurrent normal
-cycles and no 429/wait events during that interval. Root verification passed
-51 focused tests with zero skips, typechecking and three private probe cases.
-The rehearsal wrote no readiness proof. Complete canonical checks, admission
-history and all freshness/read-budget gates remain unchanged. Concurrent
-acceptance, activation and the funded circle remain pending. See
+Latest readiness checkpoint: the next full window refused a 21,627-ms sample
+gap when its moving export returned 24 headers. Root verified unchanged paused
+controls and financial books, with no new admission or payment. Readiness now
+uses the existing explicit H-through-H selected-export protocol, verifies every
+returned header/event and separately compares actual producer M's complete
+canonical header. Normal admission/history and all 300/60/20/30-second gates
+remain unchanged. An actual five-sample unqualified rehearsal used one selected
+header and nine Base RPC methods per sample, with 9,726–11,357-ms gaps and three
+concurrent normal cycles without 429/wait events. It wrote no readiness proof.
+Root verification passed 73 focused tests with zero skips, typechecking and
+three private probe cases. Full concurrent acceptance, activation and the funded
+circle remain pending. See
 [readiness RPC budget](docs/evidence/native-readiness-rpc-budget.md).
 
 Latest operator checkpoint (25 October): new diagnostics recorded three later
