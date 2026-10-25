@@ -1,0 +1,6 @@
+*
+!Dockerfile
+!runtime.mjs
+!config.mjs
+!healthcheck.mjs
+!probe.mjs

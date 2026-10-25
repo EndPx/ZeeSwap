@@ -1,0 +1,26 @@
+[Unit]
+Description=ZeeSwap Base observation consumer without signing authority
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=zeeswap-testnet
+Group=zeeswap-testnet
+WorkingDirectory=/opt/zeeswap-testnet/current/app/api
+Environment=NODE_OPTIONS=--max-old-space-size=192
+ExecStart=/usr/bin/node --import tsx scripts/observe-linux-envio.ts /opt/zeeswap-testnet/secrets/linux-envio-profile.private.json
+Restart=no
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/zeeswap-testnet/state/envio
+MemoryMax=320M
+TasksMax=24
+KillMode=control-group
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

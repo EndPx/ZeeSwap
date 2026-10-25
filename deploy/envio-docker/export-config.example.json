@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "scope": "ZEESWAP_EXISTING_ENVIO_SOURCE_DOCKER",
+  "metadataOnly": true,
+  "noFinance": true,
+  "component": "export",
+  "database": "zee_envio_20261023",
+  "schema": "envio_live_final",
+  "generation": "envio314-91dad6a1a769d95f7ccfa828-preintake-20261023T113615131Z",
+  "projectionDigest": "91dad6a1a769d95f7ccfa8286e5bf2d55bf01225e1e86f9adbf9f2bcc1662e27",
+  "nodeSha256": "e237a2839d0cbdc9a9a2adda1a184afc0f5b20306ffbe923af5686550472d8a8",
+  "publicPins": [
+    {
+      "path": "/opt/zeeswap-testnet/current/app/api/package.json",
+      "sha256": "ROOT_PUBLIC_DEPENDENCY_CLOSURE_FILE_SHA256"
+    },
+    {
+      "path": "/opt/zeeswap-testnet/current/app/api/scripts/envio-export-server.ts",
+      "sha256": "ROOT_PUBLIC_DEPENDENCY_CLOSURE_FILE_SHA256"
+    },
+    {
+      "path": "/opt/zeeswap-testnet/current/app/api/src/integrations/observation/envio.ts",
+      "sha256": "ROOT_PUBLIC_DEPENDENCY_CLOSURE_FILE_SHA256"
+    },
+    {
+      "path": "/opt/zeeswap-testnet/current/app/api/src/integrations/observation/envio-selected-export.ts",
+      "sha256": "ROOT_PUBLIC_DEPENDENCY_CLOSURE_FILE_SHA256"
+    },
+    {
+      "path": "/opt/zeeswap-testnet/current/app/api/src/integrations/observation/types.ts",
+      "sha256": "ROOT_PUBLIC_DEPENDENCY_CLOSURE_FILE_SHA256"
+    }
+  ],
+  "exportProfile": {
+    "path": "/run/zeeswap-envio/export-profile.private.json",
+    "sha256": "ROOT_EXACT_EXISTING_FILE_RAW_SHA256"
+  },
+  "exportCredentials": {
+    "path": "/run/zeeswap-envio/export-credentials.private.json",
+    "sha256": "ROOT_EXACT_EXISTING_FILE_RAW_SHA256"
+  },
+  "exportToken": {
+    "path": "/run/zeeswap-envio/export-token.private.txt",
+    "sha256": "ROOT_EXACT_EXISTING_FILE_RAW_SHA256"
+  }
+}

@@ -1,0 +1,119 @@
+name: zeeswap-envio-source
+services:
+  engine:
+    image: ${ENVIO_DOCKER_IMAGE:?Root-qualified immutable image digest required}
+    platform: linux/amd64
+    user: "986:978"
+    init: true
+    read_only: true
+    restart: unless-stopped
+    command: ["engine"]
+    environment:
+      ENVIO_DOCKER_CONFIG_SHA256: ${ENVIO_ENGINE_CONFIG_SHA256:?Root engine descriptor raw hash required}
+    networks: [source]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    cpus: "1.0"
+    mem_limit: 768m
+    pids_limit: 96
+    stop_grace_period: 90s
+    tmpfs:
+      - /tmp:size=32m,uid=986,gid=978,mode=0700
+    volumes:
+      - type: bind
+        source: /usr/bin/node
+        target: /usr/bin/node
+        read_only: true
+      - type: bind
+        source: ${ENVIO_PUBLIC_APP:?verified public application/dependencies stage required}
+        target: /opt/zeeswap-testnet/releases/linux-live-20261024/app
+        read_only: true
+      - type: bind
+        source: ${ENVIO_PUBLIC_APP:?verified public application/dependencies stage required}
+        target: /opt/zeeswap-testnet/current/app
+        read_only: true
+      - type: bind
+        source: /opt/zeeswap-testnet/state/envio-engine/project
+        target: /opt/zeeswap-testnet/state/envio-engine/project
+        read_only: true
+      - type: bind
+        source: /opt/zeeswap-testnet/tools/pnpm-10.21.0
+        target: /opt/zeeswap-testnet/tools/pnpm-10.21.0
+        read_only: true
+      - type: bind
+        source: ${ENVIO_ENGINE_SECRET_STAGE:?exact engine-only files stage required}
+        target: /run/zeeswap-envio
+        read_only: true
+      - type: bind
+        source: ${ENVIO_ENGINE_SECRET_STAGE:?engine files stage required}/envio-live.yaml
+        target: /opt/zeeswap-testnet/secrets/envio-live.yaml
+        read_only: true
+      - type: bind
+        source: ${ENVIO_ENGINE_SECRET_STAGE:?engine files stage required}/envio-sdk-runtime.sha256
+        target: /opt/zeeswap-testnet/secrets/envio-sdk-runtime.sha256
+        read_only: true
+      - type: bind
+        source: ${ENVIO_ENGINE_SUPERVISION_STATE:?new engine-only supervision directory required}
+        target: /runstate
+    healthcheck:
+      test: ["CMD", "/usr/bin/node", "/container/healthcheck.mjs", "engine"]
+      interval: 15s
+      timeout: 10s
+      retries: 2
+      start_period: 30s
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+  export:
+    image: ${ENVIO_DOCKER_IMAGE:?Root-qualified immutable image digest required}
+    platform: linux/amd64
+    user: "986:978"
+    init: true
+    read_only: true
+    restart: unless-stopped
+    command: ["export"]
+    # Existing export code binds 127.0.0.1 only; host mode preserves that exact endpoint.
+    network_mode: host
+    environment:
+      ENVIO_DOCKER_CONFIG_SHA256: ${ENVIO_EXPORT_CONFIG_SHA256:?Root export descriptor raw hash required}
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    cpus: "0.5"
+    mem_limit: 384m
+    pids_limit: 96
+    stop_grace_period: 90s
+    tmpfs:
+      - /tmp:size=16m,uid=986,gid=978,mode=0700
+    volumes:
+      - type: bind
+        source: /usr/bin/node
+        target: /usr/bin/node
+        read_only: true
+      - type: bind
+        source: ${ENVIO_PUBLIC_APP:?verified public application/dependencies stage required}
+        target: /opt/zeeswap-testnet/releases/linux-live-20261024/app
+        read_only: true
+      - type: bind
+        source: ${ENVIO_PUBLIC_APP:?verified public application/dependencies stage required}
+        target: /opt/zeeswap-testnet/current/app
+        read_only: true
+      - type: bind
+        source: ${ENVIO_EXPORT_SECRET_STAGE:?exact export-only files stage required}
+        target: /run/zeeswap-envio
+        read_only: true
+      - type: bind
+        source: ${ENVIO_EXPORT_SUPERVISION_STATE:?new export-only supervision directory required}
+        target: /runstate
+    healthcheck:
+      test: ["CMD", "/usr/bin/node", "/container/healthcheck.mjs", "export"]
+      interval: 15s
+      timeout: 10s
+      retries: 2
+      start_period: 15s
+    logging:
+      driver: json-file
+      options: {max-size: "5m", max-file: "3"}
+networks:
+  source:
+    external: true
+    name: ${ENVIO_DOCKER_NETWORK:?Root-created bounded external source network required}
