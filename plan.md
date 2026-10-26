@@ -679,6 +679,21 @@ retained finalized anchor at 4,541,816 matches; the missing predecessor prevents
 a contiguous-common-ancestor claim. No metadata repair or financial activation
 is implied by the audit or local test results.
 
+Sparse-tip repair preparation (26 October): the latest retained canonical replay
+anchor is 4,541,823; only its successor 4,541,824 is absent. A new exact E220
+procedure preserves all rows, canonicalizes the orphan 4,541,825 header and
+rewinds checkpoint/cursor to the verified replay anchor. The two original UPDATE
+triggers produce E222; finalized height/time and the old observation time remain
+unchanged. Root passed six pure/actual isolated PostgreSQL cases, thirteen old
+repair regressions and five actual Linux pure cases. The separate official Chef
+historical traversal of 4,541,814–825 succeeded with twelve canonical headers and
+zero returned receipts. Root's current-operator read-only SDK capture also
+verified 12,490,000 zatoshis, no pending calculated transactions and process-group
+cleanup. These are preparation proofs: no application SQL/cursor repair,
+admission, payout or new inventory credit occurred. The exact private Root
+approval, durable transaction/file boundary and subsequent linked historical
+receipt recovery remain necessary. See the [sparse-tip procedure evidence](docs/evidence/native-chef-sparse-tip-repair.md).
+
 Amounts are canonical integer strings over APIs, `bigint` in TypeScript, and checked integer arithmetic in Rust/Solidity. Zcash uses 8 decimal places and mockUSDC uses 6. Store integer units in PostgreSQL using the `zee.atomic` NUMERIC domain with integral-value, 78-digit and asset-specific bounds. This replaces direct `NUMERIC(78,0)` assignment because PostgreSQL can round a fractional value before its check constraint. Prices use rational/scaled integers. Round destination output down and required input/fee reserves up; reject zero output or invalid decimals. References to USDC below describe the product asset role; all prototype execution and UI use mockUSDC explicitly.
 
 ### Finality policy
