@@ -1,6 +1,7 @@
 import { capability, decodeOrder, uuid, type OrderView, type PrivateOrder, type QuoteBody } from './protocol.ts';
 import {decodeAvailability,type ServiceAvailability} from './availability.ts';
 import {decodeMarketReference,type MarketReference} from './market-reference.ts';
+import {decodePricingConfiguration,freshUnacceptedPricing,type PricingConfiguration} from './pricing.ts';
 import {decodeBridgeStatus,decodeBridgeQuote,decodeBridgeOrder,type BridgeStatus,type BridgeQuoteBody,type BridgeQuote,type BridgeOrder} from './bridge.ts';
 
 export type QuoteBounds={inputAmountAtomic:'100000';maxAcceptedPerDirection:1}|{
@@ -30,6 +31,10 @@ export function decodeHealth(value:unknown):ApiHealth {
 export class ApiError extends Error { constructor(readonly code:string,readonly uncertain=false){super(errorCopy(code));} }
 export function errorCopy(code:string):string {
   const copy:Record<string,string>={
+    MARKET_OUTPUT_BOUNDS:'This amount would produce a payout outside the supported destination limits. Start a new review with a supported amount; no payout is clipped.',
+    MARKET_INPUT_BOUNDS:'This source amount is outside the market policy limits. Review a supported testnet amount.',
+    MARKET_REFERENCE_UNAVAILABLE:'Fresh market pricing is unavailable. New quotes wait; accepted locked payouts remain unchanged.',
+    MARKET_SNAPSHOT_EXPIRED:'This unaccepted market snapshot expired. Reconcile the original order, then explicitly request a new quote.',
     BRIDGE_UNAVAILABLE:'The bridge is not activated or its reconciliation is unavailable. No new funding instructions can be trusted.',
     BRIDGE_ADMISSION_PAUSED:'Bridge admission is paused. Keep existing private order access and refresh its original status.',
     BRIDGE_QUOTE_EXPIRED:'This bridge quote expired. Do not send to expired deposit instructions or burn with expired terms.',
@@ -67,6 +72,7 @@ export class ZeeApi {
   private creating:Promise<{order:OrderView;access:PrivateOrder}>|null=null;
   private request:{fingerprint:string;key:string;token:string;completed:boolean}|null=null;
   private accepts=new Map<string,Promise<OrderView>>();
+  private immutableOrders=new Map<string,string>();
   constructor(readonly origin:string,private readonly fetcher:typeof fetch=fetch) {apiOrigin(origin);}
   private async call(path:string,options:{method?:string;body?:unknown;token?:string;key?:string;signal?:AbortSignal}={}):Promise<unknown>{
     let response:Response;
@@ -80,6 +86,11 @@ export class ZeeApi {
   async health(signal?:AbortSignal):Promise<ApiHealth>{return decodeHealth(await this.call('/health',{signal}));}
   async availability(signal?:AbortSignal):Promise<ServiceAvailability>{return decodeAvailability(await this.call('/availability',{signal}));}
   async marketReference(signal?:AbortSignal):Promise<MarketReference>{return decodeMarketReference(await this.call('/market-reference',{signal}));}
+  async pricing(signal?:AbortSignal):Promise<PricingConfiguration>{return decodePricingConfiguration(await this.call('/pricing',{signal}));}
+  private boundOrder(value:unknown):OrderView {
+    const order=decodeOrder(value),immutable=JSON.stringify([order.direction,order.inputAmount,order.outputAmount,order.priceMode,order.pricing?.snapshotSha256??null]);
+    const previous=this.immutableOrders.get(order.id);if(previous&&previous!==immutable)throw new ApiError('INVALID_RESPONSE');this.immutableOrders.set(order.id,immutable);return order;
+  }
   async bridgeStatus(signal?:AbortSignal):Promise<BridgeStatus>{return decodeBridgeStatus(await this.call('/v1/bridge/status',{signal}));}
   async bridgeQuote(body:BridgeQuoteBody,access:{token:string;key:string}):Promise<BridgeQuote>{return decodeBridgeQuote(await this.call('/v1/bridge/quotes',{method:'POST',body,token:access.token,key:access.key}),body);}
   async bridgeAccept(quote:BridgeQuote,body:BridgeQuoteBody,access:{token:string;key:string},token:string):Promise<BridgeOrder>{
@@ -93,21 +104,27 @@ export class ZeeApi {
   create(body:QuoteBody):Promise<{order:OrderView;access:PrivateOrder}>{
     const fingerprint=JSON.stringify(body);
     if(this.creating){if(this.request?.fingerprint!==fingerprint)return Promise.reject(new ApiError('IDEMPOTENCY_CONFLICT'));return this.creating;}
+    if(this.request&&!this.request.completed&&this.request.fingerprint!==fingerprint)return Promise.reject(new ApiError('IDEMPOTENCY_CONFLICT'));
     if(this.request?.fingerprint!==fingerprint)this.request={fingerprint,key:crypto.randomUUID(),token:capability(),completed:false};
     const request=this.request;
-    this.creating=(async()=>{const order=decodeOrder(await this.call('/v1/quotes',{method:'POST',body,token:request.token,key:request.key}));
+    this.creating=(async()=>{const order=this.boundOrder(await this.call('/v1/quotes',{method:'POST',body,token:request.token,key:request.key}));
       if(order.direction!==body.direction||order.inputAmount!==body.inputAmount||order.status!=='QUOTED')throw new ApiError('INVALID_RESPONSE',true);
-      request.completed=true;return {order,access:{id:order.id,token:request.token}};})();
+      request.completed=true;if(order.priceMode==='market-reference'&&!freshUnacceptedPricing(order.pricing!,order.expiresAt))throw new ApiError('QUOTE_EXPIRED');
+      return {order,access:{id:order.id,token:request.token}};})().catch(error=>{
+        if(error instanceof ApiError&&!error.uncertain&&['INVALID_AMOUNT','INVALID_BASE_RECEIVER','INVALID_ZCASH_RECEIVER','MARKET_INPUT_BOUNDS','MARKET_OUTPUT_BOUNDS','BASE_ESCROW_NOT_READY'].includes(error.code))request.completed=true;
+        throw error;
+      });
     return this.creating.finally(()=>{this.creating=null;});
   }
   freshReview(){if(this.creating)throw Error('Wait for the current quote request.');if(this.request?.completed)this.request=null;}
-  order(access:PrivateOrder):Promise<OrderView>{if(!uuid(access.id)||!/^[A-Za-z0-9_-]{43}$/.test(access.token))throw new ApiError('NOT_FOUND');return this.call(`/v1/orders/${access.id}`,{token:access.token}).then(value=>{const order=decodeOrder(value);if(order.id!==access.id)throw new ApiError('INVALID_RESPONSE');return order;});}
-  async funding(access:PrivateOrder,transactionHash:string):Promise<OrderView>{return decodeOrder(await this.call(`/v1/orders/${access.id}/funding`,{method:'POST',token:access.token,body:{transactionHash}}));}
+  order(access:PrivateOrder):Promise<OrderView>{if(!uuid(access.id)||!/^[A-Za-z0-9_-]{43}$/.test(access.token))throw new ApiError('NOT_FOUND');return this.call(`/v1/orders/${access.id}`,{token:access.token}).then(value=>{const order=this.boundOrder(value);if(order.id!==access.id)throw new ApiError('INVALID_RESPONSE');return order;});}
+  async funding(access:PrivateOrder,transactionHash:string):Promise<OrderView>{const order=this.boundOrder(await this.call(`/v1/orders/${access.id}/funding`,{method:'POST',token:access.token,body:{transactionHash}}));if(order.id!==access.id)throw new ApiError('INVALID_RESPONSE');return order;}
   accept(access:PrivateOrder):Promise<OrderView>{
     const active=this.accepts.get(access.id);if(active)return active;
     // Reconcile an earlier lost acceptance response before repeating its POST.
     const task=(async()=>{const existing=await this.order(access);if(existing.status!=='QUOTED')return existing;
-      const result=decodeOrder(await this.call(`/v1/orders/${access.id}/accept`,{method:'POST',body:{},token:access.token}));if(result.id!==access.id)throw new ApiError('INVALID_RESPONSE',true);return result;})();
+      if(existing.priceMode==='market-reference'&&!freshUnacceptedPricing(existing.pricing!,existing.expiresAt))throw new ApiError('QUOTE_EXPIRED');
+      const result=this.boundOrder(await this.call(`/v1/orders/${access.id}/accept`,{method:'POST',body:{},token:access.token}));if(result.id!==access.id)throw new ApiError('INVALID_RESPONSE',true);return result;})();
     this.accepts.set(access.id,task);return task.finally(()=>this.accepts.delete(access.id));
   }
 }

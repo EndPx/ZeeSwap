@@ -58,6 +58,13 @@ Unbroken addresses wrap inside min-width:0 containers.
 
 ## 5. Primitives and states
 
+- Market settlement pricing is declared by the server's pricing configuration
+  and bounded availability policy, independently of the public reference panel.
+  The main output distinguishes a changing market estimate, an unaccepted fixed
+  server quote and an accepted "Quote locked" amount. Show snapshot sampling,
+  expiry, conservative side, zero protocol fee and source-network fee before
+  acceptance. Historical accepted amounts survive provider failure/expiry.
+
 - Market reference: compact secondary inset in Swap, below the fixture-rate row.
   Uses existing surface-soft, muted text and warm border with 12px metadata,
   14px title and 18px tabular rate. Clearly labels actual ZEC/USDC as reference
@@ -132,7 +139,9 @@ token, amount, payer and Base Sepolia chain before requesting wallet confirmatio
 Exact token approval and escrow funding are separate user actions. An unknown
 transaction result blocks further sends until reconciled. The contract prevents
 funding an already used settlement ID. No EOA deposit instructions are issued.
-Pricing is the API's fixture model; offline preview is labelled, never accepted.
+Pricing follows the API's declared fixture or market-reference model. Offline
+fixture previews are labelled and cannot be accepted. Market settlement requires
+explicit server pricing and readiness; an accepted output remains immutable.
 Actual order creation requires a reachable API and valid server checks. Wallet
 connection checks EIP-1193/Base Sepolia. Reverse approval and funding explicitly
 request wallet confirmation after acceptance; connecting alone never sends. UI tests use

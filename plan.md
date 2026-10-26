@@ -648,6 +648,37 @@ time is not the time of an exchange price update. Keep actual quote `priceMode`
 as `fixture`, preserve accepted terms and inventory policy, and keep the bridge's
 1:1 TAZ/zeeTAZ principal unchanged. TAZ and mockUSDC have no monetary value.
 
+Later 26 October authorization: after reviewing the required quote, inventory,
+database and signer changes, the user requested completing market-priced quotes
+and payouts. Implement a separate explicitly enabled `market-reference` mode for
+new orders, preserving every existing fixture order, approval and receipt. Lock
+the exact output and source snapshot when the user accepts; price expiry after
+acceptance does not reprice or cancel a funded liability. Enforce price freshness
+before issuance/acceptance, exact destination reservations, bounded quantities
+and fees, and independently verified chain/signing readiness. This supersedes the
+display-only restriction for newly authorized market-priced orders; it does not
+activate trading or waive the remaining live source/capital/settlement gates.
+No mainnet route, NEAR execution, bridge repricing or stopped-soak restart is
+authorized by this pricing change.
+
+Market implementation checkpoint (26 October): the separate server-priced
+mode, immutable SQL snapshot/admission, exact destination reservations, native
+payout/refund protocols, concrete Linux worker and web protocol are implemented.
+Root's isolated PostgreSQL run passed 12 cases after correcting legacy constraint
+discovery and PL/pgSQL CASE syntax; an accepted-drain heartbeat correction retains
+live lease/epoch/source gates while keeping fresh capital mandatory for new
+admission. Root also passed 17 market/Anvil/Node-Python cases, 42 existing backend
+regressions, 16 provider cases, 75 Python cases, 63 web unit cases, 35 mocked
+browser cases, API typechecking and the web build. Counts overlap owner runs.
+See [market implementation evidence](docs/evidence/market-priced-settlement.md).
+The feature is not live-accepted: application source recovery, actual capital
+allocation, production installation/private permit and the funded two-way
+market circle remain open. A read-only full canonical audit found one orphan
+Native application tip at 4,541,825 and no financial-anchor conflicts. Its
+retained finalized anchor at 4,541,816 matches; the missing predecessor prevents
+a contiguous-common-ancestor claim. No metadata repair or financial activation
+is implied by the audit or local test results.
+
 Amounts are canonical integer strings over APIs, `bigint` in TypeScript, and checked integer arithmetic in Rust/Solidity. Zcash uses 8 decimal places and mockUSDC uses 6. Store integer units in PostgreSQL using the `zee.atomic` NUMERIC domain with integral-value, 78-digit and asset-specific bounds. This replaces direct `NUMERIC(78,0)` assignment because PostgreSQL can round a fractional value before its check constraint. Prices use rational/scaled integers. Round destination output down and required input/fee reserves up; reject zero output or invalid decimals. References to USDC below describe the product asset role; all prototype execution and UI use mockUSDC explicitly.
 
 ### Finality policy

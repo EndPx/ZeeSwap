@@ -1,5 +1,6 @@
 import { validateEscrowFunding, type EscrowFunding } from './escrow-funding.ts';
 import { getAddress, isAddress } from 'viem';
+import {decodeLockedPricing,type LockedPricing} from './pricing.ts';
 
 export type Direction = 'ZCASH_TO_BASE' | 'BASE_TO_ZCASH';
 export const assets = {
@@ -48,7 +49,7 @@ export const statuses=['QUOTED','AWAITING_FUNDS','CONFIRMING','READY','REFUND_RE
 export type OrderStatus=typeof statuses[number];
 export interface OrderView {
   id:string; direction:Direction; status:OrderStatus; inputAmount:string; outputAmount:string;
-  executionMode:string; priceMode:'fixture'; integrationOnly:boolean; expiresAt:string;
+  executionMode:string; priceMode:'fixture'|'market-reference';pricing?:LockedPricing|null; integrationOnly:boolean; expiresAt:string;
   source:{received:boolean;confirmed:boolean;confirmations:number;policy:'zcash-10-confirmations'|'base-finalized';requiredConfirmations:number|null};
   escrowFunding?:EscrowFunding;
   destination?:{network:'base-sepolia'|'zcash-testnet';status:'FINALIZED'|'PAYOUT_PENDING'|'RESERVING'|'NOT_SUBMITTED';transactionHash?:string;blockNumber?:number};
@@ -60,7 +61,7 @@ const atomic=(value:unknown):value is string=>typeof value==='string'&&/^(0|[1-9
 export function decodeOrder(value:unknown):OrderView {
   const row=object(value),source=object(row.source);
   if(typeof row.id!=='string'||!uuid(row.id)||!['ZCASH_TO_BASE','BASE_TO_ZCASH'].includes(String(row.direction))||!statuses.includes(row.status as OrderStatus)
-    ||!atomic(row.inputAmount)||!atomic(row.outputAmount)||typeof row.executionMode!=='string'||row.priceMode!=='fixture'||typeof row.integrationOnly!=='boolean'
+    ||!atomic(row.inputAmount)||!atomic(row.outputAmount)||typeof row.executionMode!=='string'||!['fixture','market-reference'].includes(String(row.priceMode))||typeof row.integrationOnly!=='boolean'
     ||typeof row.expiresAt!=='string'||!Number.isFinite(Date.parse(row.expiresAt))||typeof source.received!=='boolean'||typeof source.confirmed!=='boolean'
     ||!nonnegative(source.confirmations)||!['zcash-10-confirmations','base-finalized'].includes(String(source.policy))||!(source.requiredConfirmations===null||nonnegative(source.requiredConfirmations)))throw Error('The service returned an unsupported order.');
   if(row.destination!==undefined){const d=object(row.destination);if(!['base-sepolia','zcash-testnet'].includes(String(d.network))||(d.network==='base-sepolia'&&row.direction!=='ZCASH_TO_BASE')||(d.network==='zcash-testnet'&&row.direction!=='BASE_TO_ZCASH')||!['FINALIZED','PAYOUT_PENDING','RESERVING','NOT_SUBMITTED'].includes(String(d.status))
@@ -70,6 +71,11 @@ export function decodeOrder(value:unknown):OrderView {
   if(row.funding!==undefined){const f=object(row.funding);if(row.status!=='AWAITING_FUNDS'||row.direction!=='ZCASH_TO_BASE'||f.network!=='zcash-testnet'
     ||typeof f.receiver!=='string'||typeof f.memo!=='string'||f.memo.length>512||f.receiver.length>512||!(f.cutoffHeight===null||nonnegative(f.cutoffHeight))
     ||!(f.cutoffTime===null||typeof f.cutoffTime==='string')||!(f.cancellationAvailableAt===null||typeof f.cancellationAvailableAt==='string'))throw Error('The service returned unsupported funding instructions.');}
+  if(row.priceMode==='market-reference'){
+    if(BigInt(row.inputAmount as string)<100000n||BigInt(row.inputAmount as string)>10000000n||BigInt(row.outputAmount as string)<(row.direction==='ZCASH_TO_BASE'?100000n:10000n)||BigInt(row.outputAmount as string)>10000000n)throw Error('Market quote exceeds supported testnet principal bounds.');
+    decodeLockedPricing(row.pricing,row.direction as Direction,row.inputAmount as string,row.outputAmount as string,row.status as string,row.expiresAt as string);
+  }
+  else if(row.pricing!==undefined&&row.pricing!==null)throw Error('Fixture order cannot include market pricing.');
   return row as unknown as OrderView;
 }
 export const uuid=(value:string)=>/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);

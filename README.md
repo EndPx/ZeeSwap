@@ -29,9 +29,13 @@ gates. A published interface is not a working live bridge. See the
 
 The Swap interface includes a separate **ZEC/USDC market reference** derived from
 Kraken's ZEC/USD and USDC/USD markets. It shows sampled time, expires stale data,
-and offers an explicitly separate market comparison. Actual testnet quotes and
-payouts retain their fixture rate; the reference does not give TAZ or mockUSDC
-monetary value. See the [actual public market-data check](docs/evidence/market-reference-live.md).
+and offers an explicitly separate market comparison. The currently deployed
+service retains fixture settlement pricing. A separate, explicitly selected
+[market-priced testnet mode](docs/market-pricing.md) now implements server-owned
+price snapshots, exact two-way quote amounts and an immutable output at acceptance;
+its [implementation evidence](docs/evidence/market-priced-settlement.md) is separate
+from the still-open funded live acceptance. The reference does not give TAZ or
+mockUSDC monetary value. See the [actual public market-data check](docs/evidence/market-reference-live.md).
 
 ```sh
 pnpm install --frozen-lockfile

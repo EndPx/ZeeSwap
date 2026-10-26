@@ -3,6 +3,7 @@ import type pg from 'pg';
 import { atomic, fixtureOutput } from './amounts.ts';
 import { PrivateData, accessHash, newAccessToken } from './private-data.ts';
 import { publicSettlementId } from './base-contract.ts';
+import {marketOutput,type MarketSnapshot} from './market-pricing.ts';
 
 type Queryable = Pick<pg.Pool,'query'>;
 export type Direction = 'ZCASH_TO_BASE'|'BASE_TO_ZCASH';
@@ -10,6 +11,7 @@ export interface QuoteInput {
   direction: Direction; inputAmount: string; payoutFee: string; refundFee: string;
   recipient: string; refundRecipient: string; depositReceiver: string;
   executionMode?: 'base-settlement-v1'|'base-escrow-v1'; baseContract?: string; payer?: string;
+  marketPricing?:{snapshot:MarketSnapshot;policySha256:string};
 }
 export interface DepositInput {
   network: 'zcash-testnet'|'base-sepolia'; txid: string; index: number;
@@ -49,8 +51,15 @@ export class Repository {
       if(input.direction!=='BASE_TO_ZCASH'||!input.payer)throw Error('Reverse payer required');
       input={...input,depositReceiver:`escrow:${publicSettlementId(settlementId)}`};
     }
-    const output=fixtureOutput(input.inputAmount,input.direction), forward=input.direction==='ZCASH_TO_BASE';
-    const payload=this.privateData.seal({...input,outputAmount:output,reference,settlementId},`quote:${id}:v1`);
+    const market=input.marketPricing;
+    const pricing=market?marketOutput(input.inputAmount,input.direction,market.snapshot,new Date((await this.db.query('SELECT clock_timestamp() AS now')).rows[0].now).getTime()):undefined;
+    const output=pricing?.outputAmount??fixtureOutput(input.inputAmount,input.direction), forward=input.direction==='ZCASH_TO_BASE';
+    const {marketPricing:_serverOnly,...privateInput}=input;
+    const payload=this.privateData.seal({...privateInput,outputAmount:output,reference,settlementId,...(pricing?{priceMode:'market-reference',pricing:pricing.pricing}:{})},`quote:${id}:v1`);
+    if(market){
+      await this.db.query('SELECT zee.issue_market_quote($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)',[id,input.direction,input.inputAmount,input.payoutFee,input.refundFee,payload,this.privateData.lookup('reference',reference),this.privateData.lookup('receiver',input.depositReceiver),accessHash(token),settlementId,input.executionMode,input.baseContract,market.snapshot.snapshotId,Buffer.from(market.policySha256,'hex')]);
+      return {id,reference,accessToken:token,outputAmount:output,memo:makeMemo(reference)};
+    }
     await this.db.query(`WITH stamp AS MATERIALIZED (SELECT clock_timestamp() AS issued)
       INSERT INTO zee.quotes(id,direction,source_asset,destination_asset,input_amount,output_amount,
       payout_fee_asset,payout_fee,refund_fee_asset,refund_fee,private_payload,deposit_reference_hash,receiver_hash,access_hash,settlement_id,execution_mode,base_contract,created_at,expires_at)

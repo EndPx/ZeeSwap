@@ -2,7 +2,7 @@
 
 Responsive React/TypeScript/Vite frontend for the existing TAZ ↔ mockUSDC testnet
 API, alongside a separate TAZ ↔ zeeTAZ bridge mode. It uses original ZeeSwap
-artwork, local fonts, explicit fixture swap pricing and private order capabilities.
+artwork, local fonts, explicit server-declared swap pricing and private order capabilities.
 There is no seed import or analytics. Accepted swap escrow approval/funding and
 bridge burns request explicit confirmation from the user's injected wallet.
 
@@ -48,9 +48,36 @@ The optional same-numeric-input comparison uses conservative bid/ask arithmetic
 and is labelled **Market reference estimate — not your testnet payout**. It treats
 that number as real ZEC or USDC units solely for comparison. TAZ has no monetary
 value and mockUSDC is not USDC. Actual swap fixture output, server quote terms,
-payout accounting and the bridge's 1:1 principal are unchanged by market data.
+and the bridge's 1:1 principal retain their original meaning. The public reference
+endpoint cannot select settlement pricing or authorize a swap.
 No capability, receiver, refund address or other private order data is sent to the
 market endpoint or a third-party browser API.
+
+For new swaps, `GET /pricing` and version-two bounded availability explicitly
+declare whether the server has configured **market-reference settlement**.
+The browser has no environment flag that activates it. Without that declaration,
+legacy fixture behavior remains. Market preview uses the current conservative
+12-decimal bid or inverse ask, while the server independently issues and stores
+the actual price snapshot and exact output. Quotes send only direction, source
+amount, destinations and the reverse payer; browser prices are never submitted.
+
+The market order decoder verifies the canonical SHA256 snapshot payload, both raw
+Kraken source legs, rounded conservative ratio, decimal scaling, output bounds
+and exact payout. New quotes and acceptance require an unexpired snapshot of at
+most 30 seconds. Accepted history is checked at its recorded acceptance time;
+expiry, subsequent prices and provider outages do not reprice it. The private
+order view displays **Quote locked**, sampled time, expiry, conservative side,
+zero protocol fee and source-network fee responsibility. Repeated status reads
+also bind the original order amounts, pricing mode and snapshot digest in memory.
+
+Market-mode input defaults are 0.001 TAZ and 1 mockUSDC. Both source ranges remain
+100,000–10,000,000 atomic units. Destination constraints are 100,000–10,000,000
+mockUSDC units or 10,000–10,000,000 zatoshis; an unsupported result is rejected,
+never silently clipped. A small reverse amount such as 0.1 mockUSDC may fall below
+the native minimum at the current price. Old fixture orders/profiles and their
+fixed payout terms are preserved. New policy issuance, deployment, source/capital
+readiness and actual funded market-priced settlement remain operator acceptance
+steps, independent of these frontend implementation and mock-browser tests.
 
 Both swap directions use the quote/accept/status API. Reverse swap funding requires
 a configured escrow signer; otherwise `BASE_ESCROW_NOT_READY` closes that route.
@@ -79,7 +106,7 @@ Rust SDK remains authoritative for a decoded Orchard receiver.
 
 Bridge mode represents the same principal: ZeeSwap Bridged Testnet Zcash (zeeTAZ),
 eight decimals, one zatoshi per atomic unit, only on Base Sepolia. It is distinct
-from the fixture-priced mockUSDC swap. It reads `/v1/bridge/status` and fails closed
+from the mockUSDC swap. It reads `/v1/bridge/status` and fails closed
 for unavailable, malformed, paused, stale or deficient backing reports. Both chain
 observations must be at most 60 seconds old, with no future timestamp accepted.
 The UI independently adds all four liabilities and compares them with C + D using

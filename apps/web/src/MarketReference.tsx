@@ -4,7 +4,7 @@ import {marketEstimate,marketReferenceFresh,type MarketReference as Reference} f
 import {formatUnits,type Direction} from './protocol.ts';
 import {Icon} from './ui.tsx';
 
-export function MarketReference({api,amount,direction,visible}:{api:ZeeApi;amount:string;direction:Direction;visible:boolean}){
+export function MarketReference({api,amount,direction,visible,onReference,settlementMarket=false}:{api:ZeeApi;amount:string;direction:Direction;visible:boolean;onReference?:(reference:Reference|undefined)=>void;settlementMarket?:boolean}){
   const [reference,setReference]=useState<Reference>(),[checking,setChecking]=useState(true),[clock,setClock]=useState(Date.now());
   useEffect(()=>{
     if(!visible){setReference(undefined);return;}
@@ -22,10 +22,11 @@ export function MarketReference({api,amount,direction,visible}:{api:ZeeApi;amoun
     return()=>{disposed=true;clearTimers();request?.abort();document.removeEventListener('visibilitychange',visibility);};
   },[api,visible]);
   const fresh=marketReferenceFresh(reference,clock)&&marketReferenceFresh(reference)?reference:undefined;
+  useEffect(()=>{onReference?.(marketReferenceFresh(reference)?reference:undefined);},[reference,clock,onReference]);
   const estimate=fresh?marketEstimate(amount,direction,fresh):null,forward=direction==='ZCASH_TO_BASE';
   return <section className="market-reference" aria-labelledby="market-reference-title">
     <div className="market-reference-heading"><h3 id="market-reference-title">ZEC/USDC market reference</h3><span>Reference only</span></div>
     {fresh?<><p className="market-reference-rate">1 ZEC ≈ <strong>{formatUnits((BigInt(fresh.rate.mid.replace('.',''))).toString(),12)} USDC</strong></p><p className="market-reference-source">Kraken · Sampled <time dateTime={fresh.retrievedAt}>{new Date(fresh.retrievedAt).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</time></p>{estimate!==null&&<details className="market-reference-estimate"><summary>Market reference estimate — not your testnet payout</summary><output aria-label="Separate market reference estimate">{formatUnits(estimate,forward?6:8)} {forward?'USDC':'ZEC'}</output><p>For the same numeric input treated as {forward?'ZEC':'USDC'}; uses the conservative {forward?'bid':'ask'} side before fees.</p></details>}</>:<p className="market-reference-unavailable"><Icon name="info" size={15}/>{checking?'Checking reference…':'Unavailable'}</p>}
-    <p className="market-reference-disclaimer">Market data is for ZEC and USDC. TAZ has no monetary value; mockUSDC is not USDC. Your testnet quote and payout keep the fixture rate above.</p>
+    <p className="market-reference-disclaimer">Market data is for ZEC and USDC. TAZ has no monetary value; mockUSDC is not USDC. {settlementMarket?'Only the server quote fixes your testnet payout. This reference panel cannot authorize a swap.':'Your testnet quote and payout keep the fixture rate above.'}</p>
   </section>;
 }
