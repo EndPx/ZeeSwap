@@ -20,6 +20,11 @@ services:
     tmpfs:
       - /tmp:size=32m,uid=986,gid=978,mode=0700
     volumes:
+      # Native Rust RPC TLS uses the host's explicitly pinned public trust store.
+      - type: bind
+        source: /etc/ssl/certs/ca-certificates.crt
+        target: /etc/ssl/certs/ca-certificates.crt
+        read_only: true
       - type: bind
         source: /usr/bin/node
         target: /usr/bin/node

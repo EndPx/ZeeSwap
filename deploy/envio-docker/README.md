@@ -247,3 +247,25 @@ Only then may Root explicitly restore its retired startup triggers; never
 reenable them while the candidate can still run.
 Never restore an old checkpoint, delete retained history, run two writers,
 rewrite a generation, clear a latch automatically or apply a database reset.
+
+## Explicit event-first source mode
+
+Version2 uses the separate `ZEESWAP_EVENT_FIRST_ENVIO_SOURCE_DOCKER` scope and
+`compose.event-first.yaml` companion. It cannot be selected with a V1 descriptor.
+Its new projection must equal the actual five-source-file recipe; the old V1
+generation remains rejected by this mode. See the [event-first source rollout](../../docs/runbooks/envio-event-first-source.md)
+for restored-SDK proof, new views, immutable old profiles and phased reclamation.
+
+The new public project is mounted at the same in-container path, with the old
+SDK nested read-only. Only a new generated `.envio` cache and a new generated
+glue-file copy are writable. Production requires `ZEESWAP_EVENT_FIRST=true` and
+rejects rehearsal/max-block variables. Engine descriptors pin the host public
+CA bundle; its read-only mount and child `SSL_CERT_FILE` are required for native
+Rust HTTPS. Loading the native addon and testing Node roots alone do not prove
+that path. Verify actual native HTTPS before promoting a writer.
+
+V2 export runs its standalone versioned server and health reads the new SDK
+state view plus actual independent chain/M/head/finality. It does not call the
+old birthday-wide completeness query. Health remains source health, not app or
+financial readiness. Rebuild the immutable six-file image after these runtime
+changes; the earlier preparation image is not the V2 source image.

@@ -1,0 +1,28 @@
+# Explicit companion to compose.yaml. Root must select this file; v1 identity stays distinct.
+services:
+  engine:
+    volumes:
+      - type: bind
+        source: ${ENVIO_EVENT_FIRST_PUBLIC_PROJECT:?new qualified public project only}
+        target: /opt/zeeswap-testnet/state/envio-engine/project
+        read_only: true
+      - type: bind
+        source: /opt/zeeswap-testnet/state/envio-engine/project/node_modules
+        target: /opt/zeeswap-testnet/state/envio-engine/project/node_modules
+        read_only: true
+      - type: bind
+        source: ${ENVIO_EVENT_FIRST_GENERATED:?new isolated generated cache only}/.envio
+        target: /opt/zeeswap-testnet/state/envio-engine/project/.envio
+      - type: bind
+        source: ${ENVIO_EVENT_FIRST_GENERATED:?new isolated generated cache only}/envio-env.d.ts
+        target: /opt/zeeswap-testnet/state/envio-engine/project/envio-env.d.ts
+  export:
+    volumes:
+      - type: bind
+        source: ${ENVIO_EVENT_FIRST_PUBLIC_PROJECT:?new qualified public project only}
+        target: /opt/zeeswap-testnet/state/envio-engine/project
+        read_only: true
+      - type: bind
+        source: ${ENVIO_EXPORT_SECRET_STAGE:?exact export-only files stage required}/export-profile.private.json
+        target: /opt/zeeswap-testnet/secrets/envio-event-first-export-profile.private.json
+        read_only: true

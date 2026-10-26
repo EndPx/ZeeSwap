@@ -3,11 +3,11 @@ import {readFile,lstat,rename,open} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 import {pathToFileURL} from 'node:url';
 import {setTimeout as delay} from 'node:timers/promises';
-import {loadConfig,exportInputs,engineEnvironment,durable,need,ROOT,APP,API,PROJECT} from './config.mjs';
+import {loadConfig,exportInputs,nativeEngineEnvironment,eventFirst,durable,need,ROOT,APP,API,PROJECT} from './config.mjs';
 import {processIdentity} from './healthcheck.mjs';
-export function commandFor(component){
+export function commandFor(component,cfg){
  if(component==='engine')return{command:'/bin/bash',args:[APP+'/deploy/linux/envio/run-engine.sh'],cwd:PROJECT};
- need(component==='export','COMMAND_COMPONENT');return{command:'/usr/bin/node',args:['--import','tsx','scripts/envio-export-server.ts','/run/zeeswap-envio/export-profile.private.json'],cwd:API};
+ need(component==='export','COMMAND_COMPONENT');return{command:'/usr/bin/node',args:eventFirst(cfg)?['--import','tsx','scripts/envio-event-first-export-server.ts',ROOT+'/secrets/envio-event-first-export-profile.private.json']:['--import','tsx','scripts/envio-export-server.ts','/run/zeeswap-envio/export-profile.private.json'],cwd:API};
 }
 export async function groupExists(pid){try{process.kill(-pid,0);return true;}catch(e){if(e.code==='ESRCH')return false;throw e;}}
 /** Do not acknowledge cleanup until the entire original group is absent. Docker init reaps orphans. */
@@ -41,15 +41,15 @@ export async function main(component){
  if(await exists('/runstate/identity.private.json'))need(JSON.stringify(JSON.parse(await readFile('/runstate/identity.private.json','utf8')))===JSON.stringify(identity),'SUPERVISION_IDENTITY_CHANGED');else await durable('/runstate/identity.private.json',identity);
  if(await exists('/runstate/fatal.private.json')){await health({...identity,status:'FATAL_LATCHED',at:Date.now()});console.error('ENVIO_SOURCE_FATAL_LATCH_REQUIRES_ROOT_REVIEW');await hold();return;}
  const input=await exportInputs(cfg),env={HOME:'/tmp',PATH:'/usr/bin:/bin',NODE_ENV:'production'};
- if(component==='engine')Object.assign(env,engineEnvironment(await readFile(cfg.engineEnvironment.path,'utf8')));
- else Object.assign(env,{NODE_OPTIONS:'--max-old-space-size=192',[input.profile.databaseUrlEnv]:input.credential.databaseUrl,[input.profile.tokenEnv]:input.token});
+ if(component==='engine')Object.assign(env,nativeEngineEnvironment(await readFile(cfg.engineEnvironment.path,'utf8'),cfg.systemCa,cfg));
+ else Object.assign(env,{NODE_OPTIONS:'--max-old-space-size=192',[input.profile.databaseUrlEnv]:input.credential.databaseUrl,[input.profile.tokenEnv]:input.token,...(eventFirst(cfg)?{ZEESWAP_EVENT_FIRST_EXPORT_PROFILE_SHA256:cfg.exportProfile.sha256}:{})});
  if(component==='engine'){
   // The exact existing systemd ExecStartPre, followed by the exact existing engine launcher.
   await new Promise((resolve,reject)=>{const c=spawn('/usr/bin/sha256sum',['--check','--status',ROOT+'/secrets/envio-sdk-runtime.sha256'],{env,stdio:'ignore'});c.once('error',reject);c.once('exit',code=>code===0?resolve():reject(Error('SDK_CHECKSUM_FAILED')));});
  }
  let timer,fatalRaised=false;
  const fatal=async code=>{fatalRaised=true;clearInterval(timer);if(!await exists('/runstate/fatal.private.json'))await durable('/runstate/fatal.private.json',{...identity,status:'FATAL_SOURCE_RUNTIME_REVIEW',code,at:new Date().toISOString(),automaticRetry:false,financialAction:false});await health({...identity,status:'FATAL_LATCHED',at:Date.now()});};
- const result=await superviseChild({...commandFor(component),env},{onSpawn:async pid=>{const proc=await processIdentity(pid);need(proc.group===pid,'CHILD_GROUP');const write=()=>health({...identity,status:'CHILD_RUNNING',pid,start:proc.start,at:Date.now()});await write();let writing=false;timer=setInterval(()=>{if(writing)return;writing=true;write().catch(async()=>{try{await fatal('HEALTH_STATE_FAILED');}finally{process.kill(process.pid,'SIGTERM');}}).catch(()=>{}).finally(()=>{writing=false;});},5000);},onFatal:fatal});
+ const result=await superviseChild({...commandFor(component,cfg),env},{onSpawn:async pid=>{const proc=await processIdentity(pid);need(proc.group===pid,'CHILD_GROUP');const write=()=>health({...identity,status:'CHILD_RUNNING',pid,start:proc.start,at:Date.now()});await write();let writing=false;timer=setInterval(()=>{if(writing)return;writing=true;write().catch(async()=>{try{await fatal('HEALTH_STATE_FAILED');}finally{process.kill(process.pid,'SIGTERM');}}).catch(()=>{}).finally(()=>{writing=false;});},5000);},onFatal:fatal});
  clearInterval(timer);
  if(result.stopped&&(!fatalRaised||await exists('/runstate/fatal.private.json'))){await health({...identity,status:'STOPPED',at:Date.now()});return;}
  // Remain unhealthy rather than allowing restart-unless-stopped to make an epoch/error storm.

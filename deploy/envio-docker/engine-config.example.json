@@ -9,6 +9,7 @@
   "generation": "envio314-91dad6a1a769d95f7ccfa828-preintake-20261023T113615131Z",
   "projectionDigest": "91dad6a1a769d95f7ccfa8286e5bf2d55bf01225e1e86f9adbf9f2bcc1662e27",
   "nodeSha256": "e237a2839d0cbdc9a9a2adda1a184afc0f5b20306ffbe923af5686550472d8a8",
+  "systemCa": {"path":"/etc/ssl/certs/ca-certificates.crt","sha256":"ROOT_HOST_PUBLIC_SYSTEM_CA_SHA256"},
   "publicPins": [
     {
       "path": "/opt/zeeswap-testnet/current/app/deploy/linux/envio/run-engine.sh",

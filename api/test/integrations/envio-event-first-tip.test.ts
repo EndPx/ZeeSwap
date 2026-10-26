@@ -1,0 +1,5 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {writeEventFirstTip,EVENT_FIRST_TIP_ID} from '../../../indexers/envio/src/event-first-tip.ts';
+test('preload never calls the processor clock or mutates the entity',()=>{writeEventFirstTip({number:50328503},{isPreload:true,BlockVisit:{set(){assert.fail('preload write');}}},()=>{assert.fail('preload clock');});});
+test('many real processed blocks overwrite one stable entity without an RPC dependency',()=>{const rows=new Map<string,any>();for(let n=50328503;n<50328603;n++)writeEventFirstTip({number:n},{isPreload:false,BlockVisit:{set(v){rows.set(v.id,v);}}},()=>new Date(1700000000000+n).toISOString());assert.equal(rows.size,1);const row=rows.get(EVENT_FIRST_TIP_ID);assert.equal(row.blockNumber,50328602);assert.equal(row.coverageComplete,false);assert.equal(row.headerJson,undefined);assert.equal(row.sourceHeadJson,undefined);});
+test('rehearsal hard block limit refuses before any mutation',()=>{let writes=0;const c={isPreload:false,BlockVisit:{set(){writes++;}}};assert.throws(()=>writeEventFirstTip({number:50328603},c,undefined,50328602),/REHEARSAL_BLOCK_LIMIT/);assert.equal(writes,0);});

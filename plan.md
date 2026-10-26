@@ -911,3 +911,48 @@ Sources establish documented behavior, not our implementation readiness. Recheck
 - [Neon connection pooling](https://neon.com/docs/connect/connection-pooling) — transaction-pool/session boundaries.
 - [Kraken asset-pair discovery](https://docs.kraken.com/api-reference/market-data/get-tradable-asset-pairs) and [ticker API](https://docs.kraken.com/api-reference/market-data/get-ticker-information) — candidate public reference pricing; local TLS probe failed.
 - [CRE confidentiality boundary](https://docs.chain.link/cre/concepts/confidential-workflows#confidentiality-boundary) — any later integration must demonstrate an actual confidentiality/verification benefit.
+
+
+### 26 October — bounded Envio storage incident and event-first correction
+
+- Root observed the append-only per-block BlockVisit entity dominating source
+  storage (~701–702 MB, ~98% of the source DB, ~10 MiB/hour). The existing V1
+  completeness view requires all birthday-to-progress visits; deleting old rows
+  would break that contract. The 84% alert meter scope remains unreconciled with
+  the separately measured branch percentage; no time-to-full claim is made.
+- Root paused only the Envio engine at 04:06:11 UTC, preserving SDK progress
+  50328502 / checkpoint 1199852 and every row. Export remained active but its
+  original source clock can become stale. The Native app observer's earlier
+  failure is separate and is not resumed in this scope. Financial gates remain.
+- Complete PG18 backup/restore verification passed all 48 table logical digests
+  and row counts, including 1,199,852 BlockVisit rows. Backup size was 69,251,708
+  bytes. No original data deletion or quota-space reclamation has occurred.
+- Approved implementation direction: retain Envio 3.14.0, exact schema and
+  handler name; use one constant processor-tip entity without per-block RPC.
+  Introduce separately versioned SDK-MVCC plus exact canonical-header/getLogs
+  range proofs, real processor/RPC clocks, a new projection/generation and
+  explicit metadata-only source cutover. No silent old profile/journal reset.
+  Ponder migration is deferred while this narrow storage-model fix is verified.
+- First local model/cutover slice: 14 tests passed / zero skipped and API
+  typechecking passed. Restored-SDK resume, actual undo/physical storage bounds,
+  exporter/normal-consumer wiring, source qualification and Root live cutover
+  remain open. Reclamation requires a separate reviewed operator step after
+  backup/undo-horizon proof; no delete or paid upgrade is inferred.
+- Evidence: [event-first storage correction](docs/evidence/envio-event-first-storage-fix.md).
+- Subsequent local source/runtime/selector and existing normal-admission checks
+  passed 42 tests with zero skips plus API typechecking. Root's full restored
+  SDK rehearsal resumed the original checkpoint and reached 50346347 with one
+  processor tip, all legacy base rows retained, undo floor 50346144 and zero
+  numeric undo/history rows. Deliberate rehearsal bounds stopped the test runs;
+  these are fixture results, not production reclamation. The separate V2 source
+  Docker mode retains old V1 guards, pins actual producer-code identity and host
+  CA trust, and still requires final operator qualification. The application
+  stays paused; its large contiguous recovery and financial launch are separate.
+- Root's final actual Linux Docker checks passed 18/18 without skips. The
+  restored-source HTTP fixture passed all ten role/auth/range/event/concurrency/
+  cleanup checks plus independent RPC verification; its earlier refused attempt
+  remains archived with cause unproven. The isolated PostgreSQL reclaim fixture
+  passed 6/6. Controlled storage rollback followed by actual SDK follow preserved
+  event/legacy fingerprints without numeric-row resurrection; this is not a full
+  natural IndexerState reorg simulation. Production source resumption, measured
+  physical reclamation and application recovery remain open.

@@ -7,6 +7,8 @@ import {fetchEnvioExport} from './envio.ts';
 import {readJson,safeEndpoint,type CanonicalReader} from './chef.ts';
 import {fresh,requireThat,stable,type Policy,type ReplaceRange} from './types.ts';
 import{requiredEnvioAnchors}from'./envio-required-anchors.ts';
+import {validateEventFirstState,type EventFirstReader} from './envio-event-first.ts';
+import {fetchEventFirstReplacement} from './envio-event-first-consumer.ts';
 
 /** New testnet app observer only. Source events are hints for the original
  * finalized receipt verifier; this module cannot sign or dispatch payments. */
@@ -29,20 +31,22 @@ export function replaceEnvioFundingHints(previous:FundingHint[],batch:ReplaceRan
   pending.set(`${orderId}:${event.txHash}`,{orderId,txHash:event.txHash as `0x${string}`,height:event.block.height,blockHash:event.block.hash});}
  requireThat(pending.size<=500,'FUNDING_HINT_LIMIT');return{pending,unknownEvents};
 }
-export async function observeEnvioOnce(pool:pg.Pool,keys:PrivateData,base:BaseContract,config:{url:string;token:string;policy:Policy;canonical:CanonicalReader;hints:FundingHintJournal;verificationSourceId?:string}) {
+export async function observeEnvioOnce(pool:pg.Pool,keys:PrivateData,base:BaseContract,config:{url:string;token:string;policy:Policy;canonical:CanonicalReader;hints:FundingHintJournal;verificationSourceId?:string;eventFirst?:{generation:string;reader:EventFirstReader}}) {
  requireThat(base.registry.chainId===84532&&config.policy.network==='eip155:84532'
   &&config.policy.contract===base.registry.contracts.ZeeSwapSettlement.address.toLowerCase()
   &&config.policy.token===base.registry.contracts.MockUSDC.address.toLowerCase(),'LIVE_BASE_PROFILE_MISMATCH');
  const signal=AbortSignal.timeout(30000),endpoint=safeEndpoint(config.url);
- const response=await fetch(new URL('/zee-observation/status',endpoint),{headers:{authorization:`Bearer ${config.token}`},signal,redirect:'error'});
+ const response=await fetch(new URL(config.eventFirst?'/zee-observation/event-first/status':'/zee-observation/status',endpoint),{headers:{authorization:`Bearer ${config.token}`},signal,redirect:'error'});
  requireThat(response.ok,'WAIT_ENVIO_EXPORT');
- const status=await readJson(response,signal) as {protocol?:unknown;checkpoint?:{through?:{height?:unknown};complete?:unknown;sourceSampledAt?:unknown}};
- requireThat(status.protocol==='zee-envio-status-v1'&&status.checkpoint?.complete===true&&Number.isSafeInteger(status.checkpoint.through?.height),'COHERENT_CHECKPOINT_REQUIRED');
+ const status=await readJson(response,signal) as {protocol?:unknown;state?:unknown;checkpoint?:{through?:{height?:unknown};complete?:unknown;sourceSampledAt?:unknown}};
+ let producerThrough:number;
+ if(config.eventFirst){requireThat(status.protocol==='zee-envio-event-first-status-v1','EVENT_FIRST_STATUS_PROTOCOL');producerThrough=validateEventFirstState(status.state,config.policy,config.eventFirst.generation).progress.height;}
+ else{requireThat(status.protocol==='zee-envio-status-v1'&&status.checkpoint?.complete===true&&Number.isSafeInteger(status.checkpoint.through?.height),'COHERENT_CHECKPOINT_REQUIRED');producerThrough=Number(status.checkpoint.through!.height);}
  const admission=await config.hints.load();
  const previous=(await pool.query("SELECT scanned_height::text FROM zee.scanner_checkpoints WHERE network='base-sepolia'")).rows[0];
  const accepted=Number((await pool.query('SELECT count(*)::text AS count FROM zee.orders')).rows[0]?.count);
- const from=envioAdmissionFrom(config.policy,Number(status.checkpoint.through!.height),previous?Number(previous.scanned_height):undefined,admission,accepted);
- const batch=await fetchEnvioExport(config.url,config.token,from,config.policy,config.canonical,Date.now(),fetch,config.verificationSourceId);
+ const from=envioAdmissionFrom(config.policy,producerThrough,previous?Number(previous.scanned_height):undefined,admission,accepted);
+ const batch=config.eventFirst?await fetchEventFirstReplacement(config.url,config.token,from,producerThrough,config.policy,config.eventFirst.generation,config.eventFirst.reader,signal):await fetchEnvioExport(config.url,config.token,from,config.policy,config.canonical,Date.now(),fetch,config.verificationSourceId);
  fresh(batch.coverage.sourceSampledAt,Date.now());
  requireThat(batch.coverage.sourceHead.height-batch.coverage.through.height<=40,'WAIT_ENVIO_BEHIND_HEAD');
  const sample=await config.canonical.sample(signal);
