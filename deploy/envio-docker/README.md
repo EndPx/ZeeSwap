@@ -241,16 +241,21 @@ absence and then lets Root restore the host startup conditions.
 
 If startup or progress fails, stop the candidate explicitly and prove its whole
 process group/container and database sessions/locks absent. Preserve fault
-latches, logs and any newly committed source checkpoint. Root may then resume
-the original host command against the **current persisted** database state.
+latches, logs and any newly committed source checkpoint. Before an event-first
+cutover/reclamation, Root may then resume the original qualified V1 host command
+against the **current persisted** database state. After reclamation, keep the
+qualified event-first producer; do not automatically restore the old numeric-
+visit handler or its source mode.
 Only then may Root explicitly restore its retired startup triggers; never
 reenable them while the candidate can still run.
-Never restore an old checkpoint, delete retained history, run two writers,
+Never restore an old checkpoint, delete SDK undo/event/financial history, run two writers,
 rewrite a generation, clear a latch automatically or apply a database reset.
+The separately authorized legacy-visit compaction is described in the evidence;
+it is not a generic retained-history deletion permission.
 
 ## Explicit event-first source mode
 
-Version2 uses the separate `ZEESWAP_EVENT_FIRST_ENVIO_SOURCE_DOCKER` scope and
+Version 2 uses the separate `ZEESWAP_EVENT_FIRST_ENVIO_SOURCE_DOCKER` scope and
 `compose.event-first.yaml` companion. It cannot be selected with a V1 descriptor.
 Its new projection must equal the actual five-source-file recipe; the old V1
 generation remains rejected by this mode. See the [event-first source rollout](../../docs/runbooks/envio-event-first-source.md)
@@ -269,3 +274,26 @@ state view plus actual independent chain/M/head/finality. It does not call the
 old birthday-wide completeness query. Health remains source health, not app or
 financial readiness. Rebuild the immutable six-file image after these runtime
 changes; the earlier preparation image is not the V2 source image.
+
+The bounded source-storage maintenance has now completed with final image
+`sha256:a13db137077e124c32fe4a31f322f8f477aecd54c95fc7fe61309bffb5b0cfd6`.
+Root verified original-state resume, current HTTP exports plus independent RPC,
+the fresh full backup/48-table restore, exact legacy-leaf deletion, separate
+physical compaction and post-cleanup follow without numeric resurrection. Both
+source services are healthy/running with `unless-stopped`; old host units remain
+disabled and condition-blocked, failed old containers remain off with restart
+policy `no`, and test Postgres containers are off. This was VPS-only execution.
+
+The engine preserves its original absent `NODE_ENV`; only export uses production
+mode. Fatal and startup-failure holds now retain a referenced idle handle until
+an explicit signal, without retrying a child or refreshing source health. The
+first failed attempt remains preserved; no actual restart storm is claimed.
+Actual Linux checks passed 22/22 with zero skips. See the
+[completed evidence](../../docs/evidence/envio-event-first-storage-fix.md) for
+observed versus measured figures and the retained first-read refusal.
+
+PostgreSQL showed actual reclaimed physical space. Neon control-plane size and
+the original 84% meter were not proven refreshed, and no PITR/history reduction
+is claimed. Application source-identity cutover, large contiguous recovery, UI
+readiness and financial activation remain open; source health is not global app
+readiness. No laptop Docker, paid upgrade or other-branch deletion was used.

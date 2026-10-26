@@ -1,131 +1,161 @@
-# Event-first Envio storage correction — implementation in progress
+# Event-first Envio storage correction — completed source milestone
 
-The storage alert exposed an application design problem: the V1 handler writes
-one `BlockVisit` entity per Base block, including empty blocks, with two header
-JSON values and a timestamp. The ordinary entity table is not pruned by SDK
-rollback-history pruning. Root observed approximately 701–702 MB in that
-relation, about 98% of the source database, and roughly 10 MiB/hour growth.
-Chef was approximately 8.3 MiB. The alert's 84% meter and the separately observed
-branch logical percentage have not been reconciled; no exhaustion time is claimed.
+The bounded source-storage correction is complete: the original Envio source
+resumed without reset, legacy per-block rows were removed after verified backups
+and undo-horizon checks, physical space was reclaimed, and the corrected Docker
+engine/export services are following with healthy status. Application source
+identity cutover, its large contiguous recovery, UI readiness and financial
+activation remain separate open work. Source health does not establish app or
+financial readiness.
 
-Root paused only the original Envio engine at 04:06:11 UTC, preserving progress
-50328502 / checkpoint ID 1199852 and all source rows. Export stayed available;
-stale source timestamps remain stale. The Native application observer had failed
-hours earlier and was not stopped by this action. No financial readiness or
-source freshness is inferred from export process uptime.
+The incident came from the V1 handler persisting one `BlockVisit` entity for every
+Base block, including empty blocks, with duplicated header JSON. SDK undo-history
+pruning did not prune that ordinary entity table. Initial observations put the
+relation at approximately 701–702 MB, about 98% of the source database, with roughly
+10 MiB/hour growth. Chef was approximately 8.3 MiB. Root paused the old engine at
+04:06:11 UTC, preserving progress 50328502 / checkpoint 1199852. The Native app
+observer had failed earlier; that failure was not caused or repaired by this
+source operation.
 
-Root created a complete PostgreSQL 18 backup (69,251,708 bytes), restored it in
-an isolated VPS PostgreSQL 18.6 fixture, and verified all 48 table row counts and
-logical digests. The restored BlockVisit partition has 1,199,852 rows. The
-backup/verification artifacts are private. Original Neon data has not been
-deleted and no quota relief is claimed from copying a backup.
+## Storage and proof contract
 
-The chosen correction retains Envio 3.14.0 and the exact entity schema and
-handler registration name. A separate producer version writes only one stable
-`84532:source-tip` entity, using the existing BlockVisit shape for SDK resume
-compatibility. Its legacy `coverageComplete` is false, header fields are empty,
-and its timestamp is explicitly a real non-preload **processor** observation.
-It makes no per-block external header request. Original numeric rows initially
-remain untouched. This stops base-entity growth by elapsed blocks; event rows
-still grow with actual selected contract events. Actual undo-history pruning,
-WAL/heap behavior and SDK resume must be measured in the restored fixture before
-claiming bounded physical storage.
+The correction retains Envio 3.14.0, the exact entity schema and handler name.
+The new producer overwrites the single `84532:source-tip` row using the existing
+BlockVisit shape. Its old `coverageComplete` field is false, both header JSON
+fields are null, and its timestamp is an actual non-preload processor observation.
+There is no external header RPC per processed block. Selected event rows still
+grow with actual contract events; this is not a promise of zero future storage
+growth or constant WAL/undo usage.
 
-The V2 export contract is separate. It captures SDK progress, its exact retained
-checkpoint ID/chain/height/hash, the processor tip and selected event rows in one
-read-only MVCC snapshot. It enriches every bounded requested header from the
-canonical reader and compares every selected SDK event against actual
-`eth_getLogs`, including address, block/transaction/log position, hashes,
-topics/data and removed status. Empty ranges are complete only after that exact
-comparison. A pure structural parser is not an RPC attestation; qualification
-and consumers must use independent asynchronous IO verification.
+The separately versioned exporter captures SDK progress, its exact native
+checkpoint ID/chain/height/hash, the processor tip and selected events in one
+read-only MVCC snapshot. It obtains every requested header from canonical RPC
+and compares SDK events with actual `eth_getLogs`: address, block/transaction/log
+positions, hashes, topics/data and removed status. Supported optional provider
+seconds/milliseconds fields must match the independently checked header second;
+unknown extras refuse. A structural JSON parser is not an RPC attestation, so
+consumers and qualification repeat the asynchronous RPC checks.
 
-Processor time and actual RPC sample time are distinct fields. Effective source
-freshness uses their minimum, so a fresh RPC cannot renew a dead processor. The
-real SDK undo floor remains explicit. Forward SDK progress during a bounded
-read is allowed only with canonical captured-tip/end fences; rollback/fork,
-stale/future clocks, missing/extra/duplicate/removed logs and deadlines refuse.
-There is no `generate_series` from birthday and no false global `complete=true`
-derived solely from a height counter.
+Processor time and actual RPC sample time remain separate. Their minimum governs
+freshness; fresh RPC cannot renew a dead processor. The actual SDK undo floor is
+retained. Forward SDK progress during a read is allowed with canonical fences;
+rollback/fork, stale/future clocks, log omissions/extras/duplicates/removals and
+deadline violations refuse. The per-HTTP maximum is 64 blocks, preserving the
+40-block lag and 30-second read bounds rather than advertising an unworkable 256
+headers at 24 methods/second. These are bounds, not a provider latency guarantee.
+There is no birthday-wide `generate_series` completeness scan in V2 and no
+complete certificate inferred from a height alone.
 
-Handler/helper changes require a new code-bound projection digest and source
-generation. Old profiles, HMAC admission bytes, source proofs and financial
-history remain immutable. A separate Root metadata-only cutover binds old and
-new identities, verifies the previous checkpoint overlap and all financial
-anchors, and changes only the admission generation/projection after the new
-source is qualified. It does not advance the application SQL checkpoint or
-enable intake, dispatch or signing.
+The projection/generation is explicitly new and derived from actual producer
+file bytes. Old profiles, HMAC admission bytes, bootstrap receipts and financial
+history were preserved. The two new source views committed with original view
+definitions and all 48 table counts unchanged at that step. They were not rerun
+to fix subsequent runtime errors. App adoption requires its own explicit FILE
+cutover and contiguous recovery; no app checkpoint advance was inferred from
+source qualification. Switching to Ponder was deferred because correcting this
+storage/proof model avoided an additional framework migration; this is not a
+claim that Ponder lacks suitable retention features.
 
-Switching frameworks is deferred: changing to Ponder would still require a
-correct storage model, event-completeness protocol and explicit identity
-cutover, while introducing a new runtime migration. This is an implementation
-choice for the current incident, not a claim that Ponder lacks appropriate
-retention features.
+## Verification and corrected runtime
 
-The first local model/cutover run passed 14 tests with zero skips and API
-typechecking. The subsequent focused source/runtime/consumer/selector plus old
-normal-admission regression run passed 42 tests with zero skips and API
-typechecking. It includes malformed/omitted/extra raw logs, separate clocks,
-SDK rollback/forward progress, deadline/abort, invented head/finality, forged
-self-consistent empty packets, and a real loopback HTTP fixture with a fake
-read-only SQL boundary. Mock/local tests are not live source proof.
+Local source/model/consumer/selector and existing admission regressions passed
+42 tests with zero skips plus API typechecking. The isolated PostgreSQL reclaim
+fixture passed 6/6. Actual restored-SDK resume, pruning and follow after controlled
+storage rollback preserved event/legacy fingerprints with no numeric-row
+resurrection. That is not a full natural reorg driven through IndexerState.
+The restored HTTP fixture passed all ten actual role/auth/range/event/concurrency/
+cleanup checks plus independent RPC verification. Its earlier refused attempt
+was retained with cause unproven; the later pass does not reclassify it.
 
-Root's actual PublicNode log shape included two optional hexadecimal timestamp
-fields. The parser now validates those against the independently read header
-before normalizing the nine exact core log fields; unknown extras still refuse.
-The per-HTTP range is explicitly 64 blocks, rather than advertising 256 while a
-captured tip could age beyond the unchanged 40-block lag bound during its own
-header reads. Source timestamps and lag/deadline guards were not widened.
+Rehearsals identified the installed SDK's SSL literal (`false`, not `disable`),
+automatic declaration generation requiring isolated generated-output writes, and
+native Rust HTTPS requiring the pinned host CA bundle. Verification was never
+disabled. The first production-source attempt then exposed two wrapper defects:
+injecting `NODE_ENV=production` into the engine suppressed SDK environment defaults,
+and a signal-only fatal promise did not keep Node's event loop alive. The failed
+container and fatal state were retained. Independent readback confirmed progress
+50328502/checkpoint1199852, no tip, 1,199,852 legacy rows and 2 selected events: the
+failed attempt did not advance source rows. No actual restart storm is claimed.
 
-Root's restored-database rehearsal exposed three concrete startup issues before
-progress: the installed SDK accepts SSL mode `false`, not `disable`; `envio
-start` automatically refreshes declarations and needs isolated generated-output
-writes; and the slim image's Node roots/native-addon load did not establish
-native Rust HTTPS trust. The revised rehearsal uses the pinned host public CA
-bundle without disabling TLS. R4 explicitly resumed 50328502 and committed
-50328606 with one constant tip before its deliberate block bound. R5 reached
-50346347/checkpoint1217697, retained exactly one tip and all 1,199,852 legacy base
-rows, and reported undo floor 50346144 with zero numeric undo/history rows. Its
-later block-limit refusal was an intentional bounded stop. These are restored
-fixture results, not production deletion or source cutover.
+The engine now preserves its original absent `NODE_ENV`; only export selects
+production mode. No SDK patch or fabricated Hasura credentials/defaults were
+added. An installed-SDK Env.res import fixture reproduced the environment issue
+with fake DB fields and no Main/DB-client import. The fatal hold now has a
+referenced idle handle, cleared with both signal listeners on TERM/INT. It never
+retries a child or renews source health. Root's final Linux suite passed 22/22,
+zero skipped, including actual exit→latch→drain→idle hold→TERM and real CLI
+startup-refusal→idle hold→INT cases. Peer review cleared the correction.
 
-Root's actual restored-fixture IO calls also verified a selected one-event
-range (4,550ms), an empty range (4,223ms) and a64-header range (producer4,681ms;
-producer plus independent verification9,454ms). These are bounded observations,
-not a provider latency guarantee or an application catchup run. A first actual
-HTTP fixture reached LISTENING (including its real read-only role checks) but
-later refused; it produced no passing fixture proof and its cause remains
-unproven. The separate R2 actual HTTP fixture then passed all ten checks:
-the actual main's read-only role gate, authenticated access/401 refusal, old
-route404,65-block refusal, one-event and empty ranges,64 headers, independent
-RPC verification, status200 during an export, second-export503 and owned child
-cleanup. Root verified the unit/container exited successfully with PID0 and no
-restart. The failed R1 artifact remains preserved; the successful R2 does not
-retroactively classify its cause.
+Final image: `sha256:a13db137077e124c32fe4a31f322f8f477aecd54c95fc7fe61309bffb5b0cfd6`.
+Runtime raw SHA256: `6a6538e5732055167ddb84a1dccc944b49a13430ca3d467de6bf81a993ae8963`.
+The source uses an explicit V2 descriptor/command/health branch; V1 guards remain
+separate. Only new generated declarations/cache are writable, with public code,
+SDK and CA mounts read-only. No laptop Docker or production Postgres/Hasura
+container was introduced; the source continues using the existing Neon DB.
 
-Root's isolated PostgreSQL reclaim fixture passed6 tests with zero skips. The
-restored SDK also passed follow after its controlled storage rollback: original
-event and numeric-legacy fingerprints stayed unchanged, numeric undo remained
-absent, and no numeric visits resurrected. This is actual restored-SDK follow
-proof, not a full natural reorg driven through IndexerState. The follow and HTTP
-fixture processes were stopped and their closure checked by Root. Neither proof
-is production deletion or a claim of reclaimed Neon space.
+## Actual original-source maintenance
 
-The actual event-first exporter/profile/RPC/store, explicit consumer selector
-and separate Docker version-2 descriptor/command/health branch are implemented
-and peer reviewed. Root ran the final Docker suite on Linux:18 passed with zero
-skips, including the real process-group fixtures and V1 wrong-mode rejection.
-Root built the revised immutable source image
-`sha256:3f982c009cf01815bc2739766b3422ba24f1fda9536886bee43df678a7d543a4`;
-building it is not source promotion. Old V1 identity guards remain distinct.
-Production source qualification, actual space
-reclamation and application recovery remain open. No original source row removal,
-Neon mutation, paid upgrade or live deployment was performed by the implementing
-agent. See the [source rollout runbook](../runbooks/envio-event-first-source.md).
+The corrected source resumed 50328502 without reset. Before cleanup, actual HTTP
+plus independent RPC verified one selected event on the second read (4,832 ms);
+the first read refused `EVENT_FIRST_INDEPENDENT_SOURCE` after 2,912 ms and remains
+part of the record. Empty-range verification passed with 0 events (4,746 ms), and
+64 headers passed on the first read (9,700 ms). These bounded observations are not
+a performance guarantee. Source qualification reached 50388531 with undo floor
+50388332, 1,199,852 legacy visits, one tip, zero numeric undo rows and 2 events.
 
-After verified SDK resume and V2 qualification, physical reclamation is a
-separate Root-reviewed operation. It requires the complete verified archive,
-actual SDK undo horizon beyond the handoff, stopped writer and positive backend
-absence, preservation of events/checkpoints/metadata/financial anchors, and
-before/after integrity proof. No delete/reset/compaction command is authorized
-or embedded in this implementation.
+Root then stopped all source writers and created a fresh full PostgreSQL 18
+backup: 77,090,142 bytes, SHA256
+`1b020cfa7d65b032f316bcf6b604cff2be9942a066d72651eaec44ce02cb717e`.
+Its actual isolated PostgreSQL 18 restore matched all 48 row counts and logical
+digests. This was additional to the original 69,251,708-byte pre-change backup
+and its 48-table verified restore. Backup files and raw operator receipts remain
+private; copying a backup alone was never counted as reclaimed space.
+
+Before cleanup, independent application readback matched frozen control
+E220 / xmin 617365, 70 financial rows with unchanged ledger digest (prefix `b107`),
+zero authorization rows, unchanged admission bytes, SQL Base checkpoint 50174047
+and all 269 retained Base rows. These facts were rechecked around maintenance;
+the source operation did not authorize a financial control change.
+
+The exact `BlockVisit$84532` leaf DELETE removed 1,199,852 legacy numeric visits and
+was classified committed using the original transaction. Only that leaf and its
+derived parent logical digest changed; the other 46 tables matched exactly.
+The one tip, selected events, SDK checkpoints/metadata and application history
+were preserved. A separate VACUUM FULL preserved the post-delete logical state
+and reclaimed physical storage:
+
+| Measurement | Observed bytes |
+|---|---:|
+| Source DB before the first source advancement |718,249,984|
+| Source leaf at cleanup inspection |704,266,240|
+| Source leaf before VACUUM FULL, after autovacuum activity |625,434,624|
+| Source leaf after VACUUM FULL |32,768|
+| Source DB after reclamation |17,432,576|
+| Source DB after actual SDK restart/follow |18,284,544|
+
+The actual post-cleanup SDK resumed the exact persisted height 50389387 and
+followed to 50398531 (+9144), with one visit, zero numeric visits, zero numeric undo
+rows and 2 events. No legacy numeric rows resurrected. Actual HTTP plus independent
+RPC again verified the one-event range (4,729 ms) and empty range (4,801 ms), both on the
+first read.
+
+Both source containers were running and healthy when Root restored their
+`unless-stopped` policies. Old host units remain disabled and condition-blocked;
+old failed containers remain stopped with restart policy `no`. All test Postgres
+containers are off. This is observed source follow and measured reclamation,
+not a crash/reboot test or global app readiness. No paid upgrade, other-branch
+deletion, app-consumer activation, financial execution or G5 restart occurred.
+
+## Measurement limits and remaining work
+
+PostgreSQL's measured DB/relation reduction above is actual. Neon control-plane
+`logical_size` still reported 770,416,640 bytes after compaction. Its 84% alert
+meter/quota scope was not reconciled with these PostgreSQL measurements. No claim
+is made that the alert percentage dropped, that current quota utilization was
+refreshed, or that PITR/history storage decreased. No exhaustion forecast is made.
+
+The bounded source-storage milestone is complete. App source-identity adoption,
+large contiguous recovery, UI readiness and financial activation remain open.
+The [rollout runbook](../runbooks/envio-event-first-source.md) keeps their distinct
+gates. Operator actions were performed by Root; the implementing agent made no
+live database, Docker or service changes.

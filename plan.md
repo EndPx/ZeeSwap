@@ -913,46 +913,59 @@ Sources establish documented behavior, not our implementation readiness. Recheck
 - [CRE confidentiality boundary](https://docs.chain.link/cre/concepts/confidential-workflows#confidentiality-boundary) — any later integration must demonstrate an actual confidentiality/verification benefit.
 
 
-### 26 October — bounded Envio storage incident and event-first correction
+### 26 October - source storage corrected; application recovery remains open
 
-- Root observed the append-only per-block BlockVisit entity dominating source
-  storage (~701–702 MB, ~98% of the source DB, ~10 MiB/hour). The existing V1
-  completeness view requires all birthday-to-progress visits; deleting old rows
-  would break that contract. The 84% alert meter scope remains unreconciled with
-  the separately measured branch percentage; no time-to-full claim is made.
-- Root paused only the Envio engine at 04:06:11 UTC, preserving SDK progress
-  50328502 / checkpoint 1199852 and every row. Export remained active but its
-  original source clock can become stale. The Native app observer's earlier
-  failure is separate and is not resumed in this scope. Financial gates remain.
-- Complete PG18 backup/restore verification passed all 48 table logical digests
-  and row counts, including 1,199,852 BlockVisit rows. Backup size was 69,251,708
-  bytes. No original data deletion or quota-space reclamation has occurred.
-- Approved implementation direction: retain Envio 3.14.0, exact schema and
-  handler name; use one constant processor-tip entity without per-block RPC.
-  Introduce separately versioned SDK-MVCC plus exact canonical-header/getLogs
-  range proofs, real processor/RPC clocks, a new projection/generation and
-  explicit metadata-only source cutover. No silent old profile/journal reset.
-  Ponder migration is deferred while this narrow storage-model fix is verified.
-- First local model/cutover slice: 14 tests passed / zero skipped and API
-  typechecking passed. Restored-SDK resume, actual undo/physical storage bounds,
-  exporter/normal-consumer wiring, source qualification and Root live cutover
-  remain open. Reclamation requires a separate reviewed operator step after
-  backup/undo-horizon proof; no delete or paid upgrade is inferred.
+- Root identified unbounded per-block BlockVisit persistence as the dominant
+  source-storage growth. V1 completeness required those rows, so no blind delete
+  or framework swap was used. Root paused the original engine at 04:06:11 UTC
+  while preserving progress 50328502 / checkpoint 1199852. The earlier Native
+  app-observer failure was separate and was not repaired in this scope.
+- The implemented correction retains Envio 3.14.0, exact schema/handler name and
+  SDK resume. One actual non-preload processor-tip row replaces future numeric
+  visits without per-block external RPC. Distinct V2 SDK-MVCC/64-block exact
+  canonical-header/getLogs proofs, separate processor/RPC clocks, code-derived
+  projection/generation and explicit source identity gates preserve coverage.
+  Ponder migration was deferred; old profiles/admission/history were not reset.
+- Local source/runtime/consumer/selector and original admission regressions
+  passed 42/42 plus API typechecking. Actual restored-SDK resume/pruning and
+  controlled storage rollback/follow preserved fingerprints without numeric
+  resurrection; this is not a full natural IndexerState reorg. Actual restored
+  HTTP checks passed all ten role/auth/range/event/concurrency/cleanup checks plus
+  independent RPC verification. The isolated PostgreSQL reclaim fixture passed
+  6/6. Root's final Linux runtime checks passed 22/22 with zero skips.
+- The first production runtime attempt failed during SDK environment loading:
+  injecting production NODE_ENV differed from the working original environment.
+  Its fatal hold also lacked a referenced handle. Both narrow wrapper fixes were
+  peer reviewed; engine NODE_ENV stays absent, export alone uses production, and
+  fatal holds stay unhealthy until explicit stop without child retry or freshness
+  renewal. The failed campaign remains preserved; no actual restart storm is
+  claimed. New source views had already committed with old definitions/counts
+  unchanged and were not rerun to fix the wrapper.
+- The corrected Docker source resumed the original 50328502 without reset and
+  qualified real positive/empty/64-header exports with independent RPC. The
+  positive qualification's first EVENT_FIRST_INDEPENDENT_SOURCE refusal remains
+  recorded alongside its later pass; no source/freshness guard was widened.
+- Root stopped source writers for a fresh second full backup: 77,090,142 bytes,
+  with all 48 counts/logical digests matched in an actual PG18 restore. Exact
+  original application control E220/xmin617365, 70 financial rows/digest b107,
+  zero authorizations, admission bytes, checkpoint 50174047 and 269 retained Base
+  rows were independently preserved. No financial control change was authorized.
+- After proving actual production undo floor beyond 50328502 and zero numeric
+  undo rows, Root committed the exact leaf DELETE of 1,199,852 legacy visits.
+  Only leaf/derived-parent logical digests changed; the other 46 tables matched.
+  Separate VACUUM FULL preserved the post-delete logical state and reduced the
+  leaf to 32,768 bytes. Source DB size measured 718,249,984 bytes before source
+  advancement, 17,432,576 after reclaim and 18,284,544 after live restart/follow.
+- Actual post-cleanup resume was exactly 50389387, followed to 50398531 (+9144)
+  with one visit, zero numeric visits/undo and two events. Positive and empty
+  HTTP plus independent RPC both passed first read. Both source containers are
+  healthy/running with unless-stopped; legacy host starts remain disabled and
+  condition-blocked, failed old containers stay off/no-restart, test PG is off.
+  Final image is a13db137077e124c32fe4a31f322f8f477aecd54c95fc7fe61309bffb5b0cfd6.
+- This closes only the source-storage milestone. App source-identity cutover,
+  large contiguous recovery, UI readiness and financial activation remain open.
+  No app consumer, finance or G5 was activated, no laptop Docker or paid upgrade
+  was used, and no other branch was deleted. Neon control-plane logical_size
+  still showed 770,416,640 bytes; do not claim the 84% meter/current quota or PITR
+  history decreased from PostgreSQL's measured physical reclamation alone.
 - Evidence: [event-first storage correction](docs/evidence/envio-event-first-storage-fix.md).
-- Subsequent local source/runtime/selector and existing normal-admission checks
-  passed 42 tests with zero skips plus API typechecking. Root's full restored
-  SDK rehearsal resumed the original checkpoint and reached 50346347 with one
-  processor tip, all legacy base rows retained, undo floor 50346144 and zero
-  numeric undo/history rows. Deliberate rehearsal bounds stopped the test runs;
-  these are fixture results, not production reclamation. The separate V2 source
-  Docker mode retains old V1 guards, pins actual producer-code identity and host
-  CA trust, and still requires final operator qualification. The application
-  stays paused; its large contiguous recovery and financial launch are separate.
-- Root's final actual Linux Docker checks passed 18/18 without skips. The
-  restored-source HTTP fixture passed all ten role/auth/range/event/concurrency/
-  cleanup checks plus independent RPC verification; its earlier refused attempt
-  remains archived with cause unproven. The isolated PostgreSQL reclaim fixture
-  passed 6/6. Controlled storage rollback followed by actual SDK follow preserved
-  event/legacy fingerprints without numeric-row resurrection; this is not a full
-  natural IndexerState reorg simulation. Production source resumption, measured
-  physical reclamation and application recovery remain open.

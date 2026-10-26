@@ -34,13 +34,15 @@ export async function superviseChild(spec,{spawnChild=spawn,onSpawn=async()=>{},
 }
 async function exists(path){try{await lstat(path);return true;}catch(e){if(e.code==='ENOENT')return false;throw e;}}
 async function health(value){const tmp='/runstate/health.'+randomUUID()+'.tmp',fd=await open(tmp,'wx',0o600);try{await fd.writeFile(JSON.stringify(value)+'\n');await fd.sync();}finally{await fd.close();}await rename(tmp,'/runstate/health.private.json');const d=await open('/runstate','r');try{await d.sync();}finally{await d.close();}}
-async function hold(){await new Promise(resolve=>{process.once('SIGTERM',resolve);process.once('SIGINT',resolve);});}
+/** Signal listeners alone do not keep Node alive. Keep the fatal latch idle until an explicit stop. */
+export async function hold(signals=process){await new Promise(resolve=>{const keepAlive=setInterval(()=>{},60000);const stop=()=>{clearInterval(keepAlive);signals.off('SIGTERM',stop);signals.off('SIGINT',stop);resolve();};signals.once('SIGTERM',stop);signals.once('SIGINT',stop);});}
+export function childBaseEnvironment(component){need(['engine','export'].includes(component),'COMMAND_COMPONENT');return{HOME:'/tmp',PATH:'/usr/bin:/bin',...(component==='export'?{NODE_ENV:'production'}:{})};}
 export async function main(component){
  const stat=await lstat('/runstate');need(stat.isDirectory()&&!stat.isSymbolicLink()&&stat.uid===986&&stat.gid===978&&(stat.mode&0o777)===0o700,'SUPERVISION_STATE_MODE');
  const cfg=await loadConfig(component),identity={version:1,component,database:cfg.database,schema:cfg.schema,generation:cfg.generation,projectionDigest:cfg.projectionDigest,configSha256:process.env.ENVIO_DOCKER_CONFIG_SHA256};
  if(await exists('/runstate/identity.private.json'))need(JSON.stringify(JSON.parse(await readFile('/runstate/identity.private.json','utf8')))===JSON.stringify(identity),'SUPERVISION_IDENTITY_CHANGED');else await durable('/runstate/identity.private.json',identity);
  if(await exists('/runstate/fatal.private.json')){await health({...identity,status:'FATAL_LATCHED',at:Date.now()});console.error('ENVIO_SOURCE_FATAL_LATCH_REQUIRES_ROOT_REVIEW');await hold();return;}
- const input=await exportInputs(cfg),env={HOME:'/tmp',PATH:'/usr/bin:/bin',NODE_ENV:'production'};
+ const input=await exportInputs(cfg),env=childBaseEnvironment(component);
  if(component==='engine')Object.assign(env,nativeEngineEnvironment(await readFile(cfg.engineEnvironment.path,'utf8'),cfg.systemCa,cfg));
  else Object.assign(env,{NODE_OPTIONS:'--max-old-space-size=192',[input.profile.databaseUrlEnv]:input.credential.databaseUrl,[input.profile.tokenEnv]:input.token,...(eventFirst(cfg)?{ZEESWAP_EVENT_FIRST_EXPORT_PROFILE_SHA256:cfg.exportProfile.sha256}:{})});
  if(component==='engine'){

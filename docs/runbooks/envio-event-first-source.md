@@ -5,6 +5,20 @@ the application consumer, admit an order, renew financial authority or dispatch
 funds. The operator performs every VPS/Docker/SQL action. Do not run Docker on
 the development laptop.
 
+The 26 October source maintenance is complete: actual source follow and physical
+reclamation were verified, and both corrected Docker source services are healthy
+with `unless-stopped`. The [evidence record](../evidence/envio-event-first-storage-fix.md)
+contains the exact backups, preserved application state, row counts, measured
+sizes, qualification refusals/passes and post-cleanup follow. Neon's reported
+control-plane size/84% alert meter was not established as refreshed. Application
+adoption/recovery and financial activation remain open.
+
+The steps below document the gated procedure. Do not rerun the already committed
+view DDL or original DELETE, clear the preserved failed campaign, or restore an
+old checkpoint merely to repeat the operation. A post-reclamation repair must
+retain the qualified event-first handler and current persisted SDK state; the
+old numeric-visit producer is not an automatic rollback target.
+
 1. Preserve the original source checkpoint, all rows and the complete verified
    PG18 backup. Retain the 48-table restore count/digest proof. Stop the legacy
    source engine and make its old unit triggers non-triggerable using the
@@ -71,9 +85,15 @@ Compose model before starting any writer.
   identity, actual committed processor clock, exact SDK checkpoint and fresh
   independent chain/M/head/finality checks. Container-up and heartbeat time
   cannot renew source freshness. Health is not financial readiness.
+- Preserve the engine's original missing `NODE_ENV`; its reviewed environment
+  factory adds production mode only for export. Do not inject dummy Hasura
+  credentials to compensate for an engine startup error. The fatal hold uses a
+  referenced idle handle so an unhealthy source cannot exit merely because its
+  event loop became empty. Stop it explicitly; retain the original fatal state
+  and use a new reviewed campaign rather than automatically clearing a latch.
 
-After a bounded production-source qualification, Root can consider the separate
-phased legacy-row reclamation. The actual **production** SDK undo floor must be
+The completed phased reclamation followed bounded production-source
+qualification. Its required actual **production** SDK undo floor must be
 past legacy height 50328502 and numeric undo/history must be absent; a fixture
 floor cannot substitute. Stop the writer and verify backend absence before the
 reviewed exact-row DELETE. Preserve the single tip, events, metadata, native
@@ -81,6 +101,10 @@ checkpoints and application history. Classify the original transaction before
 any subsequent step if COMMIT acknowledgement is unknown. The later explicit
 VACUUM FULL rewrites the live survivors; inspect physical/WAL headroom and actual
 before/after sizes. Do not infer reclaimed space merely from DELETE success.
+Root completed these steps with a fresh second full backup/48-table verified
+restore, original-transaction classification and logical-state checks around
+the separate VACUUM FULL. Post-cleanup SDK follow and actual HTTP/RPC proof
+confirmed no numeric-row resurrection. All test Postgres containers were stopped.
 
 Application recovery is separate. The original HMAC profile, bootstrap receipt
 and archives stay immutable. An explicit completed Root FILE cutover binds the
