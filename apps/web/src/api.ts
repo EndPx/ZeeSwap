@@ -1,5 +1,6 @@
 import { capability, decodeOrder, uuid, type OrderView, type PrivateOrder, type QuoteBody } from './protocol.ts';
 import {decodeAvailability,type ServiceAvailability} from './availability.ts';
+import {decodeMarketReference,type MarketReference} from './market-reference.ts';
 import {decodeBridgeStatus,decodeBridgeQuote,decodeBridgeOrder,type BridgeStatus,type BridgeQuoteBody,type BridgeQuote,type BridgeOrder} from './bridge.ts';
 
 export type QuoteBounds={inputAmountAtomic:'100000';maxAcceptedPerDirection:1}|{
@@ -78,6 +79,7 @@ export class ZeeApi {
   }
   async health(signal?:AbortSignal):Promise<ApiHealth>{return decodeHealth(await this.call('/health',{signal}));}
   async availability(signal?:AbortSignal):Promise<ServiceAvailability>{return decodeAvailability(await this.call('/availability',{signal}));}
+  async marketReference(signal?:AbortSignal):Promise<MarketReference>{return decodeMarketReference(await this.call('/market-reference',{signal}));}
   async bridgeStatus(signal?:AbortSignal):Promise<BridgeStatus>{return decodeBridgeStatus(await this.call('/v1/bridge/status',{signal}));}
   async bridgeQuote(body:BridgeQuoteBody,access:{token:string;key:string}):Promise<BridgeQuote>{return decodeBridgeQuote(await this.call('/v1/bridge/quotes',{method:'POST',body,token:access.token,key:access.key}),body);}
   async bridgeAccept(quote:BridgeQuote,body:BridgeQuoteBody,access:{token:string;key:string},token:string):Promise<BridgeOrder>{

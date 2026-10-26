@@ -58,6 +58,13 @@ Unbroken addresses wrap inside min-width:0 containers.
 
 ## 5. Primitives and states
 
+- Market reference: compact secondary inset in Swap, below the fixture-rate row.
+  Uses existing surface-soft, muted text and warm border with 12px metadata,
+  14px title and 18px tabular rate. Clearly labels actual ZEC/USDC as reference
+  only, shows Kraken retrieval time as "Sampled", and keeps any comparison
+  estimate apart from the unchanged fixture payout. Unavailable or expired data
+  removes numbers. Updates do not announce every polling tick.
+
 - Product mode: labelled Swap/Bridge button group with `aria-pressed`, using the
   existing charcoal selected surface and 44px controls. Mode changes preserve
   swap state; bridge addresses stay in memory and clear on direction changes.

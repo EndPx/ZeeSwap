@@ -1,4 +1,5 @@
 import { BridgePanel } from './BridgePanel.tsx';
+import { MarketReference } from './MarketReference.tsx';
 import { fundEscrow } from './escrow-funding.ts';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { ApiError, apiOrigin, ZeeApi, type QuoteBounds } from './api.ts';
@@ -100,6 +101,7 @@ export default function App(){
             {fieldErrors.amount&&<p id="amount-error" className="field-error" role="alert">{fieldErrors.amount}</p>}
             <div className="route-summary"><div className="route-icons"><TokenMark asset={from} small/><span className="route-dashes"/><TokenMark asset={to} small/></div><div><strong>{assets[from].network}<Icon name="arrow" size={13}/>{assets[to].network}</strong><span>{direction==='ZCASH_TO_BASE'?'Shielded in. More possibilities out.':'Back to your shielded balance.'}</span></div><Icon name="shield" size={18}/></div>
             <div className="quote-facts"><span>1 TAZ = 100 mockUSDC <span className="fixture-tag">Fixture rate</span></span><button aria-label="About the indicative fixture rate" onClick={()=>open('help')}><Icon name="info" size={15}/></button></div>
+            <MarketReference api={api} amount={amount} direction={direction} visible={screen==='swap'&&mode==='swap'}/>
             {(quoteBounds||policy)&&<p className="fine-print">Bounded testnet run: exactly 0.001 TAZ or 0.1 mockUSDC. Current policy limit: {directionLimit} accepted {from} to {to} {directionLimit===1?'order':'orders'}. {policy?`${policy.remainingByDirection[direction]} remaining in this direction; ${policy.activeOrders} swap${policy.activeOrders===1?'':'s'} active.`:'Previously accepted orders count toward this limit; this is not remaining capacity.'}</p>}
             <Button variant="orange" className="review-button" onClick={review}>Review swap<Icon name="arrow" size={19}/></Button>
             <div className={`service-line service-${connection}`} role="status"><span className="service-dot"/>{connection==='checking'?'Checking swap service…':connection==='online'?availabilityCopy(liveAvailability):'Preview mode · service status unavailable'}<button aria-label="Check service connection again" onClick={()=>{void checkHealth();void checkAvailability();}}><Icon name="refresh" size={13}/></button></div>

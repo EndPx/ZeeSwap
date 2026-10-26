@@ -27,6 +27,12 @@ concrete chain/wallet adapters and live two-way settlement remain acceptance
 gates. A published interface is not a working live bridge. See the
 [bridge design and integration contract](docs/bridge.md).
 
+The Swap interface includes a separate **ZEC/USDC market reference** derived from
+Kraken's ZEC/USD and USDC/USD markets. It shows sampled time, expires stale data,
+and offers an explicitly separate market comparison. Actual testnet quotes and
+payouts retain their fixture rate; the reference does not give TAZ or mockUSDC
+monetary value. See the [actual public market-data check](docs/evidence/market-reference-live.md).
+
 ```sh
 pnpm install --frozen-lockfile
 pnpm web:dev

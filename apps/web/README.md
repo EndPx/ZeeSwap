@@ -32,6 +32,26 @@ HTTPS. `/health` confirms connectivity only, not settlement readiness or reserve
 The interface can be explored while the API is offline, with its arithmetic
 explicitly labelled indicative/fixture. It creates no fake quote, order, balance,
 funding instruction or completed swap. A bound quote requires the actual API.
+
+The separate **ZEC/USDC market reference** panel reads the unauthenticated
+`GET /market-reference` endpoint at the configured API origin. Kraken ZEC/USD and
+USDC/USD bid/ask observations determine the cross rate; USDC/USD is not assumed
+to equal one. The browser independently verifies exact rational cross arithmetic,
+canonical positive decimal strings, source spreads and a maximum 30-second
+retrieval lifetime. "Sampled" means HTTP retrieval time, not an exchange update
+timestamp. Single-flight reads run every 15 seconds while this Swap view and tab
+are visible, with bounded requests, cancellation and expiry cleanup. Missing,
+malformed, stale or failed data displays **Unavailable** and removes market
+numbers; no fixture price substitutes for a market response.
+
+The optional same-numeric-input comparison uses conservative bid/ask arithmetic
+and is labelled **Market reference estimate — not your testnet payout**. It treats
+that number as real ZEC or USDC units solely for comparison. TAZ has no monetary
+value and mockUSDC is not USDC. Actual swap fixture output, server quote terms,
+payout accounting and the bridge's 1:1 principal are unchanged by market data.
+No capability, receiver, refund address or other private order data is sent to the
+market endpoint or a third-party browser API.
+
 Both swap directions use the quote/accept/status API. Reverse swap funding requires
 a configured escrow signer; otherwise `BASE_ESCROW_NOT_READY` closes that route.
 Accepted escrow terms are checked before exact approval and funding wallet calls.

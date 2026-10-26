@@ -639,6 +639,15 @@ Pricing modes are explicit and cannot silently fall back:
 1. `fixture`: required initial mode for local and public-testnet acceptance, using the rate and limits above. No exchange or live price API is needed for the mockUSDC baseline.
 2. `market-reference`: optional later demonstration mode, not a dependency of G1–G7. Candidate Kraken ZEC/USD and USDC/USD data requires exact pair discovery and working TLS. Use conservative bid/ask conversion, validate both legs, and refuse snapshots older than 30 seconds since retrieval; retrieval age is not an exchange timestamp. Verify provider health/market status and add a timestamped feed if freshness cannot be established. Display that mockUSDC remains valueless even when a market reference is shown. Operator inventory, not an exchange trade, fulfills the quote. Do not assume live USDC/USD equals 1.
 
+26 October display-only decision: the user selected a real ZEC/USDC market
+reference for the interface while retaining the existing testnet quote/payout.
+This is a separate read-only data panel, not activation of market-priced
+settlement. Derive the reference from ZEC/USD and USDC/USD, expose source and
+retrieval/expiry times, and withhold stale/unavailable values. An HTTP retrieval
+time is not the time of an exchange price update. Keep actual quote `priceMode`
+as `fixture`, preserve accepted terms and inventory policy, and keep the bridge's
+1:1 TAZ/zeeTAZ principal unchanged. TAZ and mockUSDC have no monetary value.
+
 Amounts are canonical integer strings over APIs, `bigint` in TypeScript, and checked integer arithmetic in Rust/Solidity. Zcash uses 8 decimal places and mockUSDC uses 6. Store integer units in PostgreSQL using the `zee.atomic` NUMERIC domain with integral-value, 78-digit and asset-specific bounds. This replaces direct `NUMERIC(78,0)` assignment because PostgreSQL can round a fractional value before its check constraint. Prices use rational/scaled integers. Round destination output down and required input/fee reserves up; reject zero output or invalid decimals. References to USDC below describe the product asset role; all prototype execution and UI use mockUSDC explicitly.
 
 ### Finality policy

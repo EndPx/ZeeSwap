@@ -1,0 +1,40 @@
+[Unit]
+Description=ZeeSwap read-only Kraken market reference
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+DynamicUser=yes
+WorkingDirectory=/opt/zeeswap-market-reference
+ExecStart=/usr/bin/node --max-old-space-size=24 /opt/zeeswap-market-reference/api/src/market-reference/main.mjs
+Environment=PORT=3032
+Environment=NODE_ENV=production
+UnsetEnvironment=NODE_OPTIONS NODE_TLS_REJECT_UNAUTHORIZED NODE_EXTRA_CA_CERTS HTTP_PROXY HTTPS_PROXY ALL_PROXY
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=10
+MemoryHigh=80M
+MemoryMax=96M
+CPUQuota=25%
+TasksMax=16
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+InaccessiblePaths=-/opt/zeeswap-testnet
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
