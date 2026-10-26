@@ -153,6 +153,8 @@ with the canonical source; no financial anchor conflicted. Its immediate
 predecessor was absent from retained application rows, so no contiguous common
 ancestor is claimed. The retained finalized anchor at 4,541,816 matched.
 The audit made no SQL, cursor, source or financial changes and does not authorize
-a repair. Ordinary consumers and trading remain paused pending separately
-verified metadata recovery. No funded market-priced cross-chain settlement has
-been demonstrated.
+a repair. Root subsequently completed a separately approved
+[exact metadata repair](native-chef-sparse-tip-repair.md), preserving financial
+state and rewinding the cursor to the verified replay anchor. Native receipt
+catch-up, Base source adoption/catch-up and live admission remain open. No funded
+market-priced cross-chain settlement has been demonstrated.

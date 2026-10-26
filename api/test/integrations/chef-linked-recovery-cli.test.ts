@@ -1,12 +1,29 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,unlink,rm} from 'node:fs/promises';import {join} from 'node:path';import {tmpdir} from 'node:os';
 import {requireChefRecoveryMarkersClear} from '../../scripts/observe-linux-chef.ts';
-import {parseChefLinkedArgs,requireChefLinkedCampaignActive,validateChefLinkedPersistedBindings,validateChefLinkedIssuanceEvidence,chefLinkedCanonicalReader} from '../../scripts/recover-linux-chef-linked.ts';
+import {parseChefLinkedArgs,requireChefLinkedCampaignActive,validateChefLinkedPersistedBindings,validateChefLinkedIssuanceEvidence,chefLinkedCanonicalReader,chefLinkedInitialCanonicalVerification} from '../../scripts/recover-linux-chef-linked.ts';
+import {chefPersistedCanonical} from '../../src/integrations/observation/chef-live.ts';
 test('retired campaign refuses reentry without recreating marker or altering its retirement proof',async()=>{
  const directory=await mkdtemp(join(tmpdir(),'chef-retired-')),path=join(directory,'abandoned-without-publication.private.json'),raw='Root no-effect retirement receipt\n';
  try{await requireChefLinkedCampaignActive(directory);await writeFile(path,raw);await assert.rejects(requireChefLinkedCampaignActive(directory),/RETIRED_CAMPAIGN_NO_REPLAY/);const{readFile,lstat}=await import('node:fs/promises');assert.equal(await readFile(path,'utf8'),raw);await assert.rejects(lstat(join(directory,'linked-recovery-in-progress')),{code:'ENOENT'});}finally{await rm(directory,{recursive:true,force:true});}
 });
 test('combined catchup-publish requires an explicit three-argument one-shot command',()=>{const p='/opt/zeeswap-testnet/state/chef-recovery/approval.private.json',sha='a'.repeat(64);assert.equal(parseChefLinkedArgs(['catchup-publish',p,sha]).step,'catchup-publish');for(const args of [['catchup-publish',p,sha,'1'],['catchup-publish',p],['catchup-publish','/tmp/a',sha]])assert.throws(()=>parseChefLinkedArgs(args),/EXPLICIT_ARGUMENTS/);});
+test('entry verifies retained9848 span separately before final7854 history span; neither reader gains a wider dense bound',async()=>{
+ const minimum=4531977,oldTip=4541825,financial=4536778,core=4544632,stamp=new Date().toISOString(),ranges:{fromHeight:number;throughHeight:number}[]=[],events:string[]=[],header=(height:number)=>({height,hash:String(height).padStart(64,'0'),parentHash:String(height-1).padStart(64,'0'),time:stamp});
+ const factory=(range?:{fromHeight:number;throughHeight:number})=>({sample:async()=>{if(range)ranges.push(range);return{sourceId:'fixture',checkedAt:stamp,head:header(core+2)};},header:async(h:number)=>header(h)});
+ const scope=await chefLinkedInitialCanonicalVerification(factory,async reader=>{events.push('persisted-start');await reader.prefetchPersisted([minimum,oldTip],new AbortController().signal);assert.equal((await reader.header(minimum,new AbortController().signal)).hash,header(minimum).hash);events.push('persisted-complete');return'captured-full-state';},true);
+ assert.deepEqual(events,['persisted-start','persisted-complete']);assert.equal(scope.persistedIdentity,'captured-full-state');assert.equal(scope.publication!.headerOrigin!(minimum).kind,'fresh');const initialRangeCount=ranges.length;
+ await scope.publication!.prefetchPersisted([financial,...Array.from({length:core-4541814+1},(_,i)=>4541814+i)],new AbortController().signal);
+ assert.equal(ranges[initialRangeCount]!.fromHeight,financial);assert.ok(ranges.every(r=>r.throughHeight-r.fromHeight+1<=1000));const count=ranges.length;
+ await assert.rejects(()=>scope.publication!.prefetchPersisted([minimum,core],new AbortController().signal),/CANONICAL_DENSE_BOUND/);assert.equal(ranges.length,count);
+ await assert.rejects(()=>chefPersistedCanonical(range=>factory(range)).prefetchPersisted([minimum,core],new AbortController().signal),/DENSE_RANGE_BOUND/);
+});
+test('retained verification abort or fork cannot allocate a final publication scope or continue to final source selection',async()=>{
+ const stamp=new Date().toISOString(),header=(height:number)=>({height,hash:String(height).padStart(64,'0'),parentHash:String(height-1).padStart(64,'0'),time:stamp}),controller=new AbortController();controller.abort(Error('RETAINED_ABORTED'));let finalSelected=false;
+ const factory=()=>({sample:async()=>({sourceId:'fixture',checkedAt:stamp,head:header(30)}),header:async(h:number)=>h===11?{...header(h),parentHash:'f'.repeat(64)}:header(h)});
+ await assert.rejects(async()=>{await chefLinkedInitialCanonicalVerification(factory,reader=>reader.prefetchPersisted([10,20],controller.signal).then(()=>''),true);finalSelected=true;},/RETAINED_ABORTED/);assert.equal(finalSelected,false);
+ await assert.rejects(async()=>{await chefLinkedInitialCanonicalVerification(factory,reader=>reader.prefetchPersisted([10,20],new AbortController().signal).then(()=>''),true);finalSelected=true;},/HEADER_GAP_OR_FORK/);assert.equal(finalSelected,false);
+});
 test('V2 issuance requires current physical capital observations; it cannot renew archived observations by changing verification time',()=>{
  const at=Date.now(),stamp=new Date(at).toISOString(),h='a'.repeat(64),a:any={version:2,profileSha256:h,control:{epoch:'10',xmin:'42'},financialDigest:'b'.repeat(64),verifiedAt:stamp};
  const inactive={version:1,status:'ROOT_NORMAL_CHEF_OBSERVER_STOPPED',normalObserverStopped:true,profileSha256:h,verifiedAt:stamp};

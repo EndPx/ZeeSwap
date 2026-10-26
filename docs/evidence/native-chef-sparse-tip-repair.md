@@ -69,13 +69,40 @@ The PostgreSQL fixture uses synthetic financial rows and headers. Its permission
 SQL statements and trigger execution are real. It is not an application repair
 or a funded settlement.
 
-## Operator boundary
+## Actual metadata execution and independent readback
 
-At this checkpoint, actual application repair, cursor installation, linked
-historical catch-up and ordinary consumer handoff remain pending Root execution.
-The application is still paused and reconciling. Base source identity adoption
-and contiguous catch-up are separate gates. The prepared market-priced testnet
-feature cannot activate from these tests or the historical preflight alone.
+Root installed and checked the protected executor, inspected its 37 runtime pins
+and exact before-state, then issued a separate finite metadata approval. The first
+two inspection attempts stopped before approval or intent because a historical
+snapshot was incorrectly passed to the live freshness validator. Private failure
+diagnostics established `STALE_SNAPSHOT`. The correction binds the original
+historical timestamp and every header to the official historical batch, uses a
+nonpublished structural-validation copy, and keeps the original proof untouched.
+Fresh canonical checks remain a separate requirement. Five private CLI, quiescence,
+diagnostic and historical-proof tests passed locally and on the VPS.
+
+The third inspection and subsequent issuance passed. Root executed one original
+metadata transaction and completed the durable file boundary. A separate read-only
+connection checked the original transaction's committed status, compared the full
+current state with the intent's exact expected result, and verified the installed
+cursor's exact bytes, ownership and permissions. The result was:
+
+- Paused, reconciling E222 after the two original triggers; no admission or dispatch.
+- Cursor/checkpoint at 4,541,823, with only the orphan 4,541,825 header corrected.
+- All 2,264 Native and 269 Base retained rows preserved.
+- The same 19-table, 70-row financial digest and zero authorization rows.
+- Original finalized height/time and observation timestamp preserved.
+- Completion recorded and both metadata-repair and linked-recovery markers clear.
+
+Root did not replay SQL after an unknown response, reset an indexer, delete rows,
+allocate capital, sign or broadcast a financial transaction.
+
+## Remaining operator boundary
+
+Linked historical receipt catch-up and ordinary consumer handoff remain open.
+Base source identity adoption and contiguous catch-up are separate gates. The
+application remains paused and reconciling. The prepared market-priced testnet
+feature cannot activate from this metadata repair alone.
 
 The published market implementation was also qualified in an isolated public-code
 directory on the VPS: 13 Node/Python protocol and pricing tests and 75 native Python

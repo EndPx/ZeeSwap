@@ -1,6 +1,6 @@
 # ZeeSwap implementation plan
 
-Last updated: 2026-10-26 (Asia/Jakarta), for the isolated Linux testnet deployment. Execution evidence below retains its recorded dates.
+Last updated: 2026-10-27 (Asia/Jakarta), for the isolated Linux testnet deployment. Execution evidence below retains its recorded dates.
 
 Deployment decision (25 October): the user selected Docker on the existing VPS.
 The Chef query API and one watch-only follower now run there in separate
@@ -693,6 +693,17 @@ cleanup. These are preparation proofs: no application SQL/cursor repair,
 admission, payout or new inventory credit occurred. The exact private Root
 approval, durable transaction/file boundary and subsequent linked historical
 receipt recovery remain necessary. See the [sparse-tip procedure evidence](docs/evidence/native-chef-sparse-tip-repair.md).
+
+Actual sparse-tip execution: Root subsequently completed that exact metadata
+transaction and cursor boundary. Independent readback proved committed-exact
+E222 / transaction version 766729, cursor 4,541,823, all 2,264 Native and 269 Base
+rows preserved, clear markers, zero authorizations and the unchanged 19-table,
+70-row financial digest. Finalized and observation timestamps were preserved.
+Two earlier inspection attempts stopped before approval/intent on the historical
+snapshot freshness check; its correction preserves the original archive and
+keeps live canonical checks separate. No capital allocation, signing, financial
+broadcast or trading activation occurred. Native receipt catch-up and Base
+adoption/catch-up remain the next source gates.
 
 Amounts are canonical integer strings over APIs, `bigint` in TypeScript, and checked integer arithmetic in Rust/Solidity. Zcash uses 8 decimal places and mockUSDC uses 6. Store integer units in PostgreSQL using the `zee.atomic` NUMERIC domain with integral-value, 78-digit and asset-specific bounds. This replaces direct `NUMERIC(78,0)` assignment because PostgreSQL can round a fractional value before its check constraint. Prices use rational/scaled integers. Round destination output down and required input/fee reserves up; reject zero output or invalid decimals. References to USDC below describe the product asset role; all prototype execution and UI use mockUSDC explicitly.
 
