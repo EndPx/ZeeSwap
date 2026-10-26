@@ -1,4 +1,6 @@
 import { createServer, type IncomingMessage } from 'node:http';
+import {handleBridge} from './bridge/http.ts';
+import type {BridgeService} from './bridge/service.ts';
 import type pg from 'pg';
 import { isAddress, getAddress, zeroAddress, type Hex } from 'viem';
 import { transaction } from './db.ts';
@@ -13,7 +15,7 @@ import {assertContinuationOwner,assertContinuationQuote,continuationAdmission,co
 import {disabledServiceAvailability,requireServiceAdmission,servicePolicyBind,servicePolicyAdmission,type ServicePolicyApi} from './testnet-service-policy.ts';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-type Options={pool:pg.Pool;keys:PrivateData;wallet:WalletAdapter;integrationOnly?:boolean;readOnly?:boolean;servicePolicy?:ServicePolicyApi;baseFeeBudget?:string;allowedOrigin?:string;base?:BaseContract;quoteBounds?:{inputAmountAtomic:'100000';maxAcceptedPerDirection:1}|{inputAmountAtomic:'100000';maxAcceptedByDirection:{ZCASH_TO_BASE:2|3;BASE_TO_ZCASH:1};newForwardCutoffBlocks:40;continuationSha256:string};continuation?:ContinuationApi;escrow?:{pool:pg.Pool;authorize:(terms:FundingTerms)=>Promise<Hex>}};
+type Options={bridge?:BridgeService;pool:pg.Pool;keys:PrivateData;wallet:WalletAdapter;integrationOnly?:boolean;readOnly?:boolean;servicePolicy?:ServicePolicyApi;baseFeeBudget?:string;allowedOrigin?:string;base?:BaseContract;quoteBounds?:{inputAmountAtomic:'100000';maxAcceptedPerDirection:1}|{inputAmountAtomic:'100000';maxAcceptedByDirection:{ZCASH_TO_BASE:2|3;BASE_TO_ZCASH:1};newForwardCutoffBlocks:40;continuationSha256:string};continuation?:ContinuationApi;escrow?:{pool:pg.Pool;authorize:(terms:FundingTerms)=>Promise<Hex>}};
 class HttpError extends Error {constructor(readonly status:number,readonly code:string){super(code);}}
 function bearer(req:IncomingMessage){const value=req.headers.authorization?.match(/^Bearer ([A-Za-z0-9_-]{43})$/)?.[1];if(!value)throw new HttpError(401,'AUTH_REQUIRED');return value;}
 async function body(req:IncomingMessage):Promise<Record<string,unknown>> {
@@ -96,11 +98,14 @@ export function createApi(options:Options){
     res.statusCode=204;res.end();return;
    }
    const url=new URL(req.url||'/','http://localhost');if(url.search)throw new HttpError(400,'QUERY_NOT_ALLOWED');
+   if(req.method==='GET'&&url.pathname==='/v1/bridge/status'){await handleBridge(req,res,url.pathname,options.readOnly?undefined:options.bridge);return;}
    if(req.method==='GET'&&url.pathname==='/health'){await pool.query('SELECT 1');reply(200,{status:'ok',integrationOnly:!!options.integrationOnly,...(options.quoteBounds?{quoteBounds:options.quoteBounds}:{})});return;}
    if(req.method==='GET'&&url.pathname==='/availability'){if(options.servicePolicy)await options.servicePolicy.recheck();reply(200,options.servicePolicy?await options.servicePolicy.availability():disabledServiceAvailability());return;}
    const token=bearer(req);const ip=req.socket.remoteAddress||'unknown';const now=Date.now();
    if(rate.size>1000)for(const [k,v] of rate)if(v.until<now)rate.delete(k);
    const current=rate.get(ip);if(current&&current.until>now){if(++current.count>60)throw new HttpError(429,'RATE_LIMITED');}else {if(rate.size>=1000&&!current)throw new HttpError(429,'RATE_LIMITED');rate.set(ip,{count:1,until:now+60000});}
+   if(req.method==='POST'&&url.pathname.startsWith('/v1/bridge/')&&options.readOnly)throw new HttpError(503,'ADMISSION_DISABLED');
+   if(await handleBridge(req,res,url.pathname,options.bridge))return;
    if(req.method==='POST'&&url.pathname==='/v1/quotes'){
     const input=await body(req);exact(input,input.direction==='BASE_TO_ZCASH'?['direction','inputAmount','recipient','refundRecipient','payer']:['direction','inputAmount','recipient','refundRecipient']);
     if(!['ZCASH_TO_BASE','BASE_TO_ZCASH'].includes(String(input.direction)))throw new HttpError(400,'INVALID_DIRECTION');

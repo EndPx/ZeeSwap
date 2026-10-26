@@ -749,6 +749,15 @@ Retention baseline: keep financial audit/obligation records while unresolved; re
 
 ## 10. Bridge design, after both swap directions pass
 
+26 October sequencing update: the user explicitly requested adding the bridge
+now. This authorizes isolated implementation of the bridge contract, accounting,
+API and web flow while the remaining G5/application gates are open. It supersedes
+the implementation-order restriction below, but does not mark G1–G5 complete,
+resume the stopped soak, authorize reuse of swap principal, or enable bridge
+deposits, minting or redemption before independent source, reserve, signer and
+deployment checks pass. The testnet representation is **zeeTAZ**, with 8 decimals
+and exact 1:1 principal accounting in zatoshis.
+
 Bridge is an additional mandatory product capability, not another label for swapping USDC. Target testnet asset: a ZeeSwap-issued ERC-20 representation of TAZ with 8 decimals; final symbol is deferred until G6 and must not imply Circle/Coinbase issuance.
 
 - Zcash -> Base: confirmed shielded principal deposit into a dedicated bridge wallet/account creates a mint obligation; authorized contract mints the exact principal units once to the agreed Base recipient.
@@ -764,7 +773,11 @@ Bridge is an additional mandatory product capability, not another label for swap
 - Block minting/new deposits on a deficit or stale reconciliation. Continue safe repayment of existing liabilities; do not hide shortages by excluding pending redemptions.
 - Account-level reserve reporting exposes only agreed aggregate data, not a public viewing key. Such reports are operator-attested and must not be called trustless proof of reserves.
 
-G6 cannot begin until G1-G5 pass. If time is insufficient, report bridge incomplete and request an explicit product-scope decision. Do not declare the full ZeeSwap vision delivered with swap-only evidence.
+The original sequencing required G1–G5 before G6. The explicit 26 October request
+permits implementation in parallel; live bridge activation still requires its
+own complete acceptance evidence. If time is insufficient, report bridge
+incomplete and request an explicit product-scope decision. Do not declare the
+full ZeeSwap vision delivered with swap-only evidence.
 
 ## 11. Planned repository map and stack
 
@@ -798,7 +811,7 @@ Do not create empty `cre/`, `indexer/`, SDK, or multi-chain adapter packages. Ad
 | G3 | mockUSDC + Base settlement contract; `contracts/` | Mock has 6 decimals and restricted minting; reject look-alike tokens, unauthorized signer/token/network, altered quote, expired funding, replay, and concurrent refund/payout; enforce quoted cancellation deadline and permanent `PAID`/`CANCELLED` exclusivity; internal reservations cannot spend escrow liabilities; exact transfer balance checks; local failure-path tests before testnet writes | Contract implementation/deployment passed: 29 Foundry tests, source-verified Base Sepolia registry. The original 10 mockUSDC setup supplied the forward payout; reverse finalized escrow restored inventory to 10 mockUSDC without a new mint. Both operator paths passed one real order. Primary activation remains open. See docs/evidence/g4-live-reverse.md |
 | G4 | Both swap directions + constrained intents; all execution modules | Independent sender/recipient wallets; TAZ->mockUSDC and mockUSDC->TAZ; confirmed exact net receipts; correct private order status; replay-safe payout; no runtime mint used as liquidity | One real bounded order in each direction passed: exact agreed outputs, shielded Zcash legs, SETTLED private orders, balanced ledgers and no runtime mint. Reverse includes actual recovery of unchanged signed bytes and finalized escrow acknowledgement. Public reverse HTTP intake and end-user journey remain open. See both G4 live receipt reports |
 | G5 | Recovery, privacy, and bounded soak; workers/contracts/API | Crash before/after signing/broadcast, RPC timeout, DB disconnect/restore, duplicate workers, stale lease, source reorg, late/extra/dust deposit, unavailable signer; 20 alternating funded testnet executions with reconciled totals and zero duplicate payouts/unexplained deficits; the named accepted unfunded attempt remains retained and audited | Actual retry progress remains ten SQL SETTLED and ordinarily verified, barriers [5,10]. The new source13 path actually reached BROADCAST/READY. F11 EMPTY recovery passed at 2026-10-16 05:36:20.521 UTC; independent post-check preserved byte-identical economic books and all original SQL/journals, with no payment/import/signature/broadcast. Historical signer cause UNKNOWN. Current 16 accepted attempts comprise 14 funded IDs and 2 archives; final profile20 funded/22 accepted/66 released reservations. Root's 33 distinct TS and 38 Python checks, typecheck/diff and independent review passed. Ten settlements, barriers 15/20, close and source-reorg/loss acceptance remain open; future 0015/0016 remain unwired. See docs/evidence/g5-f11-empty-signer-recovery.md and docs/evidence/g5-forward-signer-reliability.md. |
-| G6 | Two-direction bridge; dedicated wallet/account, contracts, bridge ledger | Deposit/mint then finalized burn/shielded redemption; inventory isolation; `C`/`D` coverage before signing, after inclusion/confirmation/expiry/reorg/restart; no automatic re-mint on ambiguity; independent recipient confirmation | Not started; required for full scope |
+| G6 | Two-direction bridge; dedicated wallet/account, contracts, bridge ledger | Deposit/mint then finalized burn/shielded redemption; inventory isolation; `C`/`D` coverage before signing, after inclusion/confirmation/expiry/reorg/restart; no automatic re-mint on ambiguity; independent recipient confirmation | Isolated implementation authorized 26 October: paused zeeTAZ contract, encrypted bridge books/private API/worker mechanics and two-way UI prepared; actual static UI published with admission disabled. Local contract/model/UI and isolated PostgreSQL evidence passed. Concrete chain/wallet adapters, deployment, dedicated capital and actual two-way bridge settlement remain open; G6 is not complete. See docs/evidence/g6-bridge-implementation.md and docs/evidence/g6-bridge-web-live.md |
 | G7 | Usable demo/submission; `apps/web/`, README, evidence | Both-direction UI journey; no misleading completion/privacy claims; clean-clone reproduction; working demo and two-minute video; all claimed gates evidenced | Not started |
 
 G1 substeps, in order:

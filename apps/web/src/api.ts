@@ -1,5 +1,6 @@
 import { capability, decodeOrder, uuid, type OrderView, type PrivateOrder, type QuoteBody } from './protocol.ts';
 import {decodeAvailability,type ServiceAvailability} from './availability.ts';
+import {decodeBridgeStatus,decodeBridgeQuote,decodeBridgeOrder,type BridgeStatus,type BridgeQuoteBody,type BridgeQuote,type BridgeOrder} from './bridge.ts';
 
 export type QuoteBounds={inputAmountAtomic:'100000';maxAcceptedPerDirection:1}|{
   inputAmountAtomic:'100000';maxAcceptedByDirection:{ZCASH_TO_BASE:2|3;BASE_TO_ZCASH:1};newForwardCutoffBlocks:40;continuationSha256:string;
@@ -28,6 +29,12 @@ export function decodeHealth(value:unknown):ApiHealth {
 export class ApiError extends Error { constructor(readonly code:string,readonly uncertain=false){super(errorCopy(code));} }
 export function errorCopy(code:string):string {
   const copy:Record<string,string>={
+    BRIDGE_UNAVAILABLE:'The bridge is not activated or its reconciliation is unavailable. No new funding instructions can be trusted.',
+    BRIDGE_ADMISSION_PAUSED:'Bridge admission is paused. Keep existing private order access and refresh its original status.',
+    BRIDGE_QUOTE_EXPIRED:'This bridge quote expired. Do not send to expired deposit instructions or burn with expired terms.',
+    BRIDGE_ORDER_NOT_FOUND:'This private bridge order is unavailable with this access key.',
+    BRIDGE_IDEMPOTENCY_CONFLICT:'The saved bridge request conflicts with these terms. Reconcile the original request before proceeding.',
+    BRIDGE_RECONCILIATION_UNAVAILABLE:'Bridge chain and backing reconciliation is unavailable. New deposits and burns are disabled.',
     OFFLINE:'The swap service is not connected. You can explore indicative testnet amounts; orders require a reachable service.',
     TIMEOUT:'The service did not reply in time. The result is unknown. Retry this same request to reconcile it.',
     DESTINATION_EVIDENCE_UNAVAILABLE:'The service has not confirmed the destination receipt. Keep the private order and check again; settlement is not verified.',
@@ -71,6 +78,16 @@ export class ZeeApi {
   }
   async health(signal?:AbortSignal):Promise<ApiHealth>{return decodeHealth(await this.call('/health',{signal}));}
   async availability(signal?:AbortSignal):Promise<ServiceAvailability>{return decodeAvailability(await this.call('/availability',{signal}));}
+  async bridgeStatus(signal?:AbortSignal):Promise<BridgeStatus>{return decodeBridgeStatus(await this.call('/v1/bridge/status',{signal}));}
+  async bridgeQuote(body:BridgeQuoteBody,access:{token:string;key:string}):Promise<BridgeQuote>{return decodeBridgeQuote(await this.call('/v1/bridge/quotes',{method:'POST',body,token:access.token,key:access.key}),body);}
+  async bridgeAccept(quote:BridgeQuote,body:BridgeQuoteBody,access:{token:string;key:string},token:string):Promise<BridgeOrder>{
+    // Reconcile a lost acceptance response even after quote expiry or admission pause.
+    const existing=await this.call(`/v1/bridge/orders/${quote.id}`,{token:access.token});
+    if(record(existing)&&existing.status!=='QUOTED')return decodeBridgeOrder(existing,body,quote.id,token);
+    decodeBridgeQuote(existing,body);if(Date.now()>=Date.parse(quote.expiresAt))throw new ApiError('BRIDGE_QUOTE_EXPIRED');
+    return decodeBridgeOrder(await this.call('/v1/bridge/orders',{method:'POST',body:{quoteId:quote.id},token:access.token,key:access.key}),body,quote.id,token);
+  }
+  async bridgeOrder(id:string,body:BridgeQuoteBody,access:{token:string},token:string):Promise<BridgeOrder>{if(!uuid(id))throw new ApiError('NOT_FOUND');return decodeBridgeOrder(await this.call(`/v1/bridge/orders/${id}`,{token:access.token}),body,id,token);}
   create(body:QuoteBody):Promise<{order:OrderView;access:PrivateOrder}>{
     const fingerprint=JSON.stringify(body);
     if(this.creating){if(this.request?.fingerprint!==fingerprint)return Promise.reject(new ApiError('IDEMPOTENCY_CONFLICT'));return this.creating;}

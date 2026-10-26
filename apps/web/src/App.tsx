@@ -1,3 +1,4 @@
+import { BridgePanel } from './BridgePanel.tsx';
 import { fundEscrow } from './escrow-funding.ts';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { ApiError, apiOrigin, ZeeApi, type QuoteBounds } from './api.ts';
@@ -17,6 +18,7 @@ const displayAmount=(order:OrderView,input=true)=>{const asset=pair(order.direct
 
 export default function App(){
   const api=useMemo(()=>new ZeeApi(apiOrigin(import.meta.env.VITE_API_BASE_URL||'http://127.0.0.1:3031')),[]),wallet=useWallet();
+  const [mode,setMode]=useState<'swap'|'bridge'>('swap');
   const [direction,setDirection]=useState<Direction>('ZCASH_TO_BASE'),[amount,setAmount]=useState('0.01'),[recipient,setRecipient]=useState(''),[refund,setRefund]=useState('');
   const [screen,setScreen]=useState<'swap'|'activity'>('swap'),[modal,setModal]=useState<Modal>(null),[tokenSide,setTokenSide]=useState<'from'|'to'>('from');
   const [connection,setConnection]=useState<'checking'|'online'|'offline'>('checking'),[healthError,setHealthError]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[fieldErrors,setFieldErrors]=useState<Record<string,string>>({});
@@ -78,7 +80,7 @@ export default function App(){
       <div className="header-actions"><span className="network-label"><span/>Testnet</span><Button variant="quiet" className="wallet-button" onClick={()=>open('wallet')}><Icon name="wallet" size={17}/><span>{wallet.address?short(wallet.address):'Connect wallet'}</span></Button></div>
     </header>
     <main id="main" className="page-width">
-      {isDesign?<section className="primitive-showcase"><h1>Interface primitives</h1><Button>Primary action</Button><Button variant="orange">Review swap</Button><Button disabled>Disabled action</Button><Button busy>Requesting quote</Button><Notice title="Offline preview">Indicative amounts only.</Notice><Notice tone="error">The server could not validate this receiver.</Notice><label className="field-label">Recipient<input className="field-input" placeholder="0x…"/></label><TokenMark asset="TAZ"/><TokenMark asset="mockUSDC"/></section>:screen==='swap'?<>
+      {isDesign?<section className="primitive-showcase"><h1>Interface primitives</h1><Button>Primary action</Button><Button variant="orange">Review swap</Button><Button disabled>Disabled action</Button><Button busy>Requesting quote</Button><Notice title="Offline preview">Indicative amounts only.</Notice><Notice tone="error">The server could not validate this receiver.</Notice><label className="field-label">Recipient<input className="field-input" placeholder="0x…"/></label><TokenMark asset="TAZ"/><TokenMark asset="mockUSDC"/></section>:<><div hidden={screen!=='swap'}>
       <div className="hero-layout">
         <section className="hero-message" aria-labelledby="hero-title">
           <div className="eyebrow"><span className="eyebrow-line"/>A little privacy. More possibility.</div>
@@ -87,7 +89,7 @@ export default function App(){
           <button className="text-link hero-learn" onClick={()=>open('help')}>Meet your new route<Icon name="arrow" size={17}/></button>
           <div className="hero-art"><span className="orbit orbit-one"/><span className="orbit orbit-two"/><span className="art-caption"><span/>Privacy looks good on you.</span><img className="zee-image" src="/brand/zee-mascot.webp" alt="" width="420" height="420" fetchPriority="high"/><span className="art-label"><Icon name="shield" size={14}/>A shielded start.</span></div>
         </section>
-        <section className="swap-area" aria-label="Swap TAZ and mockUSDC">
+        <div className="product-area"><div className="product-modes" role="group" aria-label="Product mode"><button aria-pressed={mode==='swap'} onClick={()=>setMode('swap')}>Swap</button><button aria-pressed={mode==='bridge'} onClick={()=>setMode('bridge')}>Bridge</button></div><section className="swap-area" aria-label="Swap TAZ and mockUSDC" hidden={mode!=='swap'}>
           <div className="swap-card">
             <div className="swap-heading"><div className="swap-tabs"><span className="selected-tab">Swap</span><span className="coming-label">Across chains</span></div><Button variant="icon" aria-label="Swap settings" onClick={()=>open('settings')}><Icon name="settings"/></Button></div>
             <div className="amount-panels">
@@ -103,13 +105,13 @@ export default function App(){
             <div className={`service-line service-${connection}`} role="status"><span className="service-dot"/>{connection==='checking'?'Checking swap service…':connection==='online'?availabilityCopy(liveAvailability):'Preview mode · service status unavailable'}<button aria-label="Check service connection again" onClick={()=>{void checkHealth();void checkAvailability();}}><Icon name="refresh" size={13}/></button></div>
           </div>
           <p className="card-footnote"><Icon name="lock" size={14}/>Your keys stay in your wallet. Test assets have no monetary value.</p>
-        </section>
+        </section><BridgePanel api={api} hidden={mode!=='bridge'} wallet={wallet} connectWallet={()=>open('wallet')}/></div>
       </div>
       <section className="principles" aria-label="Swap principles"><div><span className="principle-icon"><Icon name="shield"/></span><div><strong>Shielded where it matters</strong><p>Your Zcash leg stays shielded.</p></div></div><span className="principle-divider"/><div><span className="principle-icon"><Icon name="globe"/></span><div><strong>Two networks. One flow.</strong><p>Starting with Zcash and Base.</p></div></div><span className="principle-divider"/><div><span className="principle-icon"><Icon name="check"/></span><div><strong>Know what comes next</strong><p>Exact terms before you deposit.</p></div></div></section>
-      </>:<section className="activity-page"><div className="section-heading"><div><span className="eyebrow">Your private corner</span><h1>Swap activity<span>.</span></h1><p>Only orders opened in this browser session appear here.</p></div><Button variant="quiet" onClick={()=>open('restore')}><Icon name="plus" size={16}/>Restore an order</Button></div>
+      </div><section className="activity-page" hidden={screen!=='activity'}><div className="section-heading"><div><span className="eyebrow">Your private corner</span><h1>Swap activity<span>.</span></h1><p>Only orders opened in this browser session appear here.</p></div><Button variant="quiet" onClick={()=>open('restore')}><Icon name="plus" size={16}/>Restore an order</Button></div>
         {!entries.length?<div className="empty-state"><div className="empty-icon"><Icon name="activity" size={34}/></div><h2>Your next move starts here.</h2><p>Review your first swap, then follow its source<br/>confirmation and destination delivery here.</p><Button onClick={()=>setScreen('swap')}>Explore a swap<Icon name="arrow" size={17}/></Button></div>:<div className="activity-list">{entries.map(entry=><button className="activity-row" key={entry.access.id} onClick={()=>{setSelected(entry.access.id);open('order');void refresh(entry);}}><span className="activity-token"><TokenMark asset={entry.view?pair(entry.view.direction)[0]:'TAZ'}/></span><span className="activity-main"><strong>{entry.view?`${pair(entry.view.direction)[0]} to ${pair(entry.view.direction)[1]}`:'Private order'}</strong><span>{entry.view?displayAmount(entry.view):short(entry.access.id)}</span></span><span className="activity-status">{entry.error?'Status unavailable':entry.view?statusCopy(entry.view).title:'Checking status…'}<span>{short(entry.access.id)}</span></span><Icon name="arrow" size={18}/></button>)}</div>}
         <div className="activity-privacy"><Icon name="lock" size={16}/><p>Private access keys are kept {remember?'in this tab’s session storage':'in memory'}. Save a recovery file before closing the tab.</p><button onClick={()=>open('settings')}>Privacy settings</button></div>
-      </section>}
+      </section></>}
     </main>
     <footer className="site-footer page-width"><span>Made for a more private journey.</span><div><span className="footer-network"><span/>Zcash testnet + Base Sepolia</span><button onClick={()=>open('help')}>Privacy & trust<Icon name="external" size={12}/></button><a href="https://github.com/EndPx/ZeeSwap" target="_blank" rel="noreferrer">GitHub<Icon name="external" size={12}/></a></div></footer>
     {modal==='tokens'&&<Dialog title={`Select ${tokenSide==='from'?'pay':'receive'} asset`} onClose={close}><p className="dialog-description">The first route uses test assets on these two networks.</p><div className="token-options">{(Object.keys(assets) as Asset[]).map(asset=><button key={asset} className="token-option" onClick={()=>{const next=tokenSide==='from'?(asset==='TAZ'?'ZCASH_TO_BASE':'BASE_TO_ZCASH'):(asset==='TAZ'?'BASE_TO_ZCASH':'ZCASH_TO_BASE');if(next!==direction)chooseDirection(next);close();}}><TokenMark asset={asset}/><span><strong>{asset}</strong><span>{assets[asset].network}</span></span>{(tokenSide==='from'?from:to)===asset&&<Icon name="check" size={19}/>}</button>)}</div><Notice>TAZ is testnet ZEC. mockUSDC is a project test token, not Circle USDC. Mainnet assets are not enabled.</Notice></Dialog>}

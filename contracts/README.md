@@ -124,3 +124,68 @@ See [Foundry deployment/verification](https://getfoundry.sh/forge/deploying) and
 [OpenZeppelin cryptography](https://docs.openzeppelin.com/contracts/5.x/api/utils/cryptography).
 These contracts have not received an independent security audit. Local contract
 checks and deployment are separate from full cross-chain acceptance tests.
+
+## Isolated bridge prototype
+
+`ZeeSwapBridge` is a separate, undeployed custodial testnet ERC-20 module named
+**ZeeSwap Bridged Testnet Zcash**, symbol **zeeTAZ**, with **8 decimals**. One unit
+represents one zatoshi of principal. Per-operation bounds are 10,000–100,000,000
+units (0.0001–1 TAZ). The constructor accepts only local chain 31337 or Base
+Sepolia 84532. Its immutable administrator must differ from both immutable runtime
+operator and EOA authorizer; the operator and authorizer may share an address.
+Deployment starts paused. The administrator must explicitly unpause only after
+fresh bridge capital, source policy and canonical coverage checks qualify the
+isolated route. There is no role rotation, upgrade, administrator mint, direct public burn or
+automatic re-mint method. Lost runtime keys can therefore impair liveness.
+
+The EIP-712 domain is `ZeeSwapBridge`, version `1`, bound to chain ID and contract.
+Exact signed types are:
+
+```text
+Mint(bytes32 id,address recipient,uint256 amount,uint256 nonce,uint256 deadline)
+Redemption(bytes32 id,address payer,uint256 amount,bytes32 payoutCommitment,uint256 nonce,uint256 deadline)
+```
+
+`mint` requires the operator plus an authorizer signature after offchain confirmation
+of the exact shielded principal deposit. `cancelMint` permanently excludes minting
+for that deposit ID. Neither terminal state can replace the other. A source refund
+requires canonical Base finality of `CANCELLED` and signer reconciliation; a reverted
+mint does not permit a refund. Global `usedNonces` prevents replay across both signed
+methods. Deadlines are exclusive: execution at or after the deadline reverts.
+
+Only the signed payer can call `requestRedemption`; no ERC-20 allowance is needed.
+It burns that payer's exact principal and adds the same amount to
+`unpaidRedemptionPrincipal`. The operator must wait for canonical Base finality of
+the request before signing Zcash. Failed, expired, ambiguous or reorged sends remain
+unpaid. `acknowledgeRedemption` records an operator attestation of confirmed canonical
+Zcash delivery exactly once and subtracts that principal. It is not a consensus
+proof. Pause blocks minting and new redemption requests, while cancellation and
+acknowledgement of existing obligations remain available; ordinary ERC-20 transfers
+remain available.
+
+Every ID must be an independently generated random public identifier. Public
+`payoutCommitment` and acknowledgement `evidenceCommitment` must be salted opaque
+commitments with private preimages. Never put a shielded receiver, Zcash transaction
+ID or memo in calldata, events, IDs or unsalted commitments. The contract can check
+nonzero commitments but cannot validate their privacy, receipts or backing.
+
+Token supply plus unpaid redemptions is only the onchain portion of bridge liability.
+Accepted unminted deposits and unpaid principal refunds must be added offchain.
+Bridge principal requires a dedicated wallet/account and may not fund swaps, fees or
+unrelated refunds. Paired canonical checkpoints must reconcile controlled principal
+`C` and included unconfirmed deliveries `D` against all liabilities before exposure
+or payout signing. This module alone does not implement that gate, attest coverage,
+activate an operator, or satisfy G6 acceptance.
+
+Bridge checks: `forge test --match-path 'test/Bridge*.t.sol' -vv` exercises signature
+tampering/domain isolation, terminal races, replay, authority, pause, exact principal
+accounting, 512 fuzz runs and the stateful 128-run / 64-action conservation invariant.
+These are local execution proofs; no bridge deployment, shielded receipt or confirmed
+cross-chain bridge settlement is implied.
+
+Local validation on 26 October 2026 used the installed native Windows Foundry
+1.5.1-stable with pinned Solidity 0.8.30. Formatting and size build passed; the
+bridge suite passed
+16 tests, including 512 fuzz cases and 8,192 invariant actions without reverts.
+The complete contract suite passed 63 tests across five suites. These results
+describe local tests only and do not change the deployment registry.

@@ -17,8 +17,11 @@ export interface FundingPaymentRequest {
 export function fundingPaymentRequest(order: OrderView, nowMs = Date.now()): FundingPaymentRequest | null {
   if (order.direction !== 'ZCASH_TO_BASE' || order.status !== 'AWAITING_FUNDS' || !order.funding
     || order.source.received || order.source.confirmed) return null;
+  return nativeFundingRequest(order.funding, order.inputAmount, 100_000n, 10_000_000n, nowMs);
+}
+
+export function nativeFundingRequest(funding: NonNullable<OrderView['funding']>, inputAmount:string, minimum:bigint, maximum:bigint, nowMs=Date.now(), opaqueMemo=false):FundingPaymentRequest|null {
   if (!Number.isSafeInteger(nowMs) || nowMs < 0) throw new Error('Invalid funding clock.');
-  const funding = order.funding;
   if (funding.network !== 'zcash-testnet' || typeof funding.receiver !== 'string'
     || !/^utest1[023456789acdefghjklmnpqrstuvwxyz]{30,506}$/.test(funding.receiver)) {
     throw new Error('A shielded Zcash testnet receiver is required.');
@@ -30,20 +33,20 @@ export function fundingPaymentRequest(order: OrderView, nowMs = Date.now()): Fun
   } catch { throw new Error('The testnet receiver checksum is invalid.'); }
 
   // Match the current API's bounded native-asset terms using integer arithmetic.
-  if (typeof order.inputAmount !== 'string' || !/^[1-9][0-9]{0,7}$/.test(order.inputAmount)) throw new Error('A canonical positive source amount is required.');
-  const atomic = BigInt(order.inputAmount);
-  if (atomic < 100_000n || atomic > 10_000_000n) throw new Error('The source amount is outside the supported testnet range.');
+  if (typeof inputAmount !== 'string' || !/^[1-9][0-9]{0,8}$/.test(inputAmount)) throw new Error('A canonical positive source amount is required.');
+  const atomic = BigInt(inputAmount);
+  if (atomic < minimum || atomic > maximum) throw new Error('The source amount is outside the supported testnet range.');
   const amount = `${atomic / 100_000_000n}.${(atomic % 100_000_000n).toString().padStart(8, '0')}`;
 
   if (typeof funding.memo !== 'string') throw new Error('The payment memo is invalid.');
   const memoBytes = new TextEncoder().encode(funding.memo);
   if (memoBytes.length === 0 || memoBytes.length > 512) throw new Error('The payment memo is invalid.');
-  let parsed: unknown;
+  if(!opaqueMemo){let parsed: unknown;
   try { parsed = JSON.parse(funding.memo); } catch { throw new Error('The payment memo is invalid.'); }
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('The payment memo is invalid.');
   const value = parsed as Record<string, unknown>;
   if (value.v !== 1 || typeof value.ref !== 'string' || !uuid(value.ref)
-    || JSON.stringify({ v: 1, ref: value.ref }) !== funding.memo) throw new Error('The payment memo is not canonical.');
+    || JSON.stringify({ v: 1, ref: value.ref }) !== funding.memo) throw new Error('The payment memo is not canonical.');}
 
   if (funding.cutoffHeight !== null && (!Number.isSafeInteger(funding.cutoffHeight) || funding.cutoffHeight <= 0)) throw new Error('The funding cutoff is invalid.');
   if (funding.cutoffHeight === null && funding.cutoffTime === null) throw new Error('A funding cutoff is required.');

@@ -8,6 +8,14 @@ The intended track is **Cross-Chain**. The product goal is bidirectional swaps,
 constrained intents and a backed-token bridge between shielded Zcash and Base.
 The prototype uses TAZ and project-owned mockUSDC, with fixture pricing.
 
+Bridge implementation checkpoint (26 October): the separate TAZ/zeeTAZ interface
+is visible on the public site with new deposits and burns disabled. Its paused
+contract, encrypted accounting and private API preparation have local and
+isolated PostgreSQL evidence; actual live bridge delivery remains unproven.
+Use the [bridge implementation](evidence/g6-bridge-implementation.md) and
+[actual public web check](evidence/g6-bridge-web-live.md) for the current scope.
+Do not present the earlier swap receipts as bridge mint/redemption evidence.
+
 ## Reviewer entry points
 
 | Material | Current evidence |

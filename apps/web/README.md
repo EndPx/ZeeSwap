@@ -1,9 +1,10 @@
 # ZeeSwap web
 
 Responsive React/TypeScript/Vite frontend for the existing TAZ ↔ mockUSDC testnet
-API. It uses original ZeeSwap artwork, local fonts, explicit fixture pricing and
-private order capabilities. It contains no seed import, signing, transaction send,
-analytics or production provider execution.
+API, alongside a separate TAZ ↔ zeeTAZ bridge mode. It uses original ZeeSwap
+artwork, local fonts, explicit fixture swap pricing and private order capabilities.
+There is no seed import or analytics. Accepted swap escrow approval/funding and
+bridge burns request explicit confirmation from the user's injected wallet.
 
 ```powershell
 pnpm install --frozen-lockfile
@@ -31,9 +32,9 @@ HTTPS. `/health` confirms connectivity only, not settlement readiness or reserve
 The interface can be explored while the API is offline, with its arithmetic
 explicitly labelled indicative/fixture. It creates no fake quote, order, balance,
 funding instruction or completed swap. A bound quote requires the actual API.
-Current forward quote/accept/status endpoints are integrated. The API currently
-rejects reverse quote creation with `BASE_ESCROW_NOT_READY`; the UI explains that
-condition and never offers an EOA transfer as an escrow substitute.
+Both swap directions use the quote/accept/status API. Reverse swap funding requires
+a configured escrow signer; otherwise `BASE_ESCROW_NOT_READY` closes that route.
+Accepted escrow terms are checked before exact approval and funding wallet calls.
 
 Amounts use decimal text and integer atomic units. A cryptographically random
 32-byte capability and UUID idempotency key bind a quote request. An uncertain
@@ -51,10 +52,43 @@ details; the user starts a new quote instead. Storage failures retain memory mod
 
 The wallet connection supports EIP-6963 discovery and EIP-1193 injected wallets,
 explicit account access, Base Sepolia chain checks, user-triggered chain switch,
-account/network changes and rejection handling. It never calls sign/send methods.
+account/network changes and rejection handling. Connection alone never sends.
 Native shielded funding uses the exact accepted API instructions; local ZIP 321
 QR generation includes its source amount, receiver and canonical memo. The API's
 Rust SDK remains authoritative for a decoded Orchard receiver.
+
+Bridge mode represents the same principal: ZeeSwap Bridged Testnet Zcash (zeeTAZ),
+eight decimals, one zatoshi per atomic unit, only on Base Sepolia. It is distinct
+from the fixture-priced mockUSDC swap. It reads `/v1/bridge/status` and fails closed
+for unavailable, malformed, paused, stale or deficient backing reports. Both chain
+observations must be at most 60 seconds old, with no future timestamp accepted.
+The UI independently adds all four liabilities and compares them with C + D using
+integers. C and D remain separate; operator attestations are not trustless proof or
+evidence that in-transit principal is spendable. Public EVM recipients and burns
+remain visible, and the operator can correlate both legs.
+
+The deployed service has not activated the bridge. Deployment, dedicated reserves,
+runtime adapters, reconciliation and actual two-way testnet settlement remain
+independent acceptance gates. The default server status displays **Bridge not
+activated**, and no static frontend environment switch enables funding.
+
+When a separately configured server passes fresh admission, the browser requests
+a capability-authenticated quote, reviews its exact terms, and accepts using a
+stable separate idempotency key. Accepted shielded funding produces a local ZIP 321
+QR from the exact opaque UTF-8 memo, address, integer amount and server cutoffs.
+Reverse funding checks the pinned contract runtime hash, chain, payer, amount,
+deadline and reconstructed `requestRedemption` calldata; it reads the actual
+`redemptions(bytes32)` tuple before an explicit wallet burn. The token burns the
+caller directly, so there is no bridge token approval. Unknown sends block retry;
+the service independently discovers and verifies the original receipt.
+
+Private bridge activity stays in memory across product/activity switches. Export
+and restore use an explicit private recovery file, validated against the original
+capability-protected server order. A restored file conservatively blocks another
+burn because it may predate an existing transaction. It does not authorize a new
+payment. Bridge recipients, refunds, capabilities and memos never enter URLs,
+analytics, logs, localStorage or sessionStorage. Refunds use the operator's
+reconciled cancellation/refund worker path; no public refund mutation is offered.
 
 Protocol/URI tests use isolated synthetic values. Playwright intercepts the API
 with deliberately synthetic responses, including valid Bech32m encoding fixtures

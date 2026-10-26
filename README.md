@@ -17,6 +17,16 @@ earlier offline preview, not a new cross-chain settlement.
 
 ![ZeeSwap testnet web preview](docs/assets/zeeswap-web.png)
 
+The public interface also includes a separate **Bridge** mode for shielded TAZ
+and **zeeTAZ**, the planned 8-decimal Base Sepolia representation with exact 1:1
+principal. The paused contract, isolated encrypted accounting, private API flow
+and web implementation have local and isolated PostgreSQL evidence. The
+[actual public Bridge screen](docs/evidence/g6-bridge-web-live.md) explicitly
+disables new deposits and burns: deployed bridge identity, dedicated backing,
+concrete chain/wallet adapters and live two-way settlement remain acceptance
+gates. A published interface is not a working live bridge. See the
+[bridge design and integration contract](docs/bridge.md).
+
 ```sh
 pnpm install --frozen-lockfile
 pnpm web:dev

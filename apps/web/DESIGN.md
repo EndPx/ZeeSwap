@@ -58,6 +58,16 @@ Unbroken addresses wrap inside min-width:0 containers.
 
 ## 5. Primitives and states
 
+- Product mode: labelled Swap/Bridge button group with `aria-pressed`, using the
+  existing charcoal selected surface and 44px controls. Mode changes preserve
+  swap state; bridge addresses stay in memory and clear on direction changes.
+- Bridge panel: existing amount panels and route rail; 1:1 principal arithmetic
+  uses eight decimals. Unavailable, checking, paused, stale and deficit states
+  explain why new exposure is closed. No funding details appear from previews.
+- Coverage disclosure: collapsible paired chain checkpoints with controlled C,
+  in-transit D and each liability separately. Display only validated fresh data;
+  identify operator attestation and public EVM visibility in plain language.
+
 - Button: primary charcoal/orange, quiet and icon variants; min 44px touch target;
   visible focus, hover tint, pressed transform, disabled explanation, busy spinner.
 - Token chip: circular original protocol text mark + network label + chevron;
