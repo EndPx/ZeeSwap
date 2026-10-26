@@ -34,8 +34,8 @@ type Current={generation:string;checkpoint:{height:number;hash:string}};
 /** A durable intent may remain after an expired fsync; never return to the SQL publisher then. */
 export async function chefLinkedPublicationFence(signal:AbortSignal|undefined,writeIntent:()=>Promise<void>,leaseFence:()=>Promise<void>){signal?.throwIfAborted();await writeIntent();await leaseFence();signal?.throwIfAborted();}
 export async function prepareChefLinkedCatchupPublish(options:{journal:ChefLinkedJournal;approval:ChefLinkedApproval;sha:string;canonical:LinkedCanonical;checks:number[];
- finalSignal?:AbortSignal;guard():Promise<void>;readCurrent(signal?:AbortSignal):Promise<Current>;traverse(range:{fromHeight:number;throughHeight:number},canonical:LinkedCanonical,signal:AbortSignal):Promise<{batch:ReplaceRange;snapshot:Snapshot;historicalWitness?:ChefHistoricalWitness}>;save(journal:ChefLinkedJournal):Promise<void>}){
- const{approval:p,sha,canonical,checks}=options;let j=options.journal;
+ finalSignal?:AbortSignal;guard():Promise<void>;finalFence?():Promise<void>;readCurrent(signal?:AbortSignal):Promise<Current>;traverse(range:{fromHeight:number;throughHeight:number},canonical:LinkedCanonical,signal:AbortSignal):Promise<{batch:ReplaceRange;snapshot:Snapshot;historicalWitness?:ChefHistoricalWitness}>;save(journal:ChefLinkedJournal):Promise<void>}){
+ const{approval:p,sha,canonical,checks}=options;let j=options.journal;const finalFence=options.finalFence??options.guard;need(!options.finalFence||p.version===3,'FINAL_FENCE_V3_ONLY');
  validateChefLinkedRecovery(j,p,sha,j.target);need(nextChefLinkedRecoveryRange(j)===null,'COMPLETE_PREFIX_REQUIRED');need(checks.length<=502,'ANCHOR_LIMIT');
  const history=chefLinkedRecoveryHeaders(j),bulkSignal=AbortSignal.timeout(90000);
  await canonical.prefetchPersisted([...new Set([...history.map(h=>h.height),...checks,j.target.height-9])],bulkSignal);
@@ -47,9 +47,9 @@ export async function prepareChefLinkedCatchupPublish(options:{journal:ChefLinke
  const target=await canonical.freshHeader(selected.checkpoint.height,signal);need(target.height===selected.checkpoint.height&&target.hash===selected.checkpoint.hash,'CANONICAL_CHECKPOINT_MISMATCH');
  if(target.height>j.target.height){j=extendChefLinkedRecoveryTarget(j,p,sha,j.target,target);const range=nextChefLinkedRecoveryRange(j);need(range&&range.throughHeight===target.height&&range.throughHeight-range.fromHeight+1<=1000,'FINAL_SUFFIX_TOO_LARGE');
   await canonical.prefetchPersisted(Array.from({length:range!.throughHeight-range!.fromHeight+1},(_,i)=>range!.fromHeight+i),signal);
-  const result=await options.traverse(range!,bound,signal);signal.throwIfAborted();await options.guard();signal.throwIfAborted();
+  const result=await options.traverse(range!,bound,signal);signal.throwIfAborted();await finalFence();signal.throwIfAborted();
   const checked=await canonical.freshHeader(target.height,signal);j=appendChefLinkedRecoveryProof(j,p,sha,checked,result.batch,result.snapshot,Date.now(),result.historicalWitness);await options.save(j);signal.throwIfAborted();
  }else need(target.height===j.target.height&&target.hash===j.target.hash,'TARGET_REGRESSION');
- const snapshot=await chefLinkedRecoverySnapshot(j,p,sha,canonical,checks,()=>options.readCurrent(signal),signal);signal.throwIfAborted();await options.guard();signal.throwIfAborted();
+ const snapshot=await chefLinkedRecoverySnapshot(j,p,sha,canonical,checks,()=>options.readCurrent(signal),signal);signal.throwIfAborted();await finalFence();signal.throwIfAborted();
  return{journal:j,snapshot,signal};
 }

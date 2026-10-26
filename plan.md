@@ -715,6 +715,20 @@ Linux tests, but its live audit correctly stopped at `WAIT_SOURCE_UNREADY` befor
 issuance. Coordinate shared-Prep remediation before Native recovery and Base
 identity adoption; do not reinterpret this waiting state as fresh readiness.
 
+Resumed source checkpoint (27 October): after the Zeer operator's lossless
+catalog recovery, Root independently verified Chef ready at 4,545,214 with the
+same generation/container lifecycle and genuine fresh source observations.
+Current E222/70-row financial state remained unchanged. Fresh audit/capital
+checks issued a separate metadata-only V3 approval; complete private suffix
+coverage followed. Three publication invocations stopped before any intent/SQL
+when Core advanced during their final checks. The bounded V3 scheduling fix
+retains full preselection and locked pre-intent guards while combining the
+intermediate state reads into one coherent fence. Root passed 44 cases locally
+and on Linux plus actual read-only equivalence of all old/new persisted and
+financial fields. Source equality, canonicality, expiry and the final 30-second
+window remain unchanged. Actual publication/following and Base adoption remain
+open until their original intent/readback gates pass.
+
 Amounts are canonical integer strings over APIs, `bigint` in TypeScript, and checked integer arithmetic in Rust/Solidity. Zcash uses 8 decimal places and mockUSDC uses 6. Store integer units in PostgreSQL using the `zee.atomic` NUMERIC domain with integral-value, 78-digit and asset-specific bounds. This replaces direct `NUMERIC(78,0)` assignment because PostgreSQL can round a fractional value before its check constraint. Prices use rational/scaled integers. Round destination output down and required input/fee reserves up; reject zero output or invalid decimals. References to USDC below describe the product asset role; all prototype execution and UI use mockUSDC explicitly.
 
 ### Finality policy

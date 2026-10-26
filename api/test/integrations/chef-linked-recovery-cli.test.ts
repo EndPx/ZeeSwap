@@ -1,8 +1,29 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,unlink,rm} from 'node:fs/promises';import {join} from 'node:path';import {tmpdir} from 'node:os';
 import {requireChefRecoveryMarkersClear} from '../../scripts/observe-linux-chef.ts';
-import {parseChefLinkedArgs,requireChefLinkedCampaignActive,validateChefLinkedPersistedBindings,validateChefLinkedIssuanceEvidence,chefLinkedCanonicalReader,chefLinkedInitialCanonicalVerification} from '../../scripts/recover-linux-chef-linked.ts';
+import {parseChefLinkedArgs,requireChefLinkedCampaignActive,validateChefLinkedPersistedBindings,validateChefLinkedIssuanceEvidence,chefLinkedCanonicalReader,chefLinkedInitialCanonicalVerification,chefLinkedFinalFence,readChefLinkedFinalState} from '../../scripts/recover-linux-chef-linked.ts';
 import {chefPersistedCanonical} from '../../src/integrations/observation/chef-live.ts';
+import {createHash} from 'node:crypto';
+import {digest} from '../../src/integrations/observation/types.ts';
+import {continuationDigest,continuationTables} from '../../src/native-circle-continuation.ts';
+import {publishObserverBatch} from '../../src/observer-frontiers.ts';
+
+test('V3 final fence captures one coherent read and refuses control/checkpoint/header/native-financial/books/auth/cursor/authority/lease drift before private save',async()=>{
+ const now=Date.now(),raw=Buffer.from('reviewed V3 approval'),cursor=Buffer.from('exact old cursor'),sha=(b:Buffer)=>createHash('sha256').update(b).digest('hex'),books=Object.fromEntries(continuationTables.map(t=>[t,[]])) as Record<string,any[]>;
+ books.orders=[{state:'REFUNDED'}];books.ledger_entries=Array.from({length:69},(_,id)=>({id}));
+ const persisted:any={control:{epoch:'222',xmin:'766729'},checkpoint:{scanned_height:'4541823'},headers:[{height:'4541823',block_hash:'a'.repeat(64)}],financial:{deposits:[],reverse_payouts:[],source_refunds:[]}},state={database:'zee_app_20261023',role:'zee_app_worker_20261023',persisted,checkpointXmin:'766729',books,authorizationRows:'0'},a:any={version:3,status:'ROOT_CHEF_LINKED_CURRENT_CLOSED_METADATA_RECOVERY_APPROVED',metadataOnly:true,noFinance:true,verifiedAt:new Date(now-1000).toISOString(),expiresAt:new Date(now+3600000).toISOString(),financialDigest:continuationDigest(books),baseline:{checkpoint:{xmin:'766729'},cursor:{sha256:sha(cursor)}}};
+ let queries=0;const read=()=>readChefLinkedFinalState({query:async()=>{queries++;return{rows:[structuredClone(state)]};}} as any),io={alive:()=>true,approvalRaw:async()=>raw,cursorRaw:async()=>cursor,read};
+ await chefLinkedFinalFence(a,sha(raw),digest(persisted),io,()=>now);assert.equal(queries,1);
+ for(const change of [(s:any)=>s.persisted.control.epoch='223',(s:any)=>s.persisted.checkpoint.scanned_height='4541824',(s:any)=>s.persisted.headers[0].block_hash='b'.repeat(64),(s:any)=>s.persisted.financial.deposits.push({amount:'1'}),(s:any)=>s.checkpointXmin='766730',(s:any)=>s.books.ledger_entries[0].id='changed',(s:any)=>s.authorizationRows='1',(s:any)=>s.role='zee_app_reader_20261023']){const bad=structuredClone(state);change(bad);let saves=0;await assert.rejects(async()=>{await chefLinkedFinalFence(a,sha(raw),digest(persisted),{...io,read:async()=>bad},()=>now);saves++;});assert.equal(saves,0);}
+ for(const patch of [{alive:()=>false},{approvalRaw:async()=>Buffer.from('changed')},{cursorRaw:async()=>Buffer.from('changed')}]){let saves=0;await assert.rejects(async()=>{await chefLinkedFinalFence(a,sha(raw),digest(persisted),{...io,...patch},()=>now);saves++;});assert.equal(saves,0);}
+ await assert.rejects(chefLinkedFinalFence(a,sha(raw),digest(persisted),io,()=>Date.parse(a.expiresAt)),/APPROVAL_TIME/);
+ let calls=0;await assert.rejects(chefLinkedFinalFence(a,sha(raw),digest(persisted),{...io,read:async()=>{calls++;return state;}},()=>calls?Date.parse(a.expiresAt):now),/APPROVAL_TIME/);
+});
+test('the actual SQL publisher still runs the complete guard under observer lock before intent or metadata DML',async()=>{
+ const queries:string[]=[],client={query:async(sql:string)=>{queries.push(sql);return{rows:[]};},release(){}},pool={connect:async()=>client};let intents=0;
+ await assert.rejects(publishObserverBatch(pool as any,'root-chef-linked-suffix',[],[],undefined,async()=>{assert.ok(queries.includes('SELECT zee.lock_observer_cycle()'));throw Error('FULL_GUARD_CURRENT_BOOKS_REFUSED');intents++;}),/FULL_GUARD_CURRENT_BOOKS_REFUSED/);
+ assert.equal(intents,0);assert.ok(queries.includes('ROLLBACK'));assert.ok(!queries.some(sql=>/^(?:INSERT|UPDATE|DELETE)/.test(sql)));assert.ok(!queries.includes('COMMIT'));
+});
 test('retired campaign refuses reentry without recreating marker or altering its retirement proof',async()=>{
  const directory=await mkdtemp(join(tmpdir(),'chef-retired-')),path=join(directory,'abandoned-without-publication.private.json'),raw='Root no-effect retirement receipt\n';
  try{await requireChefLinkedCampaignActive(directory);await writeFile(path,raw);await assert.rejects(requireChefLinkedCampaignActive(directory),/RETIRED_CAMPAIGN_NO_REPLAY/);const{readFile,lstat}=await import('node:fs/promises');assert.equal(await readFile(path,'utf8'),raw);await assert.rejects(lstat(join(directory,'linked-recovery-in-progress')),{code:'ENOENT'});}finally{await rm(directory,{recursive:true,force:true});}

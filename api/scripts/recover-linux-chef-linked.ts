@@ -80,6 +80,28 @@ export function validateChefLinkedCurrentClosedBooks(a:Pick<Extract<ChefLinkedAp
  need(s.orders!.every(r=>['SETTLED','REFUNDED','EXPIRED_UNFUNDED'].includes(r.state))&&s.obligations!.every(r=>r.state==='DISCHARGED')&&s.reservations!.every(r=>r.released_at)&&s.operations!.every(r=>r.state==='CONFIRMED')&&s.outbox_jobs!.every(r=>r.status==='DONE'&&r.lease_owner===null&&r.lease_until===null)&&s.inventory_accounts!.every(r=>String(r.reserved)==='0'),'CURRENT_CLOSED_OPEN_LIABILITY');
  need(s.chain_transactions!.every(r=>['CONFIRMED','REVERTED','EXPIRED'].includes(r.state))&&['base_attempts','escrow_commits','reverse_payouts','escrow_settlements'].every(t=>s[t]!.every(r=>r.confirmed===true))&&s.source_refunds!.every(r=>r.confirmed===true&&r.base_confirmed===true),'CURRENT_CLOSED_UNRESOLVED_ATTEMPT');
 }
+type FinalFenceState={database:string;role:string;persisted:ChefPersistedState;checkpointXmin:string;books:Record<string,any[]>;authorizationRows:string};
+/** One MVCC statement preserves all native persisted fields and the complete
+ * financial snapshot. It does not replace the full preselection/SQL guard. */
+export async function readChefLinkedFinalState(client:Pick<pg.PoolClient,'query'>):Promise<FinalFenceState>{
+ const books=continuationTables.map(table=>`'${table}',(SELECT COALESCE(jsonb_agg(row ORDER BY row::text),'[]'::jsonb) FROM (SELECT to_jsonb(t) AS row FROM zee.${table} t ORDER BY to_jsonb(t)::text LIMIT 129) bounded)`);
+ return(await client.query(`SELECT current_database() AS database,current_user AS role,
+  jsonb_build_object(
+   'control',(SELECT to_jsonb(c)||jsonb_build_object('xmin',xmin::text) FROM zee.runtime_control c WHERE singleton),
+   'checkpoint',(SELECT to_jsonb(c) FROM zee.scanner_checkpoints c WHERE network='zcash-testnet'),
+   'headers',(SELECT COALESCE(jsonb_agg(to_jsonb(h) ORDER BY h.height::bigint),'[]'::jsonb) FROM (SELECT height::text,block_hash FROM zee.chain_observations WHERE network='zcash-testnet' ORDER BY height LIMIT 10005) h),
+   'financial',jsonb_build_object('deposits',(SELECT COALESCE(jsonb_agg(to_jsonb(d) ORDER BY d.id),'[]'::jsonb) FROM (SELECT * FROM zee.deposits WHERE network='zcash-testnet' ORDER BY id LIMIT 129) d),'reverse_payouts',(SELECT COALESCE(jsonb_agg(to_jsonb(r) ORDER BY r.order_id),'[]'::jsonb) FROM (SELECT * FROM zee.reverse_payouts ORDER BY order_id LIMIT 129) r),'source_refunds',(SELECT COALESCE(jsonb_agg(to_jsonb(r) ORDER BY r.order_id),'[]'::jsonb) FROM (SELECT * FROM zee.source_refunds ORDER BY order_id LIMIT 129) r))) AS persisted,
+  (SELECT xmin::text FROM zee.scanner_checkpoints WHERE network='zcash-testnet') AS "checkpointXmin",
+  jsonb_build_object(${books.join(',')}) AS books,
+  (SELECT count(*)::text FROM zee.root_native_circle_authorizations) AS "authorizationRows"`)).rows[0] as FinalFenceState;
+}
+export async function chefLinkedFinalFence(a:Extract<ChefLinkedApproval,{version:3}>,approvalSha256:string,persistedIdentity:string,io:{alive():boolean;approvalRaw():Promise<Buffer>;cursorRaw():Promise<Buffer>;read():Promise<FinalFenceState>},now:()=>number=Date.now){
+ need(a.version===3,'FINAL_FENCE_V3_ONLY');validateChefLinkedApprovalTime(a,now());need(io.alive(),'LEASE_LOST');need(sha(await io.approvalRaw())===approvalSha256,'APPROVAL_CHANGED');
+ const current=await io.read();need(current?.database==='zee_app_20261023'&&current.role==='zee_app_worker_20261023','CONNECTED_WORKER_SCOPE');
+ need(typeof persistedIdentity==='string'&&/^[a-f0-9]{64}$/.test(persistedIdentity)&&digest(current.persisted)===persistedIdentity&&current.checkpointXmin===a.baseline.checkpoint.xmin,'PERSISTED_STATE_CHANGED_DURING_VERIFY');
+ validateChefLinkedCurrentClosedBooks(a,current.books);need(current.authorizationRows==='0','ADMISSION_AUTH_ALREADY_MINTED');need(sha(await io.cursorRaw())===a.baseline.cursor.sha256,'CURSOR_BASELINE_CHANGED');
+ validateChefLinkedApprovalTime(a,now());need(io.alive(),'LEASE_LOST');
+}
 export async function requireChefLinkedFreshAuditState(client:Pick<pg.PoolClient,'query'>,audit:NoRepairAudit){
  const rows=(await client.query('SELECT network,height::text,block_hash FROM zee.chain_observations ORDER BY network,height LIMIT 40001')).rows;need(rows.length<=40000,'CURRENT_AUDIT_ROW_BOUND');
  const byHeight=new Map(rows.map(row=>[row.network+':'+row.height,row.block_hash]));need(byHeight.size===rows.length,'CURRENT_AUDIT_ROW_DUPLICATE');
@@ -124,6 +146,7 @@ export async function runChefLinkedRecovery(options:ReturnType<typeof parseChefL
   validateChefLinkedApproval(a,{stateRoot:state,profileSha256,handoffSha256:sha(handoffRaw),openingProofSha256:profile.immutable.openingProof.sha256,financialDigest:continuation.postRefundSnapshotSha256,control:a.control,baseline:a.baseline,legacyJournal:a.legacyJournal,identity:{project:c.project,generation:continuation.sourceIdentity.chefGeneration,policy}});
   await fence();return current;
  }
+ async function finalFence(){need(a.version===3&&persistedIdentity,'FINAL_FENCE_CONTEXT');await chefLinkedFinalFence(a,options.pin,persistedIdentity,{alive:()=>!lost,approvalRaw:()=>bytes(options.path,0,262144),cursorRaw:()=>bytes(a.baseline.cursor.path,986),read:()=>readChefLinkedFinalState(lease)});}
  async function canonicalPersisted(headers:Pick<LinkedCanonical,'header'|'prefetchPersisted'>=chefPersistedCanonical(range=>canonical(range))){const before=await readChefPersistedState(lease),active=JSON.parse((await bytes(a.baseline.cursor.path,986)).toString());validateChefLinkedPersistedBindings(before,active);const signal=AbortSignal.timeout(90000),rows=before.headers;await headers.prefetchPersisted(rows.map(r=>Number(r.height)),signal);for(const r of rows){const h=await headers.header(Number(r.height),signal);need(h.hash===r.block_hash,'PERSISTED_CANONICAL_CONFLICT');}need(stable(await readChefPersistedState(lease))===stable(before),'PERSISTED_STATE_CHANGED_DURING_VERIFY');return digest(before);}
  try{return await withChefRecoveryJournal(recovery,async io=>{
   const legacy=await io.read();need(legacy,'LEGACY_JOURNAL_REQUIRED');const old=await canonical().header(legacy.target.height,AbortSignal.timeout(15000));validateChefRecoveryJournal(legacy,a.identity,old);need(nextChefRecoveryRange(legacy)===null,'LEGACY_COMPLETE_REQUIRED');
@@ -159,12 +182,12 @@ export async function runChefLinkedRecovery(options:ReturnType<typeof parseChefL
   }
   const readCurrent=async(signal?:AbortSignal)=>{const s=await source(signal);return{generation:s.generation,checkpoint:{height:s.checkpoint.height,hash:s.checkpoint.hash}};};
   let snapshot:Snapshot;
-  if(shared){const prepared=await prepareChefLinkedCatchupPublish({journal:j,approval:a,sha:options.pin,canonical:shared,checks:await chefFinancialCheckHeights(pool),guard:async()=>{await guard();},readCurrent,
+  if(shared){const prepared=await prepareChefLinkedCatchupPublish({journal:j,approval:a,sha:options.pin,canonical:shared,checks:await chefFinancialCheckHeights(pool),guard:async()=>{await guard();},...(a.version===3?{finalFence}:{}),readCurrent,
    async traverse(range,reader,signal){const bridge=new ChefWalletBridge(localChefDecoder(c.pythonPath,[c.receiptScript,'--config',c.decoderConfigPath]),openingCapital),result=await new ChefAdapter({url:c.sourceUrl,token:env.CHEF_API_TOKEN!,project:c.project,policy,canonical:reader,classify:(note,inner)=>bridge.classify(note,AbortSignal.any([signal,inner])),fetch:(input,init)=>fetch(input,{...init,signal:init?.signal?AbortSignal.any([signal,init.signal]):signal})}).traverse(range.fromHeight,range.throughHeight);need(result.status==='READY_SHADOW','SOURCE_NOT_READY');if(result.status!=='READY_SHADOW')throw Error('CHEF_LINKED_SOURCE_NOT_READY');const historical=result.historicalWitness?{witness:result.historicalWitness,project:c.project}:undefined;return{batch:result.batch,snapshot:bridge.snapshot(result.batch,policy,Date.now(),historical),historicalWitness:result.historicalWitness};},
    async save(next){j=next;await atomic(journalPath,json(j),false,fence);},
   });j=prepared.journal;snapshot=prepared.snapshot;publicationWindow=prepared.signal;
   }else{await canonicalPersisted();snapshot=await chefLinkedRecoverySnapshot(j,a,options.pin,chefLinkedCanonicalReader(canonical),await chefFinancialCheckHeights(pool),readCurrent,AbortSignal.timeout(30000));}
-  need(snapshot.outputs.length===0,'UNEXPECTED_OUTPUTS');await guard();const final=snapshot.blocks.find(b=>b.height===snapshot.scannedHeight-9);need(final,'FINALIZED_HEADER');
+  need(snapshot.outputs.length===0,'UNEXPECTED_OUTPUTS');if(shared&&a.version===3)await finalFence();else await guard();const final=snapshot.blocks.find(b=>b.height===snapshot.scannedHeight-9);need(final,'FINALIZED_HEADER');
   let intent:Intent|undefined;
   try{await publishObserverBatch(pool,'root-chef-linked-suffix',[{network:'zcash-testnet',height:snapshot.scannedHeight,hash:snapshot.tipHash,finalizedHeight:final.height,finalizedTime:new Date(final.time),observedAt:new Date(snapshot.observedAt)}],snapshot.blocks.map(b=>({network:'zcash-testnet',...b,time:new Date(b.time)})),undefined,async client=>{
    const before=await guard(client);publicationWindow?.throwIfAborted();validateSnapshot(snapshot);const xid=String((await client.query('SELECT pg_current_xact_id()::text AS id')).rows[0].id);publicationWindow?.throwIfAborted();need(/^[1-9][0-9]*$/.test(xid),'XID_REQUIRED');const expectedXmin=(BigInt(xid)%4294967296n).toString(),candidateCursor={version:1,identityDigest:a.baseline.cursor.value.identityDigest,processedThrough:snapshot.scannedHeight,tipHash:snapshot.tipHash,snapshotDigest:digest(snapshot)};

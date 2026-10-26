@@ -79,3 +79,39 @@ installed `archive-repack` preserves segment boundaries, so compression alone is
 not evidence of a remedy for this limit. Shared-Prep remediation must be
 coordinated separately; the Zcash application remains paused at the verified
 E222 replay baseline until a real ready source permits the audit and catch-up.
+
+## Resumed source and final-window scheduling
+
+After the separately operated Prep repair, Root directly verified Chef ready at
+4,545,214 on 26 October 20:57:51 UTC / 27 October 03:57:51 WIB. Generation,
+container start times and restart counts were unchanged. The application still
+held the exact E222 baseline and unchanged 70-row financial digest.
+
+A fresh full audit and actual Native/Base capital captures passed. The first
+manual preparation missed the 60-second audit window and refused issuance.
+A separately reviewed bounded coordinator then captured and checked genuine
+observations in sequence; it did not modify old timestamps. New V3 metadata
+authority was issued, and four private historical proofs covered the suffix
+through 4,545,245 with zero observations/outputs and no SQL publication.
+
+Three explicit combined publication invocations subsequently stopped on
+`CURRENT_TAIL_CHANGED` or `CURRENT_TAIL_REQUIRED` before any publication intent
+or application SQL change. Their private coverage and failures are retained.
+Core continued advancing during the intermediate serial guard work.
+
+The narrow scheduling correction keeps the original full guard immediately
+before final Core selection and again inside the observer-locked SQL callback
+before intent or metadata DML. Only the V3 intermediate fences use one coherent
+read containing the exact existing persisted-state shape, checkpoint xmin,
+all 19 financial tables and authorization count. Approval bytes/expiry, live
+lease, exact cursor, persisted digest, closed books and zero authorizations
+remain checked. Older callers retain the full-guard default. Exact current-Core
+equality, canonical checks, the 30-second deadline, one suffix and one SQL
+attempt remain unchanged; there is no source pause or new retry protocol.
+
+Root independently passed 44 focused cases and API typechecking, then passed
+the same 44 cases on Linux. An actual read-only repeatable-read transaction
+compared the new coherent result with `readChefPersistedState` and
+`readContinuationSnapshot`: both matched exactly, including all 2,264 retained
+Native headers, 70 financial rows, checkpoint xmin and zero authorization rows.
+These checks do not themselves establish successful live metadata publication.
