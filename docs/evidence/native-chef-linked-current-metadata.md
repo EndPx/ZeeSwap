@@ -1,8 +1,9 @@
-# Current closed-history Chef metadata catchup preparation
+# Current closed-history Chef metadata catchup and live recovery
 
-This checkpoint prepares a new Root metadata-only authority after the sparse-tip
-repair. It does not activate financial admission or renew the expired financial
-authority. Actual execution of this new catchup remains pending.
+Root completed the new metadata-only recovery after the sparse-tip repair and
+verified ordinary Native observation following on 27 October. The actual
+publication and readback are recorded below. Financial admission remains
+disabled and the expired financial authority has not been renewed.
 
 Root independently verified the preceding sparse repair as committed-exact:
 epoch 222 / transaction version 766729, checkpoint and protected cursor 4541823,
@@ -115,3 +116,34 @@ compared the new coherent result with `readChefPersistedState` and
 `readContinuationSnapshot`: both matched exactly, including all 2,264 retained
 Native headers, 70 financial rows, checkpoint xmin and zero authorization rows.
 These checks do not themselves establish successful live metadata publication.
+
+## Actual Native publication and ordinary following
+
+Root retired the original no-publication campaign after separately inspecting
+its exact unchanged application state, seven preserved private proofs and absent
+publication intent. Its receipt was fsynced before the exact owned global marker
+was archived. No SQL, proof history or authority was rewritten by retirement.
+
+A new audit and actual capital captures produced a distinct V3 approval bound
+to `066895a01fc06797aad36f915861aee69b5b13b9`. Root recollected the suffix into
+four private proofs and invoked one explicit combined publication. It completed
+as `CHEF_LINKED_COMMITTED_EXACT`.
+
+Independent read-only verification established original transaction 819814 as
+committed, the exact protected cursor/checkpoint at 4,545,322, finalized height
+4,545,313 and actual observation time `2026-10-26T21:45:49.992Z`. Both recovery
+markers were clear. Control remained paused/reconciling E222/xmin766729, with
+the same 19-table/70-row financial digest and zero authorization rows.
+
+Root then started the ordinary Native application observer. At
+`2026-10-26T21:47:47Z` it was active with zero restarts and had advanced to
+4,545,325, with observation age about 10.5 seconds and the matching cursor.
+Successful ordinary observation cycles were present. Base application adoption
+and catch-up remain separate and financial admission/dispatch remain disabled.
+This is live Native observation recovery, not a funded market-priced settlement.
+
+After the separate Base identity cutover and stopped pilot, Root's independent
+restricted-reader check at `2026-10-26T22:55:14Z` found Native checkpoint
+4,545,479 with fresh observation metadata. Ordinary following was active with
+zero restarts. The Base/financial world still matched its complete protected
+baseline; the Base pilot had not authorized a payout or changed financial rows.

@@ -729,6 +729,41 @@ financial fields. Source equality, canonicality, expiry and the final 30-second
 window remain unchanged. Actual publication/following and Base adoption remain
 open until their original intent/readback gates pass.
 
+Actual Native recovery acceptance (27 October): after exact no-publication
+retirement of the earlier campaign, a new approval bound to code `066895a`
+recollected complete private coverage and published once. Independent readback
+proved original transaction 819814 committed-exact, checkpoint/cursor 4,545,322,
+finalized 4,545,313 and original actual observation timestamp. Markers were clear,
+control remained E222/xmin766729 and the 70-row financial digest/auth0 were
+unchanged. Root started ordinary Native following and observed advancement to
+4,545,325 with fresh metadata, matching cursor, active process and zero restarts.
+Base adoption/catch-up, capital allocation, market activation and the actual
+funded circle remain open. Source readiness did not activate financial authority.
+
+Actual Base identity acceptance (27 October): Root installed and qualified the
+65-file published event-first application closure, preserving the original
+profile, bootstrap and historical recovery archives. The distinct identity-only
+cutover completed and independent readback classified the admission as
+`CANDIDATE_EXACT`. The completed selector was installed and verified through its
+actual profile loader. Base checkpoint 50,174,047, all 269 Base headers, E222,
+the 19-table/70-row financial digest and zero authorizations were unchanged;
+there was no SQL mutation or financial action. Native following resumed.
+Full Base read-only catch-up and current-tail publication are the next gates;
+the new source identity does not by itself refresh application metadata.
+
+Actual Base pilot checkpoint (27 October): the first collection-only, restricted
+reader pilot acknowledged two packets / 128 blocks before a generic refusal.
+Independent inspection verified the prefix without orphans. One explicitly
+approved remaining-pilot invocation, using a fresh exact-manifest phase-pilot
+resume and the original expiry, stopped on `EVENT_FIRST_INDEPENDENT_SOURCE`
+without adding another packet. Three later composite-only samples passed;
+they do not identify the earlier failing conjunct or count as full packet proofs.
+The saved clocks show about 4.8 seconds of source work followed by 5.3 seconds
+until each verified save, while Base grew about 5 blocks/second. No full
+twenty-packet rate, long-run ETA, metadata publication or financial activation
+is established. Preserve the two-packet campaign and evidence; qualify any
+separate consumer performance change under the existing proof/resource gates.
+
 Amounts are canonical integer strings over APIs, `bigint` in TypeScript, and checked integer arithmetic in Rust/Solidity. Zcash uses 8 decimal places and mockUSDC uses 6. Store integer units in PostgreSQL using the `zee.atomic` NUMERIC domain with integral-value, 78-digit and asset-specific bounds. This replaces direct `NUMERIC(78,0)` assignment because PostgreSQL can round a fractional value before its check constraint. Prices use rational/scaled integers. Round destination output down and required input/fee reserves up; reject zero output or invalid decimals. References to USDC below describe the product asset role; all prototype execution and UI use mockUSDC explicitly.
 
 ### Finality policy

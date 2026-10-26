@@ -1,8 +1,9 @@
 # Closed-history event-first V2 implementation — 27 October 2026
 
-This milestone adds separate Root-only read collection and fresh metadata
-publication for the new Envio event-first identity. It does not apply a cutover,
-advance a live checkpoint, start a service or authorize finance. Existing V1
+The implementation adds separate Root-only read collection and fresh metadata
+publication for the new Envio event-first identity. The actual Root source
+identity cutover is recorded below; live historical collection/publication and
+financial activation remain separate gates. Existing V1
 recovery, SDK source protocol, market code, old profile and financial guards are
 unchanged. Root's latest reported E222/full closed 70-row digest is a qualification
 input, not an observation performed by this coding agent.
@@ -62,9 +63,84 @@ new/maintained V2 and cutover cases together with the 12 final unarmed market
 actor cases. These counts overlap owner and reviewer runs. They do not establish
 an installed runtime, actual source adoption or a live funded circle.
 
-Cutover helper
-qualification, minimal Native reader pins, actual installed-code closure, source
-pilot throughput/head growth, physical disk/RSS limits, fresh Root proof issuance,
-exact file cutover/selector install, full live collection/publication and ordinary
-application observer restart all remain operator gates. The source generation
-being healthy does not establish application adoption or financial readiness.
+At the implementation freeze, cutover qualification, installed-code closure,
+pilot throughput/head growth, resource limits, Root proof issuance, file cutover,
+selector installation and live collection/publication were still operator gates.
+The completed identity adoption is recorded next. A healthy source generation
+alone does not establish financial readiness.
+
+## Actual source identity cutover
+
+Root completed a distinct source identity cutover on 27 October. Its first
+deployment attempt stopped before approval or intent because the import-only
+file closure omitted the snapshot JSON schema read at module initialization.
+The corrected closure adds that exact published asset, preserves the preceding
+64 file pins and uses fresh qualification and manifest namespaces. Root's
+actual Linux import smoke passed with network access forbidden. Nine local
+preparation/import checks and independent review also passed, with zero skips.
+
+Independent review found that the earlier private operational reader stripped
+optional RPC log fields before verification. A separate reviewed operator clone
+now sends original log objects through the public strict parser and bounds the
+response to 8 MB. Four extracted-reader regressions passed with zero skips,
+including invalid timestamps and unknown fields. The original artifacts remain
+preserved; no public source or verification gate was weakened.
+
+Fresh actual qualification checked the checkpoint overlap, every retained Base
+header, required financial anchors and the fixed canonical Native checkpoint
+at 4,545,393. Root independently reviewed the prepared world/candidate binding
+before applying the identity-only file change. A separate read-only transaction
+then classified the actual admission as `CANDIDATE_EXACT` and validated the
+original completion receipt and cleared recovery marker.
+
+The protected selector was exclusively installed, read back and loaded through
+the actual selected-profile loader. It selects the new event-first generation
+and verifies its installed code manifest and completed-cutover bindings. The
+original profile, bootstrap and historical recovery archives are preserved.
+SQL checkpoint 50,174,047, all 269 retained Base rows, paused control E222,
+the same 19-table/70-row financial digest and zero authorizations were unchanged.
+There was no SQL mutation or financial action in this cutover.
+
+Root restarted ordinary Native observation after the coherent initial boundary.
+Base historical collection, current-tail publication, ordinary Base following,
+financial activation and a funded market-priced circle remain open. Source
+identity adoption alone does not make the old Base checkpoint fresh.
+
+## First actual bounded collection pilot
+
+Root captured a new snapshot through the actual restricted reader connection,
+verified its unchanged world digest and issued a separate collection-only permit
+from `2026-10-26T22:35:40.337Z` until `2026-10-27T22:35:40.337Z`. It grants no SQL
+publication, admission mutation or financial authority. The known-event list is
+explicitly empty: an unexpected event stops collection for reconciliation.
+Historical financial authority is retained only as immutable archive provenance.
+
+The first supervised `Restart=no` pilot stopped with exit 78 after acknowledging
+two packets / 128 blocks, ending at 50,174,175. The public CLI's generic error
+does not establish its original cause. Independent inspection verified both
+packets and the complete manifest with no orphan; private stored bytes were
+34,654. Application SQL checkpoint remained 50,174,047.
+
+The two acknowledged packets took 4.771 and 4.785 seconds at the source, followed
+by 5.269 and 5.407 seconds until verified storage. Between their acknowledgements,
+10.827 seconds elapsed and the producer advanced 56 blocks. These two observations
+are not a successful twenty-packet throughput benchmark and do not establish a
+full catch-up ETA or late-prefix filesystem performance.
+
+Root's separate next-range read verified successfully in 9.726 seconds but was
+not appended. After a new exact-manifest, phase-pilot resume with the original
+expiry unchanged, one explicitly supervised remaining-pilot invocation stopped
+before appending another packet. Its protected diagnostic records
+`EVENT_FIRST_INDEPENDENT_SOURCE`. This establishes the composite guard failure
+for that invocation, not the cause of the original generic failure.
+
+Three subsequent explicitly bounded composite-only observations all passed,
+with producer lags of 31, 32 and 31 blocks and matching finalized heights. They
+are not complete packet verifications and were not appended. Consequently the
+specific failing conjunct in the earlier composite is still unproven.
+
+No long collector, SQL publication or financial activation was started. The
+original two-packet prefix, permissions, diagnostics and owned recovery marker
+are preserved. A later performance change must retain proof, freshness, lag,
+method pacing and resource limits, obtain distinct execution-code permissions,
+and qualify throughput against actual head growth before any owned long run.
