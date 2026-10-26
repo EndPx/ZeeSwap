@@ -705,6 +705,16 @@ keeps live canonical checks separate. No capital allocation, signing, financial
 broadcast or trading activation occurred. Native receipt catch-up and Base
 adoption/catch-up remain the next source gates.
 
+Current-source blocker (27 October WIB; 26 October 18:00:39 UTC): the shared Prep
+follower reached its 30,000-segment catalog limit and exited. Root independently
+read the exact catalog count, byte size and final height 4,544,783; Chef continues
+running in source-wait reconciliation, with correct identity/history but no fresh
+source tip. No archive deletion/reset, limit increase or shared-service mutation
+has occurred. The new Native V3 preparation is published and passed 44 actual
+Linux tests, but its live audit correctly stopped at `WAIT_SOURCE_UNREADY` before
+issuance. Coordinate shared-Prep remediation before Native recovery and Base
+identity adoption; do not reinterpret this waiting state as fresh readiness.
+
 Amounts are canonical integer strings over APIs, `bigint` in TypeScript, and checked integer arithmetic in Rust/Solidity. Zcash uses 8 decimal places and mockUSDC uses 6. Store integer units in PostgreSQL using the `zee.atomic` NUMERIC domain with integral-value, 78-digit and asset-specific bounds. This replaces direct `NUMERIC(78,0)` assignment because PostgreSQL can round a fractional value before its check constraint. Prices use rational/scaled integers. Round destination output down and required input/fee reserves up; reject zero output or invalid decimals. References to USDC below describe the product asset role; all prototype execution and UI use mockUSDC explicitly.
 
 ### Finality policy

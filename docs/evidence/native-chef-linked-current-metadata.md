@@ -53,3 +53,29 @@ unchanged application's original source identity. This does not attest current
 Base producer readiness. No new SQL publication branch or migration was added.
 No new database execution, live catchup, ordinary observer restart, financial
 activation or payment is established by these local results.
+
+## Root Linux qualification and upstream gate
+
+Root published the preparation as `75a59cca2ee21365385c0d6fc36056f81f05a7d6`
+and verified the remote SHA. The five public runtime/test paths were installed
+with their original files archived first. The actual VPS passed **44/44 tests,
+zero skips**: the 41 public cases and three private CLI-boundary cases. The
+financial API retained its original process ID; no service or financial control
+was restarted or activated by that installation.
+
+The actual full audit then stopped at `WAIT_SOURCE_UNREADY`, before creating an
+audit proof or issuing the new metadata authority. Root's read-only diagnosis
+found Chef still running, with no container restart, waiting at height 4,544,783
+in source reconciliation. Prep was reachable and its identity/history matched,
+but it reported `ready:false`, unknown freshness and no current source-tip
+observation.
+
+The upstream Prep follower had exited at **18:00:39 UTC on 26 October** with
+`snapshot bound exceeded: catalog segment count`. Its durable catalog contained
+exactly **30,000 segments**, matching the deployed limit, and ended at 4,544,783.
+The catalog was 15,532,924 bytes. Root has not deleted segments, reset history,
+raised a limit, restarted the writer or modified the shared Zeer service. The
+installed `archive-repack` preserves segment boundaries, so compression alone is
+not evidence of a remedy for this limit. Shared-Prep remediation must be
+coordinated separately; the Zcash application remains paused at the verified
+E222 replay baseline until a real ready source permits the audit and catch-up.
