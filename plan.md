@@ -1216,3 +1216,14 @@ auth0 state stayed byte-exact. TAZ/ETH open verified external services. Direct
 USDC claiming awaits real deployment/funding and signer access; the successful
 Base Sepolia simulation is not a deployment. Existing Source recovery and
 funded settlement gates remain open. See docs/evidence/fixed-rate-faucet-live.md.
+
+USDC faucet activation (27 October, 12:20 WIB): correct existing Ubuntu
+setup account unlocked with the empty password. Root deployed the isolated
+faucet, minted exactly1,000USDC into its separate pool and verified actual
+bytecode, source verification and original receipts. A single nonce184 claim
+delivered10USDC; an RPC reset was reconciled without replay. The production
+receipt helper and public read-only wallet view passed; pool990USDC at
+acceptance, no faucet admin/minter role and the entire E225/70row/auth0
+application world unchanged. The public build configures the actual address.
+Swap Source recovery and settlement gates remain open; G5 stays stopped.
+See docs/evidence/usdc-faucet-live.md and the dedicated deployment registry.

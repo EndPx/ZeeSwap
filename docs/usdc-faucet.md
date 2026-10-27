@@ -71,3 +71,17 @@ runtime installation and balance seeding do not claim a live deployment.
 forge test --root contracts --match-contract USDCFaucetTest -vv
 forge test --root contracts
 ```
+
+
+## Root activation, 27 October 2026
+
+The faucet is now deployed, source-verified and funded on Base Sepolia at
+[0xdb5B315695B40945643EB409ebfE0116700e6BD2](https://sepolia.basescan.org/address/0xdb5B315695B40945643EB409ebfE0116700e6BD2#code).
+The original 10-USDC test claim and public browser read-state check passed.
+See [actual deployment and claim evidence](evidence/usdc-faucet-live.md).
+Earlier descriptions of an unset address or pending signer refer to the initial
+build and simulation; they do not describe the currently activated faucet.
+
+The active production build sets
+`VITE_USDC_FAUCET_ADDRESS=0xdb5B315695B40945643EB409ebfE0116700e6BD2`.
+The deployment registry is `contracts/deployments/base-sepolia-faucet.json`.

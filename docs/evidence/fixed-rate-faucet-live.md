@@ -80,3 +80,13 @@ signer, followed by original receipt and bytecode/balance verification.
 
 The faucet has no mint/admin authority and does not use settlement inventory.
 No real USDC faucet claim or new fixed-rate cross-chain payout is claimed.
+
+
+## Root activation, 27 October 2026
+
+The faucet is now deployed, source-verified and funded on Base Sepolia at
+[0xdb5B315695B40945643EB409ebfE0116700e6BD2](https://sepolia.basescan.org/address/0xdb5B315695B40945643EB409ebfE0116700e6BD2#code).
+The original 10-USDC test claim and public browser read-state check passed.
+See [actual deployment and claim evidence](usdc-faucet-live.md).
+Earlier descriptions of an unset address or pending signer refer to the initial
+build and simulation; they do not describe the currently activated faucet.

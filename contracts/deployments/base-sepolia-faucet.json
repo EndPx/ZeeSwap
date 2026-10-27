@@ -1,0 +1,39 @@
+{
+  "chainId": 84532,
+  "network": "base-sepolia",
+  "rpcUrl": "https://sepolia.base.org",
+  "sourceCommit": "fc15290f2a26843ac67be20df77d9f994398bb37",
+  "deployer": "0xc82f469Aa95a2f7792300c8d11230e9023A98600",
+  "token": "0xD64C116352CEF2Adc9484098Ae332Fd9bA339A63",
+  "compiler": {
+    "version": "0.8.30+commit.73712a01"
+  },
+  "optimizer": {
+    "enabled": true,
+    "runs": 200
+  },
+  "evmVersion": "cancun",
+  "contracts": {
+    "ZeeSwapUSDCFaucet": {
+      "address": "0xdb5B315695B40945643EB409ebfE0116700e6BD2",
+      "transactionHash": "0x845ef8787919a2d058dcd0023daec61e9f07d031bc62f64bb199c1c6b9a7b698",
+      "blockNumber": 50779902,
+      "blockHash": "0xad927c8df38f3145cdd29520ef817455582c150d56cb9c5520c413d35b874479",
+      "runtimeCodeHash": "0x04b87b1f6d3cbe0b6b0da7af9914205dc50555576587f9bee41aee5c8ec9c0eb",
+      "sourceVerification": "Pass - Verified",
+      "explorer": "https://sepolia.basescan.org/address/0xdb5B315695B40945643EB409ebfE0116700e6BD2#code"
+    }
+  },
+  "funding": {
+    "initialStockAtomic": "1000000000",
+    "transactionHash": "0xf0357624fbcf8111219ba3b0ad71675b4f4d3d92928688ae444e0e2d85978954",
+    "blockNumber": 50779907
+  },
+  "rules": {
+    "claimAtomic": "10000000",
+    "decimals": 6,
+    "cooldownSeconds": 86400,
+    "tokenMinter": false,
+    "tokenAdmin": false
+  }
+}

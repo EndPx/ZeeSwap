@@ -54,3 +54,13 @@ No database, operator, SDK, signer, real wallet, deployment, faucet claim, SSH,
 Docker or Git publication operation was performed for this frontend milestone.
 Root retains deployment and publication ownership. Actual USDC faucet deployment,
 pool funding and successful user claim receipts remain separate checks.
+
+
+## Root activation, 27 October 2026
+
+The faucet is now deployed, source-verified and funded on Base Sepolia at
+[0xdb5B315695B40945643EB409ebfE0116700e6BD2](https://sepolia.basescan.org/address/0xdb5B315695B40945643EB409ebfE0116700e6BD2#code).
+The original 10-USDC test claim and public browser read-state check passed.
+See [actual deployment and claim evidence](../../../docs/evidence/usdc-faucet-live.md).
+Earlier descriptions of an unset address or pending signer refer to the initial
+build and simulation; they do not describe the currently activated faucet.

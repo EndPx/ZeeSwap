@@ -36,10 +36,11 @@ token. Source recovery, capital checks and confirmed destination receipts
 remain necessary before trading is enabled.
 
 The navbar **Faucet** opens USDC, TAZ and Base Sepolia ETH funding options.
-TAZ/ETH use explicit external faucet links. The dedicated 10-USDC/24-hour
-claim flow is implemented but remains disabled until its actual contract
-deployment and separate stock are verified. See the [public interface and API
-verification](docs/evidence/fixed-rate-faucet-live.md).
+TAZ/ETH use explicit external faucet links. The dedicated USDC faucet is
+deployed, source-verified and funded from a separate finite pool. It gives
+10 USDC per wallet every 24 hours; an actual test claim passed. See
+[deployment and claim evidence](docs/evidence/usdc-faucet-live.md) and the
+[public interface verification](docs/evidence/fixed-rate-faucet-live.md).
 
 ```sh
 pnpm install --frozen-lockfile
