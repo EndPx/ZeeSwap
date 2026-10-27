@@ -54,3 +54,37 @@ pins and a new R4 collection-only permission. Neither the old f6e candidate nor
 the old selector is overwritten. R2 stale inputs and the partial R3 directory
 remain preserved. This fix does not authorize long collection, metadata
 publication, Source changes, signing, financial activation or a soak restart.
+
+
+## Actual R4 collection-only pilot
+
+Root published the fix as `ccbcb6d70e7cbd4122abec67aa11f5f7074e9a0c`,
+verified the remote SHA, and compared all 68 installed runtime files against
+that published Git archive. New preparation completed successfully with a
+74-entry execution manifest and a genuine restricted-reader E225 snapshot.
+All old source-selector evidence, execution releases and partial R3 artifacts
+were preserved. The private collection permission expires after 24 hours and
+confers no metadata publication or financial authority.
+
+The explicit 20-packet pilot stopped with exit 78 and zero restarts after
+**one verified packet / 64 blocks**. Independent inspection verified its exact
+manifest and 18,004 stored packet bytes. Its next packet failed only the
+independent `mLagWithin40` predicate: Source M was 50,743,633; the independent
+normal head was 50,743,701, a lag of 68. Source sampling was at
+`2026-10-27T03:09:55.994Z`, Source read completed at `03:10:01.651Z`, and the
+independent sample completed at `03:10:09.194Z`. The other five reported
+independent-source predicates passed. This is a measured consumer critical-path
+failure, not a completed catch-up or a reason to increase the 40-block bound.
+
+Root independently reread the complete closed Base/financial state afterward:
+E225/version864010, Base checkpoint 50,174,047, all 269 retained Base rows,
+all 70 financial rows and zero authorizations were unchanged. No resume or long
+collection was started. The failed pilot and acknowledged prefix are preserved.
+A future consumer revision must qualify overlapping known-range independent
+reads with the same Source request while preserving every canonical/log/finality
+check, original clock and bounded cancellation rule.
+
+A separate authenticated source-only read at `2026-10-27T03:13:45.975Z`
+confirmed Chef `ready`, Prep/Chef/source height 4,546,120, the unchanged project
+generation and source sample age about 4.0 seconds. The Native APP observer is
+still intentionally stopped, so this source result is not app or swap readiness.

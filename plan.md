@@ -1161,3 +1161,25 @@ with API typechecking. The old source selector and execution releases are
 preserved. A new collection permission and actual bounded pilot remain required;
 no financial activation or long recovery is implied. See
 [code-pin preparation evidence](docs/evidence/envio-code-pin-preparation.md).
+
+Actual R4 pilot (27 October): new collection preparation succeeded and the
+20-packet read-only pilot retained one verified 64-block packet before refusing
+an independent source lag of 68 blocks against the unchanged 40-block bound.
+Exit78/zero restarts, exact E225 Base/financial world and all70 financial rows
+were independently verified. No long recovery or resume was authorized. Known
+range header/log reads must overlap the same Source request in a separately
+reviewed execution revision; increasing the source-lag bound is not the fix.
+Chef source-only status at03:13:45UTC was ready at4,546,120 with the same
+project generation and a four-second source sample. Native APP following and
+financial admission remain off. See the code-pin evidence for exact timings.
+
+Current-packet consumer implementation (27 October): a new exact opt-in profile
+pairs Source export with independent headers/logs from the same dispatch ticket,
+including the one future packet. Fresh consume/claimed/late checks and the
+40-block/30-second bounds remain. The new consumer scheduler shares two active
+HTTP groups with critical priority and the unchanged weighted 24-method pacing.
+Root passed all83 cases locally and in the new isolated Linux R5 release,
+with zero skips and API typechecking; peer review is clear. Old Source identity
+and R4 execution/prefix are preserved. The new75-pin permission, actual pilot,
+late-audit/cap/ETA qualification and near-head publication remain open. See
+[current-packet evidence](docs/evidence/envio-current-packet-overlap.md).

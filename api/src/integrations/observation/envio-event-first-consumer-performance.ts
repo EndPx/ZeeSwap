@@ -29,18 +29,18 @@ export async function fetchRawEventFirstPacket(o:{url:string;token:string;from:n
  const response=await(o.request??fetch)(u,{headers:{authorization:'Bearer '+o.token},redirect:'error',signal});requireThat(response.ok,'ENVIO_CONSUMER_SOURCE_HTTP');const value=validateEventFirstExport(await readJson(response,signal,8000000),o.policy,Date.now(),'base-sepolia-publicnode-normal-rpc');
  requireThat(value.producer.generation===o.generation&&value.range.fromHeight===o.from&&value.range.through.height===o.through,'ENVIO_CONSUMER_RAW_IDENTITY');return value;
 }
-type Outcome={ok:true;value:EventFirstVerifiedExport|null}|{ok:false;error:unknown};
+type Outcome<T>={ok:true;value:T|null}|{ok:false;error:unknown};
 /** One current + one future raw packet. No two Source exports overlap: the next
  * dispatch occurs only after current raw HTTP completed. Every future is drained,
  * including pilot cap, successful tail, expiry and external cancellation. */
-export async function collectEventFirstLookahead(o:{from:number;limit:number;signal:AbortSignal;before(from:number):Promise<void>;fetch(from:number,signal:AbortSignal):Promise<EventFirstVerifiedExport|null>;verify(raw:EventFirstVerifiedExport,signal:AbortSignal):Promise<EventFirstVerifiedExport>;accept(packet:EventFirstVerifiedExport,signal:AbortSignal):Promise<void>;prefetchAfter?(raw:EventFirstVerifiedExport):boolean;afterAccept?():Promise<void>}){
- requireThat(Number.isSafeInteger(o.limit)&&o.limit>=1&&o.limit<=16384,'ENVIO_CONSUMER_PACKET_LIMIT');const stop=new AbortController(),signal=AbortSignal.any([o.signal,stop.signal]);let pending:{promise:Promise<Outcome>;signal:AbortSignal}|undefined,failure:unknown,accepted=0,from=o.from;
- const dispatch=(height:number)=>{const packetSignal=AbortSignal.any([signal,AbortSignal.timeout(30000)]);const promise=o.fetch(height,packetSignal).then(value=>({ok:true as const,value}),error=>{if(failure===undefined)failure=error;stop.abort();return{ok:false as const,error};});pending={promise,signal:packetSignal};return pending;};
+export async function collectEventFirstLookahead<T=EventFirstVerifiedExport>(o:{from:number;limit:number;signal:AbortSignal;before(from:number):Promise<void>;fetch(from:number,signal:AbortSignal,fail:(error:unknown)=>void):Promise<T|null>;packet?(value:T):EventFirstVerifiedExport;verify(raw:T,signal:AbortSignal):Promise<EventFirstVerifiedExport>;accept(packet:EventFirstVerifiedExport,signal:AbortSignal):Promise<void>;prefetchAfter?(raw:T):boolean;afterAccept?():Promise<void>}){
+ requireThat(Number.isSafeInteger(o.limit)&&o.limit>=1&&o.limit<=16384,'ENVIO_CONSUMER_PACKET_LIMIT');const stop=new AbortController(),signal=AbortSignal.any([o.signal,stop.signal]);let pending:{promise:Promise<Outcome<T>>;signal:AbortSignal}|undefined,failure:unknown,accepted=0,from=o.from;
+ const dispatch=(height:number)=>{const packetSignal=AbortSignal.any([signal,AbortSignal.timeout(30000)]);const fail=(error:unknown)=>{if(failure===undefined)failure=error;stop.abort(error);};const promise=o.fetch(height,packetSignal,fail).then(value=>({ok:true as const,value}),error=>{if(failure===undefined)failure=error;stop.abort();return{ok:false as const,error};});pending={promise,signal:packetSignal};return pending;};
  try{
   for(let n=0;n<o.limit;n++){
    signal.throwIfAborted();await o.before(from);signal.throwIfAborted();const current=pending??dispatch(from);const result=await current.promise;pending=undefined;if(!result.ok)throw result.error;current.signal.throwIfAborted();if(result.value===null)break;
-   const raw=result.value;requireThat(raw.range.fromHeight===from,'ENVIO_CONSUMER_PREFETCH_ORDER');const next=raw.range.through.height+1;if(n+1<o.limit&&(o.prefetchAfter?.(raw)??true))dispatch(next);
-   const packet=await o.verify(raw,current.signal);current.signal.throwIfAborted();signal.throwIfAborted();if(failure!==undefined)throw failure;requireThat(packet.range.fromHeight===from&&packet.range.through.height===raw.range.through.height&&stable(packet)===stable(raw),'ENVIO_CONSUMER_VERIFIED_PACKET_CHANGED');
+   const value=result.value,raw=o.packet?o.packet(value):value as EventFirstVerifiedExport;requireThat(raw.range.fromHeight===from,'ENVIO_CONSUMER_PREFETCH_ORDER');const next=raw.range.through.height+1;if(n+1<o.limit&&(o.prefetchAfter?.(value)??true))dispatch(next);
+   const packet=await o.verify(value,current.signal);current.signal.throwIfAborted();signal.throwIfAborted();if(failure!==undefined)throw failure;requireThat(packet.range.fromHeight===from&&packet.range.through.height===raw.range.through.height&&stable(packet)===stable(raw),'ENVIO_CONSUMER_VERIFIED_PACKET_CHANGED');
    current.signal.throwIfAborted();await o.accept(packet,current.signal);accepted++;from=next;current.signal.throwIfAborted();signal.throwIfAborted();await o.afterAccept?.();signal.throwIfAborted();
   }
   signal.throwIfAborted();return{accepted,nextFrom:from};
