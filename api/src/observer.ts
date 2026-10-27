@@ -70,7 +70,7 @@ export async function scanOnce(pool:pg.Pool,keys:PrivateData,wallet:WalletAdapte
  return ingestSnapshot(pool,keys,await wallet.snapshot(await observerCheckHeights(pool,rows.map(r=>Number(r.block_height)))));
 }
 
-export async function observerCheckHeights(pool:pg.Pool,depositHeights:number[]){
+export async function observerCheckHeights(pool:Pick<pg.Pool,'query'>,depositHeights:number[]){
  const row=(await pool.query("SELECT scanned_height,finalized_height FROM zee.scanner_checkpoints WHERE network='zcash-testnet'")).rows[0];
  const heights=[...new Set([...depositHeights,...(row?[Number(row.scanned_height),Number(row.finalized_height)]:[])])];
  if(heights.length>502)throw Error('RECONCILIATION_WINDOW_LIMIT');

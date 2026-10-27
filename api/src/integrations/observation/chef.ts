@@ -28,6 +28,7 @@ export type PrivacyClassifier = (note: Readonly<ZcashNote>, signal: AbortSignal)
 export type ChefConfig = {
   url: string; token: string; project: string; policy: Policy; canonical: CanonicalReader;
   classify?: PrivacyClassifier; fetch?: typeof fetch; now?: () => number; monotonic?: () => number;
+  matureTailBlocks?: 0 | 2;
 };
 type Status = {
   project: string; generation: string; revision: string;
@@ -106,6 +107,7 @@ export class ChefAdapter {
   constructor(private readonly config: ChefConfig) {
     this.endpoint = safeEndpoint(config.url); this.now = config.now ?? Date.now; this.monotonic = config.monotonic ?? (() => performance.now());
     requireThat(config.policy.adapter === "zeer-chef" && config.policy.network === "zcash-testnet" && config.token.length > 0, "INVALID_CHEF_CONFIG");
+    requireThat(config.matureTailBlocks === undefined || config.matureTailBlocks === 0 || config.matureTailBlocks === 2, "INVALID_CHEF_MATURE_TAIL");
   }
   private async request(path: string, signal: AbortSignal, body?: unknown): Promise<unknown> {
     const response = await (this.config.fetch ?? fetch)(new URL(path, this.endpoint), {
@@ -120,6 +122,7 @@ export class ChefAdapter {
   /** Read the complete mutable tail in <=16-block query windows; nothing is published here. */
   async traverse(fromHeight: number, finiteThroughHeight?:number): Promise<TraversalResult> {
     height(fromHeight);if(finiteThroughHeight!==undefined)height(finiteThroughHeight);
+    requireThat(finiteThroughHeight===undefined || !this.config.matureTailBlocks,"CHEF_MATURE_TAIL_FINITE_CONFLICT");
     const started = this.monotonic(); const startedAt = new Date(this.now()).toISOString();
     for (let restarts = 0; restarts <= 3; restarts++) {
       const remaining = 30_000 - (this.monotonic() - started);
@@ -127,7 +130,8 @@ export class ChefAdapter {
       const signal = AbortSignal.timeout(Math.max(1, Math.floor(remaining)));
       try {
         const before = parseChefStatus(await this.request("/status", signal), this.config.project, this.now());
-        const throughHeight = finiteThroughHeight??before.checkpoint.height;
+        const throughHeight = finiteThroughHeight??before.checkpoint.height-(this.config.matureTailBlocks??0);
+        if(finiteThroughHeight===undefined&&this.config.matureTailBlocks&&throughHeight<fromHeight)throw new ObservationError("WAIT_SOURCE_UNAVAILABLE");
         requireThat(throughHeight<=before.checkpoint.height,"CHEF_FINITE_RANGE_AHEAD");
         requireThat(fromHeight >= this.config.policy.birthday && fromHeight <= throughHeight, "INVALID_RANGE");
         requireThat(throughHeight - fromHeight + 1 <= (this.config.policy.maxBlocks ?? 1000), "BACKPRESSURE");

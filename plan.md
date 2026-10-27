@@ -1227,3 +1227,17 @@ acceptance, no faucet admin/minter role and the entire E225/70row/auth0
 application world unchanged. The public build configures the actual address.
 Swap Source recovery and settlement gates remain open; G5 stays stopped.
 See docs/evidence/usdc-faucet-live.md and the dedicated deployment registry.
+
+Current live enablement work (27 October): Source Chef and Envio continue fresh.
+Ordinary Native APP catch-up verified 751 headers and zero outputs, but later
+stopped at an actual orphan tip, 4,546,693. Current control 226/923675 retains
+all 70 financial rows and zero authorizations. The new mature-tail reader,
+phase-bounded safe-wait checks and generic empty-tail kernel passed Root's
+93 local and 106 Linux public/private tests plus the final restricted PostgreSQL
+case. Financial guards and the confirmation threshold remain unchanged. Actual
+metadata repair and policy activation remain explicit operator steps.
+The Base event-coverage pilot passed 20 intervals / 4,000 blocks in 44.226 seconds:
+all SDK/RPC log sets were empty and equal, all 269 Base and two Native financial
+anchors were checked, with no SQL, cursor or admission mutation. It is a
+read-only diagnostic. The existing full-header gate remains unchanged pending
+the user's decision on docs/proposals/base-closed-event-recovery.md.

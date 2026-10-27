@@ -1,3 +1,6 @@
+import {serviceNativeDenseCanonical} from '../src/testnet-service-source-compat.ts';
+import type {CanonicalReader} from '../src/integrations/observation/chef.ts';
+import type {Header} from '../src/integrations/observation/types.ts';
 import {requireNoAppMetadataRepair} from '../src/app-chef-metadata-repair.ts';
 import {readFile,open,rename,lstat} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
@@ -12,13 +15,18 @@ import {isObserverWait} from '../src/observer-frontiers.ts';
 import {ChefCanonicalHeadChanged,SourceCheckpointMismatch,ChefAdapter,parseChefStatus,readJson,safeEndpoint} from '../src/integrations/observation/chef.ts';
 import {localChefCanonical} from '../src/integrations/observation/chef-canonical-local.ts';
 import {ChefWalletBridge,localChefDecoder} from '../src/integrations/observation/chef-wallet-bridge.ts';
-import {chefFinancialCheckHeights,readChefPersistedState,chefHeadChangeCanWait,chefPersistedCanonical,chefDiagnosticCode,chefFailureMetadata,chefObserverExitStatus,reconcileChefObserverFailure,diagnoseSourceCheckpointMismatch,chefCheckpointSourceUnchanged} from '../src/integrations/observation/chef-live.ts';
+import {chefFinancialCheckHeights,readChefPersistedState,chefHeadChangeCanWait,chefDiagnosticCode,chefFailureMetadata,chefObserverExitStatus,reconcileChefObserverFailure,diagnoseSourceCheckpointMismatch,chefCheckpointSourceUnchanged} from '../src/integrations/observation/chef-live.ts';
 import {withChefRecoveryJournal,validateChefRecoveryJournal,nextChefRecoveryRange,type ChefRecoveryIdentity} from '../src/integrations/observation/chef-recovery.ts';
 import {chefLiveFrom,commitChefLiveCycle,type ChefLiveCursor} from '../src/integrations/observation/chef-live-cursor.ts';
 import {persistChefReceiptEvidence} from '../src/integrations/observation/chef-receipt-evidence.ts';
-import {digest,requireThat} from '../src/integrations/observation/types.ts';
+import {digest,requireThat,stable} from '../src/integrations/observation/types.ts';
 
 export async function requireChefRecoveryMarkersClear(directory:string){await requireNoAppMetadataRepair(directory+'/app-metadata-repair-in-progress');await requireNoAppMetadataRepair(directory+'/linked-recovery-in-progress');}
+/** Used only for a prepublication safe-wait diagnostic; failure never publishes. */
+export function ordinaryChefCanonicalRecheck(factory:(range?:{fromHeight:number;throughHeight:number})=>CanonicalReader,sourceId:string){
+ let cache=new Map<number,Header>();
+ return{sample:(signal:AbortSignal)=>factory().sample(signal),async header(h:number,_signal:AbortSignal){const actual=cache.get(h);requireThat(actual,'CHEF_PERSISTED_CANONICAL_CACHE_REQUIRED');return actual;},async prefetchPersisted(heights:number[],signal:AbortSignal){cache.clear();const verified=await serviceNativeDenseCanonical(heights,factory,sourceId,signal);cache=verified.headers;}};
+}
 export async function runObserveLinuxChef(path:string,once:boolean){
  const {c,runtime,env,policy,openingCapital,profile}=await loadLinuxChefRuntime(path);requireThat([5,10].includes(c.pollSeconds),'CHEF_LINUX_POLL_INTERVAL');
  const configIdentity=digest({c,runtime,env,policy,profile});
@@ -47,9 +55,9 @@ export async function runObserveLinuxChef(path:string,once:boolean){
   requireThat(cursor.processedThrough>=journal.target.height,'CHEF_LINUX_CURSOR_BEFORE_RECOVERY');
   do{publicationAttempted=false;phase='READ_PERSISTED';const before=await readChefPersistedState(pool),beforeCursorBytes=await readFile(cursorPath),beforeCursorDigest=digest(cursor);try{
    await connected();phase='READ_SOURCE';const status=await source();requireThat(status.generation===identity.generation,'CHEF_LIVE_GENERATION_CHANGED');
-   const fromHeight=chefLiveFrom(cursor,identity,status.checkpoint.height),checks=await chefFinancialCheckHeights(pool),started=Date.now();
+   requireThat(status.checkpoint.height>=cursor.processedThrough,'CHEF_LIVE_SOURCE_REGRESSION');requireThat(status.checkpoint.height-2>=cursor.processedThrough,'WAIT_SOURCE_UNAVAILABLE');const fromHeight=chefLiveFrom(cursor,identity,status.checkpoint.height-2),checks=await chefFinancialCheckHeights(pool),started=Date.now();
    const bridge=new ChefWalletBridge(localChefDecoder(c.pythonPath,[c.receiptScript,'--config',c.decoderConfigPath]),openingCapital),headers=localChefCanonical(c.pythonPath,[c.headerScript,'--config',c.decoderConfigPath],c.canonicalSourceId,{fromHeight,throughHeight:status.checkpoint.height});
-   phase='TRAVERSE';const result=await new ChefAdapter({url:c.sourceUrl,token:env.CHEF_API_TOKEN!,project:c.project,policy,canonical:headers,classify:bridge.classify}).traverse(fromHeight);
+   phase='TRAVERSE';const result=await new ChefAdapter({url:c.sourceUrl,token:env.CHEF_API_TOKEN!,project:c.project,policy,canonical:headers,classify:bridge.classify,matureTailBlocks:2}).traverse(fromHeight);
    if(result.status!=='READY_SHADOW'){console.log(JSON.stringify({event:'linux-chef-observation',status:result.status,dispatchAuthority:false}));}
    else{const remaining=30000-(Date.now()-started);requireThat(remaining>0,'READ_BUDGET');
     const full=bridge.snapshot(result.batch,policy);
@@ -59,7 +67,7 @@ export async function runObserveLinuxChef(path:string,once:boolean){
     },save,AbortSignal.timeout(remaining));cursor=published.cursor;
     console.log(JSON.stringify({event:'linux-chef-observation',status:'CHEF_TESTNET_OBSERVED',...published.result as object,verifiedRangeHeaders:published.verifiedRangeHeaders,publishedHeaders:published.publishedHeaders,excludedOpeningCapital:bridge.excludedOpeningCapitalCount,dispatchAuthority:false}));}
   }catch(error){if(error instanceof SourceCheckpointMismatch)await diagnoseSourceCheckpointMismatch(error,(h,signal)=>canonical().header(h,signal),AbortSignal.timeout(15000));try{await diagnostic(error);}catch{throw error;}try{Object.defineProperty(error,'chefPhase',{value:publicationAttempted?'AFTER_PUBLICATION':phase,configurable:true});}catch{}
-   const safe=await chefHeadChangeCanWait(error,publicationAttempted||error instanceof SourceCheckpointMismatch&&phase!=='TRAVERSE',before,cursor,chefPersistedCanonical(range=>localChefCanonical(c.pythonPath,[c.headerScript,'--config',c.decoderConfigPath],c.canonicalSourceId,range)),async()=>{if(error instanceof SourceCheckpointMismatch){const latest=await source(),loaded=await loadLinuxChefRuntime(path);if(!chefCheckpointSourceUnchanged(error,{project:c.project,generation:identity.generation,configIdentity},{project:latest.project,generation:latest.generation,configIdentity:digest({c:loaded.c,runtime:loaded.runtime,env:loaded.env,policy:loaded.policy,profile:loaded.profile})}))return false;}return digest(await readChefPersistedState(pool))===digest(before)&&digest(cursor)===beforeCursorDigest&&(await readFile(cursorPath)).equals(beforeCursorBytes);},AbortSignal.timeout(30000),phase,()=>diagnostic(error,true));
+   const safe=await chefHeadChangeCanWait(error,publicationAttempted||error instanceof SourceCheckpointMismatch&&phase!=='TRAVERSE',before,cursor,ordinaryChefCanonicalRecheck(range=>localChefCanonical(c.pythonPath,[c.headerScript,'--config',c.decoderConfigPath],c.canonicalSourceId,range),c.canonicalSourceId),async()=>{await connected();const latest=await source(),loaded=await loadLinuxChefRuntime(path),currentIdentity={project:latest.project,generation:latest.generation,configIdentity:digest({c:loaded.c,runtime:loaded.runtime,env:loaded.env,policy:loaded.policy,profile:loaded.profile})},expectedIdentity={project:c.project,generation:identity.generation,configIdentity};if(stable(currentIdentity)!==stable(expectedIdentity)||error instanceof SourceCheckpointMismatch&&!chefCheckpointSourceUnchanged(error,expectedIdentity,currentIdentity))return false;return digest(await readChefPersistedState(pool))===digest(before)&&digest(cursor)===beforeCursorDigest&&(await readFile(cursorPath)).equals(beforeCursorBytes);},AbortSignal.timeout(180000),phase,()=>diagnostic(error,true));
    const code=String((error as {code?:unknown}).code);if(safe){console.log(JSON.stringify({event:'linux-chef-observation',status:error instanceof SourceCheckpointMismatch?'WAIT_SOURCE_CHECKPOINT_ABOVE_PERSISTED':'WAIT_CANONICAL_HEAD_ABOVE_PERSISTED',phase:'BEFORE_PUBLICATION',code:chefDiagnosticCode(error),dispatchAuthority:false}));}else if(!publicationAttempted&&(isObserverWait(error)||['WAIT_SOURCE_UNAVAILABLE','WAIT_SOURCE_UNREADY','STALE_SOURCE','CHEF_LIVE_SOURCE_LAG'].includes(code)))console.log(JSON.stringify({event:'linux-chef-observation',status:'WAIT_SOURCE',dispatchAuthority:false}));else throw error;}
    if(!once&&!stop.signal.aborted)await delay(c.pollSeconds*1000,undefined,{signal:stop.signal}).catch(()=>{});
   }while(!once&&!stop.signal.aborted);

@@ -33,7 +33,7 @@ export async function appendChefAnchorHeaders(snapshot:Snapshot,batch:ReplaceRan
 
 /** Include receipts that no longer appear in the incoming-note range. No
  * lifecycle/state filter may discard an already persisted financial anchor. */
-export async function chefFinancialCheckHeights(pool:pg.Pool):Promise<number[]> {
+export async function chefFinancialCheckHeights(pool:Pick<pg.Pool,'query'>):Promise<number[]> {
  const rows=(await pool.query(`SELECT anchor_height::text FROM (
   SELECT block_height AS anchor_height FROM zee.deposits WHERE network='zcash-testnet'
   UNION SELECT block_height FROM zee.reverse_payouts WHERE block_height IS NOT NULL
@@ -89,7 +89,7 @@ export async function chefHeadChangeCanWait(error:unknown,publicationAttempted:b
  try{
  await canonical.prefetchPersisted?.([...headers.keys()],signal);
  for(const [h,hash]of headers){signal.throwIfAborted();const current=await canonical.header(h,signal);if(current.height!==h||current.hash!==hash)return false;}
- signal.throwIfAborted();let onAbort:()=>void=()=>{};const aborted=new Promise<never>((_,reject)=>{onAbort=()=>reject(signal.reason);signal.addEventListener('abort',onAbort,{once:true});});try{const result=await Promise.race([unchanged(),aborted]);signal.throwIfAborted();if(result&&verifiedDiagnostic){await verifiedDiagnostic();signal.throwIfAborted();}return result;}finally{signal.removeEventListener('abort',onAbort);}
+ signal.throwIfAborted();let onAbort:()=>void=()=>{};const aborted=new Promise<never>((_,reject)=>{onAbort=()=>reject(signal.reason);signal.addEventListener('abort',onAbort,{once:true});});try{const result=await Promise.race([unchanged(),aborted]);signal.throwIfAborted();if(result&&verifiedDiagnostic){await verifiedDiagnostic();signal.throwIfAborted();const final=await Promise.race([unchanged(),aborted]);signal.throwIfAborted();return final;}return result;}finally{signal.removeEventListener('abort',onAbort);}
  }catch(recheckFailure){error.recheckFailure=recheckFailure;throw error;}
 }
 export const chefDiagnosticCodes=['CANONICAL_HEAD_CHANGED','OBSERVER_EPOCH_CHANGED','CHEF_LIVE_CURSOR_REORG','CHEF_LIVE_GENERATION_CHANGED','CHEF_RECOVERY_TARGET_REORG','CHEF_RECOVERY_OVERLAP_REORG','CHEF_LIVE_CURSOR_IDENTITY','CHEF_LIVE_SOURCE_REGRESSION','CHEF_RECOVERY_IDENTITY_CHANGED','CANONICAL_CHECKPOINT_MISMATCH','HEADER_GAP_OR_FORK','CANONICAL_NOTE_MISMATCH','CHEF_HTTP_ERROR','CHEF_CANONICAL_HEADER_FAILED','CANONICAL_RPC_HTTP_ERROR','CHEF_PERSISTED_STATE_BOUND'] as const;
