@@ -781,6 +781,22 @@ CPU-bound attempt is recorded. Complete real-packet pilot/net-rate qualification
 fresh final-suffix publication, Base ordinary following and finance remain open.
 See [consumer performance evidence](docs/evidence/envio-consumer-performance.md).
 
+Current Native incident (27 October, 00:41 UTC): ordinary APP observation stopped
+without automatic restart on a real shallow tip reorg at 4,545,744. Independent
+canonical reads match stored common ancestor 4,545,743 and finalized 4,545,735;
+only the tip differs in the probed tail. Control is now E223/xmin852987. The
+19-table/70-row financial snapshot, Base checkpoint/269 headers and auth0 remain
+unchanged. New E222-bound Base preparation correctly refused before creating a
+case or read permit; preserve those stale inputs rather than rebinding them.
+A new exact metadata-only repair case prepares canonical tip hash/time correction
+and CP/cursor rewind to 4,545,743, preserving all rows, finality and old observation
+time. Two bounded dense phases cover the full 13,768-height protected span without
+raising the existing reader limit. Root passed 21 local and 21 Linux repeated
+cases plus one isolated restricted-role PostgreSQL fixture, all zero skipped.
+Live full audit, zero-output receipt preflight, fresh Root authority, original-XID
+repair/readback and source requalification remain required. No financial action
+or readiness is implied. See [tip 5744 repair preparation](docs/evidence/native-chef-5744-tip-repair.md).
+
 Amounts are canonical integer strings over APIs, `bigint` in TypeScript, and checked integer arithmetic in Rust/Solidity. Zcash uses 8 decimal places and mockUSDC uses 6. Store integer units in PostgreSQL using the `zee.atomic` NUMERIC domain with integral-value, 78-digit and asset-specific bounds. This replaces direct `NUMERIC(78,0)` assignment because PostgreSQL can round a fractional value before its check constraint. Prices use rational/scaled integers. Round destination output down and required input/fee reserves up; reject zero output or invalid decimals. References to USDC below describe the product asset role; all prototype execution and UI use mockUSDC explicitly.
 
 ### Finality policy
