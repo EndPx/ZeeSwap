@@ -76,3 +76,35 @@ contains the exact reviewed public Git-LF bytes, original private-tool raw bytes
 and protected existing dependencies; original production releases and profiles
 were not overwritten. Full API typechecking also passed. These checks prepare
 the operator tool; they do not establish that the live repair has been applied.
+
+## Actual repair and independent readback
+
+Root completed the full live canonical audit against all 2,662 retained Native
+rows and all 269 Base rows. It found exactly the known tip conflict and no
+financial-anchor conflict. The official finite replay preflight covered 145
+headers from 4,545,734 through an actual Core checkpoint, with zero observations
+and outputs. No decryption call was exercised on that empty result.
+
+After independent inspection and a new metadata-only approval bound to public
+commit `4965f0cb87861e900138a481c3468c7149bf12bc`, Root applied the correction
+once. The original transaction **864010** was independently read as committed,
+and the complete actual after-state matched its original immutable intent.
+Control is E225/xmin864010; protected cursor/checkpoint are exactly 4,545,743.
+Header 4,545,744 is canonical, every retained row and the absent 4,545,739 gap
+are preserved, and finalized 4,545,735/time plus observation time
+`2026-10-27T00:40:49.467000Z` remain unchanged. Cursor ownership/mode and exact
+bytes were verified; repair markers were clear. All 70 financial rows and zero
+authorizations remained unchanged.
+
+The first independent readback accidentally passed the separate commit-ACK
+record to the intent validator and refused before any effect. Root then read
+the original full `intent.private.json`, matched both records to transaction
+864010 and completed exact read-only classification. SQL was not replayed.
+
+One explicit ordinary observer invocation then verified 183 range headers and
+advanced the app to 4,545,916 with zero outputs or eligible operations. It
+returned stopped normally with dispatch authority false. Continuous Native APP
+following remains intentionally off during the closed Base-recovery work;
+Core/Prep continue. Financial admission still requires both app sources fresh.
+The new Base restricted-reader snapshot binds E225/xmin864010 and the unchanged
+Base/financial world. Stale E222-bound preparation remains preserved and unused.

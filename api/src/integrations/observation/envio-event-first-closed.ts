@@ -1,6 +1,7 @@
 /** Separate V2 closed-history authority. Collection is read-only; only a fresh,
  * independently qualified publication permit can update observer metadata. */
 import type pg from 'pg';
+import {posix} from 'node:path';
 import {continuationDigest,continuationTables} from '../../native-circle-continuation.ts';
 import type {ClosedSnapshot,ClosedPin,ClosedIntent} from './envio-closed-recovery.ts';
 import {classifyClosedCommit} from './envio-closed-recovery.ts';
@@ -33,13 +34,16 @@ export function validateV2ClosedState(s:ClosedSnapshot,requiredRole:V2Role='zee_
  const b=s.checkpoint;need(Number.isSafeInteger(b?.height)&&hash(b.hash)&&Number.isSafeInteger(b.finalizedHeight)&&b.finalizedHeight<=b.height&&/^[1-9][0-9]*$/.test(b.xmin)&&Number.isFinite(Date.parse(b.observedAt))&&Number.isFinite(Date.parse(b.finalizedTime)),'CHECKPOINT');return s;
 }
 function pin(p:ClosedPin){need(p&&/^\/opt\/zeeswap-testnet\//.test(p.path)&&!p.path.includes('..')&&!p.path.includes('\\')&&hash(p.sha256),'PIN');}
+/** Executable provenance is distinct from private evidence. The concrete Linux
+ * verifier additionally checks physical path, ownership, mode, size and bytes. */
+export function validateV2CodePin(p:ClosedPin){need(p&&typeof p.path==='string'&&(p.path.startsWith('/opt/zeeswap-testnet/')||p.path==='/usr/bin/node')&&posix.normalize(p.path)===p.path&&!p.path.includes('..')&&!p.path.includes('\\')&&hash(p.sha256),'CODE_PIN');}
 function lifetime(start:string,end:string,now:number,max:number){const a=Date.parse(start),b=Date.parse(end);need(Number.isFinite(a)&&a<=now&&b>now&&b>a&&b-a<=max,'AUTHORITY_EXPIRED');}
 export function validateV2CollectionPermit(a:V2CollectionPermit,now=Date.now()){
  need(a?.version===2&&a.status==='ROOT_ENVIO_EVENT_FIRST_CLOSED_COLLECTION_V2'&&a.collectionOnly===true&&a.sqlPublication===false&&a.admissionMutation===false&&a.financialAction===false&&a.branchId==='br-broad-pine-ao79wemx'&&a.database==='zee_app_20261023','COLLECTION_SCOPE');
  lifetime(a.verifiedAt,a.expiresAt,now,86400000);consumerExecution(a.execution);need(/^[a-zA-Z0-9_-]{1,80}$/.test(a.campaignId)&&/^[a-f0-9]{40}$/.test(a.publicCommit)&&stable(a.caps)===stable(V2_CAPS),'CAPS');
  validatePolicy(a.identity?.policy);need(a.identity.policy.adapter==='envio-hyperindex'&&a.identity.policy.network==='eip155:84532'&&a.identity.policy.canonicalSourceId==='base-sepolia-tenderly-rpc'&&/^[a-zA-Z0-9_-]{1,100}$/.test(a.identity.generation),'IDENTITY');
  validateV2ClosedState(a.baseline,'zee_app_reader_20261023');need(v2StateDigest(a.baseline)===a.baselineSha256&&hash(a.originalAdmissionPlaintextDigest),'BASELINE_DIGEST');
- for(const p of[a.originalAdmission,a.selector,a.closedAuthority,a.identity.exportProfile,a.identity.codeManifest,...a.archivePins,...a.codePins])pin(p);
+ for(const p of[a.originalAdmission,a.selector,a.closedAuthority,a.identity.exportProfile,a.identity.codeManifest,...a.archivePins])pin(p);for(const p of a.codePins)validateV2CodePin(p);
  need(a.archivePins.length>0&&a.archivePins.length<=200&&a.codePins.length>0&&a.codePins.length<=512&&new Set(a.codePins.map(p=>p.path)).size===a.codePins.length,'PIN_INVENTORY');
  need(Array.isArray(a.allowedEventDigests)&&a.allowedEventDigests.length<=1000&&a.allowedEventDigests.every(hash)&&new Set(a.allowedEventDigests).size===a.allowedEventDigests.length,'KNOWN_EVENT_INVENTORY');return a;
 }

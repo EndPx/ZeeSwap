@@ -797,6 +797,18 @@ Live full audit, zero-output receipt preflight, fresh Root authority, original-X
 repair/readback and source requalification remain required. No financial action
 or readiness is implied. See [tip 5744 repair preparation](docs/evidence/native-chef-5744-tip-repair.md).
 
+Actual tip 5744 acceptance: full live audit confirmed the sole conflict across
+2,662 retained Native/269 Base rows; official receipt preflight verified 145
+headers and zero observations/outputs. Root applied once and independently
+classified original transaction 864010 as committed-exact across the complete
+after-state. E225/xmin864010, CP/cursor 4,545,743, canonical header 4,545,744,
+unchanged final 4,545,735/time/old observation time, preserved rows/gap739,
+70 financial rows/auth0 and cleared markers were verified. One ordinary bounded
+observation then advanced to 4,545,916 with zero outputs and returned stopped.
+Continuous Native APP following remains intentionally off for closed Base
+recovery; Core/Prep keep following and order/dispatch remain disabled. Fresh
+E225-bound Base read preparation is a new scope; do not rewrite stale E222 inputs.
+
 Amounts are canonical integer strings over APIs, `bigint` in TypeScript, and checked integer arithmetic in Rust/Solidity. Zcash uses 8 decimal places and mockUSDC uses 6. Store integer units in PostgreSQL using the `zee.atomic` NUMERIC domain with integral-value, 78-digit and asset-specific bounds. This replaces direct `NUMERIC(78,0)` assignment because PostgreSQL can round a fractional value before its check constraint. Prices use rational/scaled integers. Round destination output down and required input/fee reserves up; reject zero output or invalid decimals. References to USDC below describe the product asset role; all prototype execution and UI use mockUSDC explicitly.
 
 ### Finality policy
@@ -1140,3 +1152,12 @@ Sources establish documented behavior, not our implementation readiness. Recheck
   still showed 770,416,640 bytes; do not claim the 84% meter/current quota or PITR
   history decreased from PostgreSQL's measured physical reclamation alone.
 - Evidence: [event-first storage correction](docs/evidence/envio-event-first-storage-fix.md).
+
+Collection preparation correction (27 October): the generic code-pin validator
+now accepts the exact physical Node executable separately from private evidence
+pins, and complete collection authority is checked before any case write. Root
+passed all 68 focused tests locally and in the new isolated Linux R4 release,
+with API typechecking. The old source selector and execution releases are
+preserved. A new collection permission and actual bounded pilot remain required;
+no financial activation or long recovery is implied. See
+[code-pin preparation evidence](docs/evidence/envio-code-pin-preparation.md).
