@@ -1,0 +1,144 @@
+{
+  "version": 1,
+  "date": "2026-10-27",
+  "dateBasis": "Asia/Jakarta",
+  "kind": "SYNTHETIC_FILESYSTEM_METADATA_ONLY",
+  "scope": {
+    "packetPayloadBytes": 1,
+    "sourceRpc": false,
+    "sql": false,
+    "wallet": false,
+    "financialSettlement": false,
+    "notMeasured": [
+      "real proof payload size",
+      "real proof serialization",
+      "Source/RPC throughput",
+      "complete chain coverage",
+      "end-to-end catch-up"
+    ]
+  },
+  "baseline": {
+    "implementationCommit": "9598fdc66b9636dc40dcdfb7e0c500d118bb48f5",
+    "rawResultSha256": "2d2778a568bdd11c9fea962d1b275a14a37fb1c094886590f816aee226f12d01",
+    "measurement": "V2PacketStore.budget plus v2CampaignBudget metadata scan pair",
+    "results": [
+      {
+        "prefixPackets": 0,
+        "files": 1,
+        "logicalBytes": 196,
+        "allocatedBytes": 12288,
+        "storeBudgetMs": 0.82272799999987,
+        "campaignBudgetMs": 2.3132230000001073,
+        "pairMs": 3.1359509999999773,
+        "storeBytes": 0,
+        "campaignBytes": 196,
+        "rssBytes": 137715712
+      },
+      {
+        "prefixPackets": 20,
+        "files": 41,
+        "logicalBytes": 236,
+        "allocatedBytes": 176128,
+        "storeBudgetMs": 8.218902000000071,
+        "campaignBudgetMs": 12.965234999999893,
+        "pairMs": 21.184136999999964,
+        "storeBytes": 40,
+        "campaignBytes": 236,
+        "rssBytes": 137715712
+      },
+      {
+        "prefixPackets": 256,
+        "files": 513,
+        "logicalBytes": 708,
+        "allocatedBytes": 2138112,
+        "storeBudgetMs": 79.00523499999986,
+        "campaignBudgetMs": 153.0343710000002,
+        "pairMs": 232.03960600000005,
+        "storeBytes": 512,
+        "campaignBytes": 708,
+        "rssBytes": 137977856
+      },
+      {
+        "prefixPackets": 2048,
+        "files": 4097,
+        "logicalBytes": 4292,
+        "allocatedBytes": 17006592,
+        "storeBudgetMs": 248.35296300000027,
+        "campaignBudgetMs": 716.6048659999997,
+        "pairMs": 964.957829,
+        "storeBytes": 4096,
+        "campaignBytes": 4292,
+        "rssBytes": 138395648
+      },
+      {
+        "prefixPackets": 6000,
+        "files": 12001,
+        "logicalBytes": 12196,
+        "allocatedBytes": 49758208,
+        "storeBudgetMs": 1110.3009240000001,
+        "campaignBudgetMs": 2518.658627,
+        "pairMs": 3628.959551,
+        "storeBytes": 12000,
+        "campaignBytes": 12196,
+        "rssBytes": 139046912
+      },
+      {
+        "prefixPackets": 13000,
+        "files": 26001,
+        "logicalBytes": 26196,
+        "allocatedBytes": 107814912,
+        "storeBudgetMs": 2264.0592240000005,
+        "campaignBudgetMs": 3708.1165770000007,
+        "pairMs": 5972.175801000001,
+        "storeBytes": 26000,
+        "campaignBytes": 26196,
+        "rssBytes": 139227136
+      }
+    ],
+    "fixtureCleanupIndependentlyVerified": true
+  },
+  "candidate": {
+    "inputFreezeSha256": "b361d96b1161f660da76ec5a53778295965996ca97052554ad6b199cfe936638",
+    "ledgerModuleSha256": "0765bb14083ed23127f6dd13ab5064d44dfb231860c1ccda310774f0b5c6cd9c",
+    "storeModuleSha256": "f3128dfa65d6209028baa55158d53722931cf3414a59a967542a654062743792",
+    "earlierCumulativeAttempt": {
+      "exitCode": 78,
+      "error": "LEDGER_BENCH_TIME",
+      "testNodeCpuBudgetSeconds": 60,
+      "testWallBudgetSeconds": 300,
+      "finalMeasurementResultAvailable": false,
+      "fixtureCleanupIndependentlyVerified": true
+    },
+    "terminalOnlyAttempt": {
+      "rawResultSha256": "65770aa7e65add86d7336ebbbc232edbfac050cabdde14406f52c1d97da4ec82",
+      "measurement": "Full startup inventory/hash, twenty actual ledger-backed synthetic store appends and full final inventory/hash audit",
+      "results": [
+        {
+          "prefixPackets": 13000,
+          "files": 26096,
+          "logicalBytes": 32127,
+          "allocatedBytes": 108290048,
+          "startupFullInventoryHashMs": 21705.944734999997,
+          "hotSyntheticAppendCount": 20,
+          "hotSyntheticAppendMeanMs": 18.54357920000057,
+          "hotSyntheticAppendMaxMs": 41.192197000000306,
+          "fullInventoryAuditMs": 17183.021209,
+          "exactCounters": {
+            "bytes": 31950,
+            "entries": 26096,
+            "storeFiles": 26093,
+            "poisoned": false
+          },
+          "rssBytes": 185417728
+        }
+      ],
+      "elapsedMs": 47777.238278,
+      "testNodeCpuBudgetSeconds": 120,
+      "testWallBudgetSeconds": 300,
+      "unitMemoryMaxMiB": 768,
+      "unitCpuQuotaPercent": 100,
+      "fixtureCleanupIndependentlyVerified": true
+    }
+  },
+  "interpretation": "The hot synthetic append no longer includes the growing full-directory scan. Full startup and periodic/final audit costs remain explicit. This is not a chain-proof throughput benchmark and grants no publication or financial permission."
+}

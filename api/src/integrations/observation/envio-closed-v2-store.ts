@@ -7,6 +7,7 @@ import {rawSha} from './envio-linked-campaign.ts';
 import {stable,requireThat} from './types.ts';
 import {digest} from './types.ts';
 import {V2_CAPS,validateV2ArchivedPacket,type V2CollectionPermit,type V2Manifest,type V2PacketRecord} from './envio-event-first-closed.ts';
+import type {OwnedCaseByteLedger} from './envio-owned-byte-ledger.ts';
 const need=(v:unknown,c:string)=>requireThat(v,'ENVIO_CLOSED_V2_STORE_'+c);
 const json=(v:unknown)=>Buffer.from(JSON.stringify(v)+'\n');
 export async function syncV2Directory(path:string){const f=await open(path,'r');try{await f.sync();}finally{await f.close();}}
@@ -20,10 +21,17 @@ export class V2PacketStore{
  async budget(add=0){let bytes=0,count=0;for await(const entry of await opendir(this.directory)){need(++count<=40000&&entry.isFile()&&!entry.isSymbolicLink(),'ENTRY_BOUND');bytes+=(await lstat(this.path(entry.name))).size;need(bytes+add<=V2_CAPS.maxBytes,'DISK_CAP');}return bytes;}
  async initialize(m:V2Manifest,original:Buffer){await mkdir(this.directory,{mode:0o700});await this.check();await writeV2Exclusive(this.path('original-admission.bin'),original);await writeV2Exclusive(this.path('initial.private.json'),json(m));await writeV2Exclusive(this.path('manifest.private.json'),json(m));}
  async manifest(){await this.check();return JSON.parse((await readV2Private(this.path('manifest.private.json'),262144)).toString()) as V2Manifest;}
- async append(before:V2Manifest,next:V2Manifest,record:V2PacketRecord,packet:Buffer){
+ async append(before:V2Manifest,next:V2Manifest,record:V2PacketRecord,packet:Buffer,ledger?:OwnedCaseByteLedger){
   await this.check();need(stable(await this.manifest())===stable(before)&&next.count===before.count+1&&record.index===before.count,'INDEX_CHANGED');
-  const n=String(record.index).padStart(5,'0'),recordRaw=json(record);await this.budget(packet.length+recordRaw.length+524288);await writeV2Exclusive(this.path('packet-'+n+'.private.json'),packet);await writeV2Exclusive(this.path('record-'+n+'.private.json'),recordRaw);
-  if(next.count%V2_CAPS.segmentPackets===0){const index=next.count/V2_CAPS.segmentPackets-1,digests=[];for(let i=index*256;i<next.count;i++)digests.push(rawSha(await readV2Private(this.path('record-'+String(i).padStart(5,'0')+'.private.json'),16384)));const raw=json({version:2,index,previousSegment:before.segments.at(-1)?.sha256??null,records:digests});await writeV2Exclusive(this.path('segment-'+String(index).padStart(3,'0')+'.private.json'),raw);next.segments=[...before.segments,{index,sha256:rawSha(raw),count:256}];}
+  if(ledger){
+   const id=String(record.index).padStart(5,'0'),recordRaw=json(record),writes=[{path:this.path('packet-'+id+'.private.json'),bytes:packet},{path:this.path('record-'+id+'.private.json'),bytes:recordRaw}];
+   if(next.count%256===0){const index=next.count/256-1,digests=[];for(let n=index*256;n<next.count;n++)digests.push(n===record.index?rawSha(recordRaw):rawSha(await readV2Private(this.path('record-'+String(n).padStart(5,'0')+'.private.json'),16384)));const raw=json({version:2,index,previousSegment:before.segments.at(-1)?.sha256??null,records:digests});writes.push({path:this.path('segment-'+String(index).padStart(3,'0')+'.private.json'),bytes:raw});next.segments=[...before.segments,{index,sha256:rawSha(raw),count:256}];}
+   const manifest=json(next),temp=ledger.manifestTemp();ledger.reserveBatch([...writes,{path:temp,bytes:manifest}]);for(const w of writes)await ledger.writeExclusive(w.path,w.bytes);
+   await ledger.replaceManifest(this.path('manifest.private.json'),manifest,async()=>{need(stable(await this.manifest())===stable(before),'PREINSTALL_INDEX_CHANGED');},undefined,temp);return next;
+  }
+  const write=writeV2Exclusive;
+  const n=String(record.index).padStart(5,'0'),recordRaw=json(record);if(!ledger)await this.budget(packet.length+recordRaw.length+524288);await write(this.path('packet-'+n+'.private.json'),packet);await write(this.path('record-'+n+'.private.json'),recordRaw);
+  if(next.count%V2_CAPS.segmentPackets===0){const index=next.count/V2_CAPS.segmentPackets-1,digests=[];for(let i=index*256;i<next.count;i++)digests.push(rawSha(await readV2Private(this.path('record-'+String(i).padStart(5,'0')+'.private.json'),16384)));const raw=json({version:2,index,previousSegment:before.segments.at(-1)?.sha256??null,records:digests});await write(this.path('segment-'+String(index).padStart(3,'0')+'.private.json'),raw);next.segments=[...before.segments,{index,sha256:rawSha(raw),count:256}];}
   const tmp=this.path('manifest-'+randomUUID()+'.tmp');await writeV2Exclusive(tmp,json(next));need(stable(await this.manifest())===stable(before),'PREINSTALL_INDEX_CHANGED');await rename(tmp,this.path('manifest.private.json'));if(process.platform!=='win32')await syncV2Directory(this.directory);return next;
  }
  async verify(a:V2CollectionPermit){

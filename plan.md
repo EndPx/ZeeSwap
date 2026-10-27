@@ -764,6 +764,23 @@ twenty-packet rate, long-run ETA, metadata publication or financial activation
 is established. Preserve the two-packet campaign and evidence; qualify any
 separate consumer performance change under the existing proof/resource gates.
 
+Consumer performance preparation (27 October): a distinct exact opt-in execution
+descriptor now binds a new Root read permit/configuration and the actual new
+execution release. The original source selector and its 70-file witness remain
+immutable. The default serial path remains available. Bounded parallel checks,
+one raw future, shared original deadlines, cancellation/drain and exact owned
+byte accounting retain all proof, RPC, file and resource bounds. Full inventory
+audits remain at startup, segment seals and finish; lookahead is suppressed at
+audit boundaries. Root independently passed 64 cases locally and on Linux plus
+six isolated PostgreSQL regressions, all with zero skips.
+The measured old metadata-scan pair grew to 5.97 seconds at 13,000 packets. A
+distinct one-byte-fixture terminal test measured 18.54-ms average hot appends,
+21.71-second startup inventory/hash and 17.18-second final audit. These synthetic
+filesystem results do not establish chain throughput. The failed earlier test
+CPU-bound attempt is recorded. Complete real-packet pilot/net-rate qualification,
+fresh final-suffix publication, Base ordinary following and finance remain open.
+See [consumer performance evidence](docs/evidence/envio-consumer-performance.md).
+
 Amounts are canonical integer strings over APIs, `bigint` in TypeScript, and checked integer arithmetic in Rust/Solidity. Zcash uses 8 decimal places and mockUSDC uses 6. Store integer units in PostgreSQL using the `zee.atomic` NUMERIC domain with integral-value, 78-digit and asset-specific bounds. This replaces direct `NUMERIC(78,0)` assignment because PostgreSQL can round a fractional value before its check constraint. Prices use rational/scaled integers. Round destination output down and required input/fee reserves up; reject zero output or invalid decimals. References to USDC below describe the product asset role; all prototype execution and UI use mockUSDC explicitly.
 
 ### Finality policy

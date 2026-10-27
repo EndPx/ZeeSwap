@@ -8,6 +8,7 @@ import {rawSha} from './envio-linked-campaign.ts';
 import type {SourceCutoverIdentity} from './envio-source-cutover.ts';
 import {validateEventFirstExport,verifyEventFirstExport,type EventFirstVerifiedExport,type EventFirstReader} from './envio-event-first.ts';
 import {digest,stable,parseHeader,validatePolicy,requireThat,type Header} from './types.ts';
+import {consumerExecution,type ConsumerExecution} from './envio-consumer-execution.ts';
 import type {EnvioAdmissionState} from './envio-live.ts';
 function need(v:unknown,c:string):asserts v{requireThat(v,'ENVIO_CLOSED_V2_'+c);}
 const hash=(v:unknown)=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v)&&v!=='0'.repeat(64);
@@ -15,7 +16,7 @@ export const V2_CAPS={packetBlocks:64,packetBytes:8000000,packetMs:30000,segment
 export type V2CollectionPermit={version:2;status:'ROOT_ENVIO_EVENT_FIRST_CLOSED_COLLECTION_V2';collectionOnly:true;sqlPublication:false;admissionMutation:false;financialAction:false;
  campaignId:string;verifiedAt:string;expiresAt:string;publicCommit:string;branchId:'br-broad-pine-ao79wemx';database:'zee_app_20261023';identity:SourceCutoverIdentity;
  baseline:ClosedSnapshot;baselineSha256:string;originalAdmission:ClosedPin;originalAdmissionPlaintextDigest:string;selector:ClosedPin;closedAuthority:ClosedPin;archivePins:ClosedPin[];codePins:ClosedPin[];
- allowedEventDigests:string[];caps:typeof V2_CAPS};
+ allowedEventDigests:string[];caps:typeof V2_CAPS;execution?:ConsumerExecution};
 export type V2ResumePermit={version:2;status:'ROOT_ENVIO_EVENT_FIRST_CLOSED_RESUME_V2';collectionSha256:string;manifestSha256:string;verifiedAt:string;expiresAt:string;phase:'pilot'|'reviewed-serial';financialAction:false;sqlPublication:false};
 export type V2PacketRecord={version:2;index:number;permitSha256:string;previousDigest:string;packetSha256:string;acquiredAt:string;bytes:number;from:number;through:Header;producer:Header;revision:string;eventCount:number;recordDigest:string};
 export type V2Manifest={version:2;collectionSha256:string;count:number;blocks:number;bytes:number;last:Header;lastRecordDigest:string;lastRevision:string|null;segments:{index:number;sha256:string;count:number}[];updatedAt:string};
@@ -35,7 +36,7 @@ function pin(p:ClosedPin){need(p&&/^\/opt\/zeeswap-testnet\//.test(p.path)&&!p.p
 function lifetime(start:string,end:string,now:number,max:number){const a=Date.parse(start),b=Date.parse(end);need(Number.isFinite(a)&&a<=now&&b>now&&b>a&&b-a<=max,'AUTHORITY_EXPIRED');}
 export function validateV2CollectionPermit(a:V2CollectionPermit,now=Date.now()){
  need(a?.version===2&&a.status==='ROOT_ENVIO_EVENT_FIRST_CLOSED_COLLECTION_V2'&&a.collectionOnly===true&&a.sqlPublication===false&&a.admissionMutation===false&&a.financialAction===false&&a.branchId==='br-broad-pine-ao79wemx'&&a.database==='zee_app_20261023','COLLECTION_SCOPE');
- lifetime(a.verifiedAt,a.expiresAt,now,86400000);need(/^[a-zA-Z0-9_-]{1,80}$/.test(a.campaignId)&&/^[a-f0-9]{40}$/.test(a.publicCommit)&&stable(a.caps)===stable(V2_CAPS),'CAPS');
+ lifetime(a.verifiedAt,a.expiresAt,now,86400000);consumerExecution(a.execution);need(/^[a-zA-Z0-9_-]{1,80}$/.test(a.campaignId)&&/^[a-f0-9]{40}$/.test(a.publicCommit)&&stable(a.caps)===stable(V2_CAPS),'CAPS');
  validatePolicy(a.identity?.policy);need(a.identity.policy.adapter==='envio-hyperindex'&&a.identity.policy.network==='eip155:84532'&&a.identity.policy.canonicalSourceId==='base-sepolia-tenderly-rpc'&&/^[a-zA-Z0-9_-]{1,100}$/.test(a.identity.generation),'IDENTITY');
  validateV2ClosedState(a.baseline,'zee_app_reader_20261023');need(v2StateDigest(a.baseline)===a.baselineSha256&&hash(a.originalAdmissionPlaintextDigest),'BASELINE_DIGEST');
  for(const p of[a.originalAdmission,a.selector,a.closedAuthority,a.identity.exportProfile,a.identity.codeManifest,...a.archivePins,...a.codePins])pin(p);
