@@ -20,6 +20,21 @@ start a market-policy worker for new fixed-rate quotes. Source, capital,
 finality and actual funded-circle gates remain required; G5 stays stopped.
 Earlier dated market decisions below are historical and superseded.
 
+Current recovery amendment (27 October, explicitly approved by the user):
+For paused and fully closed Base history, exhaustively compare every interval's
+raw SDK settlement events with unfiltered independent canonical RPC logs.
+Fetch all retained, financial, event, seam, interval-boundary, checkpoint and
+finalized-anchor headers. Interior log-empty headers need not be enumerated;
+this is complete event coverage, not full-header coverage. Preserve the true
+SDK floor, generation, original clocks, exact event equality, admitted finality,
+reorg checks, financial history, original-XID/CAS and durable metadata boundaries.
+The real provider limits intervals to 200 blocks. Keep all existing money,
+inventory, fee, replay and independent receipt gates. Old V2 cases and failed
+attempts remain immutable. This replaces only the earlier all-empty-header
+enumeration requirement for this closed-history recovery. See
+docs/proposals/base-closed-event-recovery.md. No financial activation follows
+from a read-only diagnostic alone.
+
 Deployment decision (25 October): the user selected Docker on the existing VPS.
 The Chef query API and one watch-only follower now run there in separate
 containers under normal continuous supervision. The bounded recovery deadline
@@ -66,8 +81,9 @@ Live application acceptance (25 October): the user requested all repairs and an
 actually usable testnet app. Complete these bounded milestones in order:
 
 1. Reconcile only the independently proven orphan Native tip, preserving closed
-   financial history and normal triggers. Recover every missing Base observation
-   range without skipping headers/events or replacing the true source floor.
+   financial history and normal triggers. Recover every missing Base event interval
+   using the user-approved complete SDK/RPC event audit and all relevant canonical
+   headers; omit only interior log-empty headers. Preserve the true Source floor.
    Verify both ordinary consumers following fresh blocks again.
 2. Correct the web/API health schema mismatch and verify the deployed browser.
    Connectivity must not imply admission or settlement readiness. The existing

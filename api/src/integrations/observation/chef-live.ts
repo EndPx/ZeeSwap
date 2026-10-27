@@ -104,12 +104,14 @@ export async function reconcileChefObserverFailure(error:unknown,connectedScope:
 }
 
 /** Existing dense canonical reader verifies every intervening parent once;
- * retained SQL rows then share that bounded cache rather than spawn per row. */
-export function chefPersistedCanonical(factory:(range:{fromHeight:number;throughHeight:number})=>ChefConfig['canonical']):ChefConfig['canonical']&{prefetchPersisted:(heights:number[],signal:AbortSignal)=>Promise<void>}{
+ * retained SQL rows then share that bounded cache rather than spawn per row.
+ * persisted-range is ONLY the prepublication safe-wait audit: its fresh endpoint
+ * fences every dense parent while permitting a volatile unpersisted tip to move. */
+export function chefPersistedCanonical(factory:(range:{fromHeight:number;throughHeight:number})=>ChefConfig['canonical'],fence:'sampled-head'|'persisted-range'='sampled-head'):ChefConfig['canonical']&{prefetchPersisted:(heights:number[],signal:AbortSignal)=>Promise<void>}{
  const cache=new Map<number,Awaited<ReturnType<ChefConfig['canonical']['header']>>>();
  return {sample:signal=>factory({fromHeight:0,throughHeight:0}).sample(signal),async header(h){const found=cache.get(h);requireThat(found,'CHEF_PERSISTED_CANONICAL_CACHE_REQUIRED');return found;},async prefetchPersisted(heights,signal){
  requireThat(heights.length>0&&heights.length<=10004,'CHEF_PERSISTED_STATE_BOUND');requireThat(heights.every(h=>Number.isSafeInteger(h)&&h>=0),'INVALID_HEIGHT');const wanted=new Set(heights),min=Math.min(...heights),max=Math.max(...heights);requireThat(max-min<10000,'CHEF_PERSISTED_DENSE_RANGE_BOUND');let previous:Awaited<ReturnType<ChefConfig['canonical']['header']>>|undefined;
- for(let fromHeight=min;fromHeight<=max;fromHeight+=1000){signal.throwIfAborted();const throughHeight=Math.min(max,fromHeight+999),reader=factory({fromHeight,throughHeight}),sample=await reader.sample(signal);for(let h=fromHeight;h<=throughHeight;h++){const header=await reader.header(h,signal);requireThat(!previous||header.parentHash===previous.hash,'HEADER_GAP_OR_FORK');previous=header;if(wanted.has(h))cache.set(h,header);}requireThat(stable(await reader.header(sample.head.height,signal))===stable(sample.head),'CANONICAL_HEAD_CHANGED');}
+ for(let fromHeight=min;fromHeight<=max;fromHeight+=1000){signal.throwIfAborted();const throughHeight=Math.min(max,fromHeight+999),reader=factory({fromHeight,throughHeight}),sample=await reader.sample(signal);for(let h=fromHeight;h<=throughHeight;h++){const header=await reader.header(h,signal);requireThat(!previous||header.parentHash===previous.hash,'HEADER_GAP_OR_FORK');previous=header;if(wanted.has(h))cache.set(h,header);}if(fence==='persisted-range'){requireThat(sample.head.height>=throughHeight,'CHEF_PERSISTED_SOURCE_BEHIND');const endpoint=await factory({fromHeight:throughHeight,throughHeight}).header(throughHeight,signal);requireThat(stable(endpoint)===stable(previous),'CANONICAL_PERSISTED_RANGE_CHANGED');}else requireThat(stable(await reader.header(sample.head.height,signal))===stable(sample.head),'CANONICAL_HEAD_CHANGED');}
  }};
 }
 

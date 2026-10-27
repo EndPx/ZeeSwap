@@ -12,19 +12,19 @@ export function requireServiceWindowRpcBudget(methods:number){requireThat(Number
 export function serviceWindowRpcFetch(request:typeof fetch,metrics:{requests:number;methods:number}):typeof fetch{return(input,init)=>{const body=JSON.parse(String(init?.body)),count=Array.isArray(body)?body.length:1;requireThat(count>=1&&count<=10,'SERVICE_WINDOW_RPC_BATCH');requireServiceWindowRpcBudget(metrics.methods+count);metrics.requests++;metrics.methods+=count;return request(input,init);};}
 
 /** At most two dense phases, each retaining the original <10,000 span guard. */
-export async function serviceNativeDenseCanonical(heights:number[],factory:(range?:{fromHeight:number;throughHeight:number})=>CanonicalReader,sourceId:string,signal:AbortSignal){
+export async function serviceNativeDenseCanonical(heights:number[],factory:(range?:{fromHeight:number;throughHeight:number})=>CanonicalReader,sourceId:string,signal:AbortSignal,fence:'sampled-head'|'persisted-range'='sampled-head'){
  requireThat(heights.length>0&&heights.length<=10004&&heights.every(h=>Number.isSafeInteger(h)&&h>=0),'SERVICE_NATIVE_AUDIT_BOUND');
  const min=Math.min(...heights),max=Math.max(...heights),boundary=Math.min(max,min+9999);
  requireThat(max-boundary<10000,'SERVICE_NATIVE_TWO_PHASE_BOUND');
  const phases=[{fromHeight:min,throughHeight:boundary},...(boundary<max?[{fromHeight:boundary,throughHeight:max}]:[])],wanted=new Set([...heights,boundary]),headers=new Map<number,Header>(),samples:Header[]=[];
  for(const phase of phases){signal.throwIfAborted();const sample=await factory().sample(signal);requireThat(sample.sourceId===sourceId,'SERVICE_NATIVE_CANONICAL_SOURCE');samples.push(parseHeader(sample.head,'zcash-testnet'));
-  const reader=chefPersistedCanonical(range=>factory(range)),part=[...wanted].filter(h=>h>=phase.fromHeight&&h<=phase.throughHeight);
+  const reader=chefPersistedCanonical(range=>factory(range),fence),part=[...wanted].filter(h=>h>=phase.fromHeight&&h<=phase.throughHeight);
   await reader.prefetchPersisted([...new Set([...part,phase.fromHeight,phase.throughHeight])],signal);
   for(const h of part){const actual=parseHeader(await reader.header(h,signal),'zcash-testnet'),previous=headers.get(h);requireThat(actual.height===h&&(!previous||stable(previous)===stable(actual)),'SERVICE_NATIVE_PHASE_OVERLAP_FORK');headers.set(h,actual);}
-  requireThat(stable(await factory().header(sample.head.height,signal))===stable(sample.head),'SERVICE_NATIVE_HEAD_CHANGED');
+  if(fence==='persisted-range'){requireThat(sample.head.height>=max,'SERVICE_NATIVE_SOURCE_BEHIND');requireThat(stable(await factory().header(phase.throughHeight,signal))===stable(headers.get(phase.throughHeight)),'SERVICE_NATIVE_PERSISTED_RANGE_CHANGED');}else requireThat(stable(await factory().header(sample.head.height,signal))===stable(sample.head),'SERVICE_NATIVE_HEAD_CHANGED');
  }
  const overlap=headers.get(boundary)!;requireThat(stable(await factory().header(boundary,signal))===stable(overlap),'SERVICE_NATIVE_FRESH_BOUNDARY_FORK');
- for(const head of samples)requireThat(stable(await factory().header(head.height,signal))===stable(head),'SERVICE_NATIVE_HEAD_CHANGED');
+ if(fence==='persisted-range'){for(const phase of phases)requireThat(stable(await factory().header(phase.throughHeight,signal))===stable(headers.get(phase.throughHeight)),'SERVICE_NATIVE_PERSISTED_RANGE_CHANGED');}else for(const head of samples)requireThat(stable(await factory().header(head.height,signal))===stable(head),'SERVICE_NATIVE_HEAD_CHANGED');
  signal.throwIfAborted();requireThat(heights.every(h=>headers.has(h)),'SERVICE_NATIVE_MISSING_ROW');return{headers,phases,overlap,verifiedDenseHeaders:phases.reduce((n,p)=>n+p.throughHeight-p.fromHeight+1,0)};
 }
 

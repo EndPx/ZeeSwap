@@ -25,7 +25,7 @@ export async function requireChefRecoveryMarkersClear(directory:string){await re
 /** Used only for a prepublication safe-wait diagnostic; failure never publishes. */
 export function ordinaryChefCanonicalRecheck(factory:(range?:{fromHeight:number;throughHeight:number})=>CanonicalReader,sourceId:string){
  let cache=new Map<number,Header>();
- return{sample:(signal:AbortSignal)=>factory().sample(signal),async header(h:number,_signal:AbortSignal){const actual=cache.get(h);requireThat(actual,'CHEF_PERSISTED_CANONICAL_CACHE_REQUIRED');return actual;},async prefetchPersisted(heights:number[],signal:AbortSignal){cache.clear();const verified=await serviceNativeDenseCanonical(heights,factory,sourceId,signal);cache=verified.headers;}};
+ return{sample:(signal:AbortSignal)=>factory().sample(signal),async header(h:number,_signal:AbortSignal){const actual=cache.get(h);requireThat(actual,'CHEF_PERSISTED_CANONICAL_CACHE_REQUIRED');return actual;},async prefetchPersisted(heights:number[],signal:AbortSignal){cache.clear();const verified=await serviceNativeDenseCanonical(heights,factory,sourceId,signal,'persisted-range');cache=verified.headers;}};
 }
 export async function runObserveLinuxChef(path:string,once:boolean){
  const {c,runtime,env,policy,openingCapital,profile}=await loadLinuxChefRuntime(path);requireThat([5,10].includes(c.pollSeconds),'CHEF_LINUX_POLL_INTERVAL');

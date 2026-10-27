@@ -1,9 +1,11 @@
 # Proposed Base closed-history event recovery
 
-Status: proposed, awaiting the user's approval. Existing full-header gates remain active.
+Status: explicitly approved by the user on 27 October 2026. The amended
+closed-history event-coverage gate applies only to this paused recovery.
 
-The working agreement requires preservation of the acceptance gates in plan.md.
-The current live acceptance rule requires recovery without skipping headers or events.
+The working agreement requires preservation of acceptance gates. The user
+explicitly approved this change to the earlier all-header recovery rule;
+financial gates and independent canonical receipt checks remain unchanged.
 The current Base backlog exceeds 636,000 blocks. The old 64-block proof protocol
 enumerates every interior header and cannot be treated as an event-only audit.
 
