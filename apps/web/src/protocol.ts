@@ -5,7 +5,8 @@ import {decodeLockedPricing,type LockedPricing} from './pricing.ts';
 export type Direction = 'ZCASH_TO_BASE' | 'BASE_TO_ZCASH';
 export const assets = {
   TAZ: { symbol: 'TAZ', name: 'Zcash testnet', decimals: 8, network: 'Zcash testnet', className: 'taz' },
-  mockUSDC: { symbol: 'mockUSDC', name: 'Test USD Coin', decimals: 6, network: 'Base Sepolia', className: 'usdc' },
+  // Existing deployed project token, verified against contracts/deployments/base-sepolia.json.
+  mockUSDC: { symbol: 'USDC', name: 'ZeeSwap test USDC', decimals: 6, network: 'Base Sepolia', className: 'usdc',contractAddress:'0xD64C116352CEF2Adc9484098Ae332Fd9bA339A63' },
 } as const;
 export type Asset = keyof typeof assets;
 export const pair = (direction: Direction): [Asset, Asset] => direction === 'ZCASH_TO_BASE' ? ['TAZ','mockUSDC'] : ['mockUSDC','TAZ'];
@@ -26,7 +27,7 @@ export function formatUnits(units: string, decimals: number): string {
 }
 export function amountForApi(text: string, direction: Direction): string {
   const input=parseUnits(text, assets[pair(direction)[0]].decimals), units=BigInt(input);
-  if (units<100000n || units>10000000n) throw Error(direction==='ZCASH_TO_BASE' ? 'Testnet range: 0.001–0.1 TAZ.' : 'Testnet range: 0.1–10 mockUSDC.');
+  if (units<100000n || units>10000000n) throw Error(direction==='ZCASH_TO_BASE' ? 'Testnet range: 0.001–0.1 TAZ.' : 'Testnet range: 0.1–10 USDC.');
   return input;
 }
 export function indicativeOutput(text: string, direction: Direction): string | null {
@@ -47,21 +48,29 @@ export function quoteBody(direction: Direction, amount: string, recipient: strin
 }
 export const statuses=['QUOTED','AWAITING_FUNDS','CONFIRMING','READY','REFUND_REQUIRED','REVIEW_REQUIRED','EXPIRED_UNFUNDED','REORGED','SETTLED','REFUNDED'] as const;
 export type OrderStatus=typeof statuses[number];
+export interface FixedPricing {version:1;source:'configured-fixed-rate';rateNumerator:string;rateDenominator:string;inputDecimals:6|8;outputDecimals:6|8;protocolFeeBps:0;}
+export function validateFixedPricing(value:unknown,direction:Direction,input:string,output:string):asserts value is FixedPricing {
+  const p=value as FixedPricing,forward=direction==='ZCASH_TO_BASE';
+  if(!p||typeof p!=='object'||Object.keys(p).sort().join()!==['version','source','rateNumerator','rateDenominator','inputDecimals','outputDecimals','protocolFeeBps'].sort().join()||p.version!==1||p.source!=='configured-fixed-rate'||p.rateNumerator!==(forward?'100':'1')||p.rateDenominator!==(forward?'1':'100')||p.inputDecimals!==(forward?8:6)||p.outputDecimals!==(forward?6:8)||p.protocolFeeBps!==0||input!==output||BigInt(input)<100000n||BigInt(input)>10000000n)throw Error('The service returned unsupported fixed-rate terms.');
+}
 export interface OrderView {
   id:string; direction:Direction; status:OrderStatus; inputAmount:string; outputAmount:string;
-  executionMode:string; priceMode:'fixture'|'market-reference';pricing?:LockedPricing|null; integrationOnly:boolean; expiresAt:string;
+  executionMode:string; priceMode:'fixture'|'market-reference'|'fixed-rate';pricing?:LockedPricing|FixedPricing|null; integrationOnly:boolean; expiresAt:string;
+  sourceAsset?:'TAZ'|'USDC';destinationAsset?:'TAZ'|'USDC';testnet?:true;
   source:{received:boolean;confirmed:boolean;confirmations:number;policy:'zcash-10-confirmations'|'base-finalized';requiredConfirmations:number|null};
   escrowFunding?:EscrowFunding;
   destination?:{network:'base-sepolia'|'zcash-testnet';status:'FINALIZED'|'PAYOUT_PENDING'|'RESERVING'|'NOT_SUBMITTED';transactionHash?:string;blockNumber?:number};
   funding?:{network:'zcash-testnet';receiver:string;memo:string;cutoffHeight:number|null;cutoffTime:string|null;cancellationAvailableAt:string|null};
 }
+/** New fixed-flow quotes cannot reinterpret a historical provider-priced order. */
+export function fixedQuoteMatches(order:OrderView,body:QuoteBody):boolean {return ['fixed-rate','fixture'].includes(order.priceMode)&&order.status==='QUOTED'&&order.direction===body.direction&&order.inputAmount===body.inputAmount&&order.outputAmount===body.inputAmount;}
 const object=(value:unknown):Record<string,unknown>=>{if(!value||typeof value!=='object'||Array.isArray(value))throw Error('The service returned an unsupported response.');return value as Record<string,unknown>;};
 const nonnegative=(value:unknown):value is number=>typeof value==='number'&&Number.isSafeInteger(value)&&value>=0;
 const atomic=(value:unknown):value is string=>typeof value==='string'&&/^(0|[1-9][0-9]{0,77})$/.test(value);
 export function decodeOrder(value:unknown):OrderView {
   const row=object(value),source=object(row.source);
   if(typeof row.id!=='string'||!uuid(row.id)||!['ZCASH_TO_BASE','BASE_TO_ZCASH'].includes(String(row.direction))||!statuses.includes(row.status as OrderStatus)
-    ||!atomic(row.inputAmount)||!atomic(row.outputAmount)||typeof row.executionMode!=='string'||!['fixture','market-reference'].includes(String(row.priceMode))||typeof row.integrationOnly!=='boolean'
+    ||!atomic(row.inputAmount)||!atomic(row.outputAmount)||typeof row.executionMode!=='string'||!['fixture','market-reference','fixed-rate'].includes(String(row.priceMode))||typeof row.integrationOnly!=='boolean'
     ||typeof row.expiresAt!=='string'||!Number.isFinite(Date.parse(row.expiresAt))||typeof source.received!=='boolean'||typeof source.confirmed!=='boolean'
     ||!nonnegative(source.confirmations)||!['zcash-10-confirmations','base-finalized'].includes(String(source.policy))||!(source.requiredConfirmations===null||nonnegative(source.requiredConfirmations)))throw Error('The service returned an unsupported order.');
   if(row.destination!==undefined){const d=object(row.destination);if(!['base-sepolia','zcash-testnet'].includes(String(d.network))||(d.network==='base-sepolia'&&row.direction!=='ZCASH_TO_BASE')||(d.network==='zcash-testnet'&&row.direction!=='BASE_TO_ZCASH')||!['FINALIZED','PAYOUT_PENDING','RESERVING','NOT_SUBMITTED'].includes(String(d.status))
@@ -75,6 +84,7 @@ export function decodeOrder(value:unknown):OrderView {
     if(BigInt(row.inputAmount as string)<100000n||BigInt(row.inputAmount as string)>10000000n||BigInt(row.outputAmount as string)<(row.direction==='ZCASH_TO_BASE'?100000n:10000n)||BigInt(row.outputAmount as string)>10000000n)throw Error('Market quote exceeds supported testnet principal bounds.');
     decodeLockedPricing(row.pricing,row.direction as Direction,row.inputAmount as string,row.outputAmount as string,row.status as string,row.expiresAt as string);
   }
+  else if(row.priceMode==='fixed-rate'){validateFixedPricing(row.pricing,row.direction as Direction,row.inputAmount as string,row.outputAmount as string);if(row.testnet!==true||row.sourceAsset!==(row.direction==='ZCASH_TO_BASE'?'TAZ':'USDC')||row.destinationAsset!==(row.direction==='ZCASH_TO_BASE'?'USDC':'TAZ'))throw Error('The service returned a different testnet asset route.');}
   else if(row.pricing!==undefined&&row.pricing!==null)throw Error('Fixture order cannot include market pricing.');
   return row as unknown as OrderView;
 }

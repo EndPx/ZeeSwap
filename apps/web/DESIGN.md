@@ -58,19 +58,19 @@ Unbroken addresses wrap inside min-width:0 containers.
 
 ## 5. Primitives and states
 
-- Market settlement pricing is declared by the server's pricing configuration
-  and bounded availability policy, independently of the public reference panel.
-  The main output distinguishes a changing market estimate, an unaccepted fixed
-  server quote and an accepted "Quote locked" amount. Show snapshot sampling,
-  expiry, conservative side, zero protocol fee and source-network fee before
-  acceptance. Historical accepted amounts survive provider failure/expiry.
-
-- Market reference: compact secondary inset in Swap, below the fixture-rate row.
-  Uses existing surface-soft, muted text and warm border with 12px metadata,
-  14px title and 18px tabular rate. Clearly labels actual ZEC/USDC as reference
-  only, shows Kraken retrieval time as "Sampled", and keeps any comparison
-  estimate apart from the unchanged fixture payout. Unavailable or expired data
-  removes numbers. Updates do not announce every polling tick.
+- Fixed swap rule: 1 TAZ = 100 USDC, with exact integer amounts and zero protocol
+  fee. The rate row uses the existing quote-facts primitive. No provider card,
+  price polling or market-expiry state appears in the current flow. New server
+  terms must match this rule; historical accepted amounts remain unchanged.
+- Asset labels: USDC is the product label for ZeeSwap's project-issued Base
+  Sepolia test token. Preserve internal identifiers and the deployed contract
+  identity. Asset details show the actual token address, testnet and issuer
+  context. Do not imply mainnet/Circle issuance or monetary value.
+- Faucet: a labelled navigation action opens the existing native dialog with
+  three asset sections (USDC, TAZ, Base Sepolia ETH). Reuse notices, fields and
+  44px buttons. USDC eligibility, pending, unknown and receipt-confirmed states
+  have distinct copy; external faucets never imply a completed claim. On narrow
+  screens the navigation may wrap below the wordmark/wallet row to retain labels.
 
 - Product mode: labelled Swap/Bridge button group with `aria-pressed`, using the
   existing charcoal selected surface and 44px controls. Mode changes preserve

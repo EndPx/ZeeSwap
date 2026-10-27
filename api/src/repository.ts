@@ -3,6 +3,7 @@ import type pg from 'pg';
 import { atomic, fixtureOutput } from './amounts.ts';
 import { PrivateData, accessHash, newAccessToken } from './private-data.ts';
 import { publicSettlementId } from './base-contract.ts';
+import {fixedOutput,fixedQuotePricing} from './fixed-pricing.ts';
 import {marketOutput,type MarketSnapshot} from './market-pricing.ts';
 
 type Queryable = Pick<pg.Pool,'query'>;
@@ -12,6 +13,7 @@ export interface QuoteInput {
   recipient: string; refundRecipient: string; depositReceiver: string;
   executionMode?: 'base-settlement-v1'|'base-escrow-v1'; baseContract?: string; payer?: string;
   marketPricing?:{snapshot:MarketSnapshot;policySha256:string};
+  fixedRate?:true;
 }
 export interface DepositInput {
   network: 'zcash-testnet'|'base-sepolia'; txid: string; index: number;
@@ -51,11 +53,11 @@ export class Repository {
       if(input.direction!=='BASE_TO_ZCASH'||!input.payer)throw Error('Reverse payer required');
       input={...input,depositReceiver:`escrow:${publicSettlementId(settlementId)}`};
     }
-    const market=input.marketPricing;
+    const market=input.marketPricing;if(market&&input.fixedRate)throw Error('FIXED_MARKET_MODE_CONFLICT');
     const pricing=market?marketOutput(input.inputAmount,input.direction,market.snapshot,new Date((await this.db.query('SELECT clock_timestamp() AS now')).rows[0].now).getTime()):undefined;
-    const output=pricing?.outputAmount??fixtureOutput(input.inputAmount,input.direction), forward=input.direction==='ZCASH_TO_BASE';
-    const {marketPricing:_serverOnly,...privateInput}=input;
-    const payload=this.privateData.seal({...privateInput,outputAmount:output,reference,settlementId,...(pricing?{priceMode:'market-reference',pricing:pricing.pricing}:{})},`quote:${id}:v1`);
+    const output=pricing?.outputAmount??(input.fixedRate?fixedOutput(input.inputAmount,input.direction):fixtureOutput(input.inputAmount,input.direction)), forward=input.direction==='ZCASH_TO_BASE';
+    const {marketPricing:_serverOnly,fixedRate:_fixedOnly,...privateInput}=input;
+    const payload=this.privateData.seal({...privateInput,outputAmount:output,reference,settlementId,...(pricing?{priceMode:'market-reference',pricing:pricing.pricing}:input.fixedRate?{priceMode:'fixed-rate',pricing:fixedQuotePricing(input.direction)}:{})},`quote:${id}:v1`);
     if(market){
       await this.db.query('SELECT zee.issue_market_quote($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)',[id,input.direction,input.inputAmount,input.payoutFee,input.refundFee,payload,this.privateData.lookup('reference',reference),this.privateData.lookup('receiver',input.depositReceiver),accessHash(token),settlementId,input.executionMode,input.baseContract,market.snapshot.snapshotId,Buffer.from(market.policySha256,'hex')]);
       return {id,reference,accessToken:token,outputAmount:output,memo:makeMemo(reference)};

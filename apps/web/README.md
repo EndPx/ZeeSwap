@@ -1,6 +1,6 @@
 # ZeeSwap web
 
-Responsive React/TypeScript/Vite frontend for the existing TAZ ↔ mockUSDC testnet
+Responsive React/TypeScript/Vite frontend for the existing TAZ ↔ USDC testnet
 API, alongside a separate TAZ ↔ zeeTAZ bridge mode. It uses original ZeeSwap
 artwork, local fonts, explicit server-declared swap pricing and private order capabilities.
 There is no seed import or analytics. Accepted swap escrow approval/funding and
@@ -30,54 +30,38 @@ changes the API origin or leaks capabilities to another host. Remote APIs requir
 HTTPS. `/health` confirms connectivity only, not settlement readiness or reserves.
 
 The interface can be explored while the API is offline, with its arithmetic
-explicitly labelled indicative/fixture. It creates no fake quote, order, balance,
+explicitly labelled fixed-rate preview. It creates no fake quote, order, balance,
 funding instruction or completed swap. A bound quote requires the actual API.
 
-The separate **ZEC/USDC market reference** panel reads the unauthenticated
-`GET /market-reference` endpoint at the configured API origin. Kraken ZEC/USD and
-USDC/USD bid/ask observations determine the cross rate; USDC/USD is not assumed
-to equal one. The browser independently verifies exact rational cross arithmetic,
-canonical positive decimal strings, source spreads and a maximum 30-second
-retrieval lifetime. "Sampled" means HTTP retrieval time, not an exchange update
-timestamp. Single-flight reads run every 15 seconds while this Swap view and tab
-are visible, with bounded requests, cancellation and expiry cleanup. Missing,
-malformed, stale or failed data displays **Unavailable** and removes market
-numbers; no fixture price substitutes for a market response.
+The current swap rule is **1 TAZ = 100 USDC**. TAZ uses eight decimals and USDC
+uses six, so one zatoshi maps exactly to one USDC micro-unit in either direction.
+Amounts are integer atomic strings and the protocol fee is zero. The server
+returns `priceMode: fixed-rate` with typed `configured-fixed-rate` terms, exact
+100:1 or inverse1:100 ratio, decimals and fee. The browser validates these terms
+and rejects a new response using different pricing or output. Quote acceptance
+still uses its ordinary deadline; no external price feed or price-expiry timer
+controls the current flow. The app makes no `/market-reference` or `/pricing`
+request and renders no provider panel.
 
-The optional same-numeric-input comparison uses conservative bid/ask arithmetic
-and is labelled **Market reference estimate — not your testnet payout**. It treats
-that number as real ZEC or USDC units solely for comparison. TAZ has no monetary
-value and mockUSDC is not USDC. Actual swap fixture output, server quote terms,
-and the bridge's 1:1 principal retain their original meaning. The public reference
-endpoint cannot select settlement pricing or authorize a swap.
-No capability, receiver, refund address or other private order data is sent to the
-market endpoint or a third-party browser API.
+**USDC** is the product display label for the existing ZeeSwap-issued Base Sepolia
+project test token. It is not Circle-issued USDC, has no monetary value and uses
+the existing contract `0xD64C116352CEF2Adc9484098Ae332Fd9bA339A63`; token details show
+that address. Internal asset IDs, deployed ERC-20 metadata, contracts and old
+financial records are unchanged. Testnet labels remain visible throughout.
 
-For new swaps, `GET /pricing` and version-two bounded availability explicitly
-declare whether the server has configured **market-reference settlement**.
-The browser has no environment flag that activates it. Without that declaration,
-legacy fixture behavior remains. Market preview uses the current conservative
-12-decimal bid or inverse ask, while the server independently issues and stores
-the actual price snapshot and exact output. Quotes send only direction, source
-amount, destinations and the reverse payer; browser prices are never submitted.
+Service availability and capacity are separate from the constant conversion
+rule. Current version-one bounded admission accepts exactly 100000 source atomic
+units: 0.001 TAZ or 0.1 USDC, up to the server's remaining directional and global
+limits. Displaying a one-TAZ conversion does not authorize that amount. A stale,
+paused or unknown availability response disables new quote requests. A historical
+version-two provider-priced service cannot enable new fixed-rate swaps.
 
-The market order decoder verifies the canonical SHA256 snapshot payload, both raw
-Kraken source legs, rounded conservative ratio, decimal scaling, output bounds
-and exact payout. New quotes and acceptance require an unexpired snapshot of at
-most 30 seconds. Accepted history is checked at its recorded acceptance time;
-expiry, subsequent prices and provider outages do not reprice it. The private
-order view displays **Quote locked**, sampled time, expiry, conservative side,
-zero protocol fee and source-network fee responsibility. Repeated status reads
-also bind the original order amounts, pricing mode and snapshot digest in memory.
-
-Market-mode input defaults are 0.001 TAZ and 1 mockUSDC. Both source ranges remain
-100,000–10,000,000 atomic units. Destination constraints are 100,000–10,000,000
-mockUSDC units or 10,000–10,000,000 zatoshis; an unsupported result is rejected,
-never silently clipped. A small reverse amount such as 0.1 mockUSDC may fall below
-the native minimum at the current price. Old fixture orders/profiles and their
-fixed payout terms are preserved. New policy issuance, deployment, source/capital
-readiness and actual funded market-priced settlement remain operator acceptance
-steps, independent of these frontend implementation and mock-browser tests.
+Historical fixture and accepted provider-priced orders remain readable with their
+original amounts and cryptographically validated snapshots. They are never
+reinterpreted at the new fixed rule. Historical decoder/receipt unit coverage is
+retained; the retired provider UI/browser flows are replaced by fixed-rate cases.
+Capabilities, idempotency, unknown-outcome reconciliation and accepted payout
+immutability remain unchanged.
 
 Both swap directions use the quote/accept/status API. Reverse swap funding requires
 a configured escrow signer; otherwise `BASE_ESCROW_NOT_READY` closes that route.
@@ -106,7 +90,7 @@ Rust SDK remains authoritative for a decoded Orchard receiver.
 
 Bridge mode represents the same principal: ZeeSwap Bridged Testnet Zcash (zeeTAZ),
 eight decimals, one zatoshi per atomic unit, only on Base Sepolia. It is distinct
-from the mockUSDC swap. It reads `/v1/bridge/status` and fails closed
+from the USDC swap. It reads `/v1/bridge/status` and fails closed
 for unavailable, malformed, paused, stale or deficient backing reports. Both chain
 observations must be at most 60 seconds old, with no future timestamp accepted.
 The UI independently adds all four liabilities and compares them with C + D using
@@ -136,6 +120,25 @@ burn because it may predate an existing transaction. It does not authorize a new
 payment. Bridge recipients, refunds, capabilities and memos never enter URLs,
 analytics, logs, localStorage or sessionStorage. Refunds use the operator's
 reconciled cancellation/refund worker path; no public refund mutation is offered.
+
+The navbar's Faucet popup provides three separate testnet paths. USDC uses the
+separately deployed finite-pool faucet configured by `VITE_USDC_FAUCET_ADDRESS`.
+An unset address displays **USDC faucet not activated**. Before requesting a wallet
+transaction, the browser checks Base Sepolia, deployed code, the existing token
+address, the exact 10 USDC claim and 24-hour cooldown constants, pool balance,
+wallet cooldown, account and gas. A claim needs explicit user confirmation. A
+submitted hash remains pending; success requires a canonical successful receipt,
+the exact faucet `Claimed` event and the matching token transfer to that wallet.
+Ambiguous sends disable further claims for the mounted page; inspect the original
+wallet history before reloading or retrying. Closing and reopening the popup keeps
+pending and unknown state. This frontend does not mint tokens or use swap reserves.
+
+TAZ opens [FauZEC](https://fauzec.com/) after the user copies a checksummed testnet
+unified or Sapling address. ETH opens the external
+[Base Sepolia faucet](https://ethfaucet.com/networks/base). Human checks and funding
+remain with those providers. The popup does not fetch their APIs, bypass captcha,
+append private addresses to URLs or report external funding as successful. The TAZ
+address remains in page memory. No mainnet assets are supported.
 
 Protocol/URI tests use isolated synthetic values. Playwright intercepts the API
 with deliberately synthetic responses, including valid Bech32m encoding fixtures

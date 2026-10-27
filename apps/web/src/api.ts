@@ -2,6 +2,7 @@ import { capability, decodeOrder, uuid, type OrderView, type PrivateOrder, type 
 import {decodeAvailability,type ServiceAvailability} from './availability.ts';
 import {decodeMarketReference,type MarketReference} from './market-reference.ts';
 import {decodePricingConfiguration,freshUnacceptedPricing,type PricingConfiguration} from './pricing.ts';
+import type {LockedPricing} from './pricing.ts';
 import {decodeBridgeStatus,decodeBridgeQuote,decodeBridgeOrder,type BridgeStatus,type BridgeQuoteBody,type BridgeQuote,type BridgeOrder} from './bridge.ts';
 
 export type QuoteBounds={inputAmountAtomic:'100000';maxAcceptedPerDirection:1}|{
@@ -31,10 +32,11 @@ export function decodeHealth(value:unknown):ApiHealth {
 export class ApiError extends Error { constructor(readonly code:string,readonly uncertain=false){super(errorCopy(code));} }
 export function errorCopy(code:string):string {
   const copy:Record<string,string>={
+    FIXED_RATE_REQUIRED:'The service returned different pricing terms. No order was accepted. The current rate is 1 TAZ = 100 USDC.',
     MARKET_OUTPUT_BOUNDS:'This amount would produce a payout outside the supported destination limits. Start a new review with a supported amount; no payout is clipped.',
-    MARKET_INPUT_BOUNDS:'This source amount is outside the market policy limits. Review a supported testnet amount.',
-    MARKET_REFERENCE_UNAVAILABLE:'Fresh market pricing is unavailable. New quotes wait; accepted locked payouts remain unchanged.',
-    MARKET_SNAPSHOT_EXPIRED:'This unaccepted market snapshot expired. Reconcile the original order, then explicitly request a new quote.',
+    MARKET_INPUT_BOUNDS:'This source amount is outside the saved policy limits. Review a supported testnet amount.',
+    MARKET_REFERENCE_UNAVAILABLE:'The saved pricing service is unavailable. Accepted payouts remain unchanged.',
+    MARKET_SNAPSHOT_EXPIRED:'These unaccepted saved terms expired. Reconcile the original order, then explicitly request a new quote.',
     BRIDGE_UNAVAILABLE:'The bridge is not activated or its reconciliation is unavailable. No new funding instructions can be trusted.',
     BRIDGE_ADMISSION_PAUSED:'Bridge admission is paused. Keep existing private order access and refresh its original status.',
     BRIDGE_QUOTE_EXPIRED:'This bridge quote expired. Do not send to expired deposit instructions or burn with expired terms.',
@@ -44,7 +46,7 @@ export function errorCopy(code:string):string {
     OFFLINE:'The swap service is not connected. You can explore indicative testnet amounts; orders require a reachable service.',
     TIMEOUT:'The service did not reply in time. The result is unknown. Retry this same request to reconcile it.',
     DESTINATION_EVIDENCE_UNAVAILABLE:'The service has not confirmed the destination receipt. Keep the private order and check again; settlement is not verified.',
-    BOUNDED_AMOUNT_REQUIRED:'This bounded testnet run accepts exactly 0.001 TAZ or 0.1 mockUSDC.',
+    BOUNDED_AMOUNT_REQUIRED:'This bounded testnet run accepts exactly 0.001 TAZ or 0.1 USDC.',
     BOUNDED_ACCEPTANCE_LIMIT:'This direction has already accepted its one order in the bounded testnet run. Wait for operator reconciliation.',
     BASE_ESCROW_NOT_READY:'Base-to-Zcash escrow funding is not available through this API yet. No order or deposit instructions were created.',
     ROUTE_NOT_READY:'This testnet route is paused. No funding instructions are available.',
@@ -88,7 +90,7 @@ export class ZeeApi {
   async marketReference(signal?:AbortSignal):Promise<MarketReference>{return decodeMarketReference(await this.call('/market-reference',{signal}));}
   async pricing(signal?:AbortSignal):Promise<PricingConfiguration>{return decodePricingConfiguration(await this.call('/pricing',{signal}));}
   private boundOrder(value:unknown):OrderView {
-    const order=decodeOrder(value),immutable=JSON.stringify([order.direction,order.inputAmount,order.outputAmount,order.priceMode,order.pricing?.snapshotSha256??null]);
+    const order=decodeOrder(value),immutable=JSON.stringify([order.direction,order.inputAmount,order.outputAmount,order.priceMode,order.priceMode==='market-reference'?(order.pricing as LockedPricing).snapshotSha256:order.pricing??null]);
     const previous=this.immutableOrders.get(order.id);if(previous&&previous!==immutable)throw new ApiError('INVALID_RESPONSE');this.immutableOrders.set(order.id,immutable);return order;
   }
   async bridgeStatus(signal?:AbortSignal):Promise<BridgeStatus>{return decodeBridgeStatus(await this.call('/v1/bridge/status',{signal}));}
@@ -109,7 +111,7 @@ export class ZeeApi {
     const request=this.request;
     this.creating=(async()=>{const order=this.boundOrder(await this.call('/v1/quotes',{method:'POST',body,token:request.token,key:request.key}));
       if(order.direction!==body.direction||order.inputAmount!==body.inputAmount||order.status!=='QUOTED')throw new ApiError('INVALID_RESPONSE',true);
-      request.completed=true;if(order.priceMode==='market-reference'&&!freshUnacceptedPricing(order.pricing!,order.expiresAt))throw new ApiError('QUOTE_EXPIRED');
+      request.completed=true;if(order.priceMode==='market-reference'&&!freshUnacceptedPricing(order.pricing as LockedPricing,order.expiresAt))throw new ApiError('QUOTE_EXPIRED');
       return {order,access:{id:order.id,token:request.token}};})().catch(error=>{
         if(error instanceof ApiError&&!error.uncertain&&['INVALID_AMOUNT','INVALID_BASE_RECEIVER','INVALID_ZCASH_RECEIVER','MARKET_INPUT_BOUNDS','MARKET_OUTPUT_BOUNDS','BASE_ESCROW_NOT_READY'].includes(error.code))request.completed=true;
         throw error;
@@ -123,7 +125,7 @@ export class ZeeApi {
     const active=this.accepts.get(access.id);if(active)return active;
     // Reconcile an earlier lost acceptance response before repeating its POST.
     const task=(async()=>{const existing=await this.order(access);if(existing.status!=='QUOTED')return existing;
-      if(existing.priceMode==='market-reference'&&!freshUnacceptedPricing(existing.pricing!,existing.expiresAt))throw new ApiError('QUOTE_EXPIRED');
+      if(existing.priceMode==='market-reference'&&!freshUnacceptedPricing(existing.pricing as LockedPricing,existing.expiresAt))throw new ApiError('QUOTE_EXPIRED');
       const result=this.boundOrder(await this.call(`/v1/orders/${access.id}/accept`,{method:'POST',body:{},token:access.token}));if(result.id!==access.id)throw new ApiError('INVALID_RESPONSE',true);return result;})();
     this.accepts.set(access.id,task);return task.finally(()=>this.accepts.delete(access.id));
   }

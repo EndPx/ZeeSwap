@@ -1,9 +1,9 @@
 # ZeeSwap
 **Swap across chains. Keep your ZEC shielded.**
 
-ZeeSwap is building bidirectional swaps, constrained intents and a backed-token bridge between shielded Zcash and Base. The first swap pair is ZEC / USDC; the prototype uses TAZ on Zcash testnet and a project-owned mockUSDC on Base Sepolia. The mock and settlement contracts are deployed and source-verified.
+ZeeSwap is building bidirectional swaps, constrained intents and a backed-token bridge between shielded Zcash and Base. The first swap pair is ZEC / USDC; the prototype uses TAZ on Zcash testnet and a project-issued USDC test token on Base Sepolia. The token and settlement contracts are deployed and source-verified.
 
-Real testnet swaps are verified in both directions: **0.001 shielded TAZ → 0.1 mockUSDC** and **0.1 mockUSDC → 0.001 shielded TAZ**. After the initial G4 experiments, the first same-user circle also passed: both orders SETTLED, original receipts verified, exact final user balances and a reconciled twelve-wallet checkpoint. These use bounded operator harnesses and fixture pricing. The full product remains under construction.
+Real testnet swaps are verified in both directions: **0.001 shielded TAZ → 0.1 USDC** and **0.1 USDC → 0.001 shielded TAZ**. After the initial G4 experiments, the first same-user circle also passed: both orders SETTLED, original receipts verified, exact final user balances and a reconciled twelve-wallet checkpoint. These use bounded operator harnesses and fixture pricing. The full product remains under construction.
 
 The [public testnet interface](https://zeeswap.endpx.cloud/) and its HTTPS API are
 deployed on an isolated VPS. The [web application](apps/web/README.md) provides a
@@ -27,15 +27,19 @@ concrete chain/wallet adapters and live two-way settlement remain acceptance
 gates. A published interface is not a working live bridge. See the
 [bridge design and integration contract](docs/bridge.md).
 
-The Swap interface includes a separate **ZEC/USDC market reference** derived from
-Kraken's ZEC/USD and USDC/USD markets. It shows sampled time, expires stale data,
-and offers an explicitly separate market comparison. The currently deployed
-service retains fixture settlement pricing. A separate, explicitly selected
-[market-priced testnet mode](docs/market-pricing.md) now implements server-owned
-price snapshots, exact two-way quote amounts and an immutable output at acceptance;
-its [implementation evidence](docs/evidence/market-priced-settlement.md) is separate
-from the still-open funded live acceptance. The reference does not give TAZ or
-mockUSDC monetary value. See the [actual public market-data check](docs/evidence/market-reference-live.md).
+Swap pricing uses the fixed testnet rate **1 TAZ = 100 USDC** in both
+directions, with zero protocol fee. New quotes do not require an exchange
+price feed or a market-reference panel. Quote acceptance still locks the exact
+output and reserves destination inventory. Chain fees and their operator
+reserves remain separate. USDC is ZeeSwap's project-issued Base Sepolia test
+token. Source recovery, capital checks and confirmed destination receipts
+remain necessary before trading is enabled.
+
+The navbar **Faucet** opens USDC, TAZ and Base Sepolia ETH funding options.
+TAZ/ETH use explicit external faucet links. The dedicated 10-USDC/24-hour
+claim flow is implemented but remains disabled until its actual contract
+deployment and separate stock are verified. See the [public interface and API
+verification](docs/evidence/fixed-rate-faucet-live.md).
 
 ```sh
 pnpm install --frozen-lockfile
@@ -54,7 +58,7 @@ V2 recovery contract. Their live activation gates remain explicit.
 - [HTTP API and observer](docs/api.md) and [real incoming-payment evidence](docs/evidence/g2-api-scanner.md): one shielded deposit advances one private order to READY without a destination payout.
 - [Submission readiness](docs/submission-readiness.md): evidence available to reviewers and the remaining demo requirements.
 - [Explorer verification](docs/evidence/explorer-verification.md): confirmed transaction and explanation of the stale explorer link.
-- [Foundry contracts](contracts/README.md), [deployment registry](contracts/deployments/base-sepolia.json) and [G3 evidence](docs/evidence/g3-contracts.md): tested, deployed and source-verified mockUSDC and Base settlement.
+- [Foundry contracts](contracts/README.md), [deployment registry](contracts/deployments/base-sepolia.json) and [G3 evidence](docs/evidence/g3-contracts.md): tested, deployed and source-verified USDC and Base settlement.
 - [Forward backend integration](docs/base-integration.md) and [integration evidence](docs/evidence/g3-base-integration.md): private API, durable Base signer, finalized receipt observer and accounting tested through settlement on Anvil + Neon; live Base Sepolia connection checks passed without a payment.
 - [Forward public-testnet settlement](docs/evidence/g4-live-forward.md): source and destination receipts, exact recipient delta, fees, ledger reconciliation and remaining gates.
 - [Reverse public-testnet settlement](docs/evidence/g4-live-reverse.md): finalized escrow and acknowledgement, independent shielded recipient receipt, original-transaction recovery and complete accounting.
@@ -66,7 +70,7 @@ V2 recovery contract. Their live activation gates remain explicit.
 - [Reverse snapshot recovery](docs/evidence/g5-reverse-snapshot-restore.md): actual PostgreSQL rollback and original journal reconstruction on Anvil with a synthetic Zcash verifier. The separate [funded adapter interruption](docs/evidence/g5-funded-sdk-fault.md) subsequently recovered and settled the original R4 transaction on testnet.
 - [Source refund boundaries](docs/evidence/g5-source-refunds.md): permanent cancellation and uncommitted escrow deadline gates, durable source refunds and full-principal accounting; live receipts are recorded separately below.
 - [Actual funded refund experiments](docs/evidence/g5-live-refund-experiments.md) and [retry preparation](docs/evidence/g5-retry-preparation.md): both full-principal refunds are finalized, the historical run remains frozen and its capital allocation was released.
-- [First same-user roundtrip](docs/evidence/g5-first-roundtrip.md): shielded TAZ to mockUSDC and back to the original wallet; two SETTLED orders, finalized original receipts, zero open obligations/reservations, balanced books and twelve-wallet reconciliation. That two-order circle remains preserved; the current retry has advanced to 5/20 ordinarily receipt-verified settlements, with the first of four five-order barriers complete.
+- [First same-user roundtrip](docs/evidence/g5-first-roundtrip.md): shielded TAZ to USDC and back to the original wallet; two SETTLED orders, finalized original receipts, zero open obligations/reservations, balanced books and twelve-wallet reconciliation. That two-order circle remains preserved; the current retry has advanced to 5/20 ordinarily receipt-verified settlements, with the first of four five-order barriers complete.
 - [Actual F3 recovery](docs/evidence/g5-f3-scanner-recovery.md) and [read-only scanner error boundaries](docs/evidence/g5-read-only-scanner-errors.md): the third original forward payment finalized, exact twelve-wallet/books reconciliation passed at epoch 6, and its ordinary receipt verifier passed by 15:52 UTC. A later fourth-slot quote-step stop passed a separate [bounded no-effect reconciliation](docs/evidence/g5-r4-empty-quote-recovery.md) at 16:10:43 UTC: no quote or financial effect, database/main state unchanged and only the local controller latch cleared. The next normal driver accepted the R4 quote at 16:18:04 UTC (AWAITING_FUNDS), then returned a normal observer wait at FUNDING_CALL with controller incident false. The original R4 source fund subsequently finalized and passed exact HELD/READY recovery at epoch 6. A separate pre-COMMIT configuration-read timeout passed its scoped controller-only recovery; the original COMMIT was then signed and broadcast. Root verified its canonical successful receipt at 17:17 UTC, with Base finality still pending. R4 subsequently completed the funded SDK recovery, original delivery and SETTLE; its ordinary receipt verification passed at 18:54:42 UTC, bringing progress to four verified settlements. The first five-order barrier subsequently passed; at that checkpoint fifteen further settlements and three barriers remained pending. The original scanner failure cause remains unknown.
 - [Observer reliability](docs/evidence/g5-observer-frontiers.md), [bounded live controller](docs/evidence/g5-live-controller.md) and [funded SDK recovery](docs/evidence/g5-funded-sdk-fault.md): actual scan/network-tip separation, epoch-fenced confirmations, once-only source actors and reviewed original-byte recovery. The R4 experiment reached economic closure; the remaining settlements and broader G5 failure matrix remain open.
 - [Source-7 unfunded-attempt lifecycle](docs/evidence/g5-source7-unfunded-recovery.md): actual no-send audit and bounded expiry/archive passed with the old accepted attempt retained. Its distinct successor was later accepted and funded; every scan continues to monitor the old receiver and reference. The separate [source13 lifecycle](docs/evidence/g5-source13-unfunded-recovery.md) subsequently retained a second audited unfunded predecessor; the [split admission path](docs/evidence/g5-source-admission.md) preserves the original cutoffs and funding margins.

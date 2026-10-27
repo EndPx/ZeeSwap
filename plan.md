@@ -2,6 +2,24 @@
 
 Last updated: 2026-10-27 (Asia/Jakarta), for the isolated Linux testnet deployment. Execution evidence below retains its recorded dates.
 
+Current product decision (27 October, supersedes market pricing):
+The user selected a fixed two-way rate of **1 TAZ = 100 USDC** and USDC as
+the user-facing asset label. New quotes and payouts use exact integer
+conversion: one zatoshi equals one six-decimal USDC unit. The testnet protocol
+fee is zero; chain fees and their operator reserves remain separate.
+Do not start a market provider or require price snapshots for new admission.
+Remove market-reference panels and price polling from the active interface.
+Keep the testnet network and actual asset address explicit.
+
+Reuse existing fixed-output accounting and bounded service-policy gates.
+This rate does not authorize a larger order or inventory allocation.
+Preserve accepted historical quotes, encrypted asset IDs, deployed token
+identity, reservations and receipts. Historical market decoding remains
+available for accepted liabilities. Do not activate market migration 0023 or
+start a market-policy worker for new fixed-rate quotes. Source, capital,
+finality and actual funded-circle gates remain required; G5 stays stopped.
+Earlier dated market decisions below are historical and superseded.
+
 Deployment decision (25 October): the user selected Docker on the existing VPS.
 The Chef query API and one watch-only follower now run there in separate
 containers under normal continuous supervision. The bounded recovery deadline
@@ -589,7 +607,7 @@ activation require their stated acceptance gates. This design does not resume
 the intentionally stopped G5 soak or alter any accepted order. Documentation
 validation is recorded in [the integration review](docs/evidence/integration-design-review.md).
 
-### mockUSDC boundary
+### Testnet USDC boundary
 
 Implement `contracts/src/MockUSDC.sol` with name `ZeeSwap Mock USDC`, symbol `mockUSDC`, and 6 decimals using a pinned standard ERC-20 implementation. It has no USD backing or financial value and is not issued by Circle. A dedicated test-funding role may mint; the API, scanner, and settlement worker must not have that role. Runtime jobs cannot mint to hide an inventory deficit. Use explicit setup transactions to fund test wallets and inventory before each scenario.
 
@@ -632,12 +650,16 @@ These are initial testnet defaults, not economic claims about mainnet:
 - Exact input, exact quoted net output; no partial fills, no automatic price refresh after deposit, no top-up aggregation in V1.
 - Testnet protocol fee: zero. The user pays their source transaction fee; the operator budgets destination and valid-order refund fees separately. Preserve actual expenses in accounting. A mainnet fee/spread policy is a separate decision.
 - Initial fixture rate: 1 TAZ = 100 mockUSDC, labelled as a demonstration rate, never a market price. Initial accepted input limits: 0.001–0.1 TAZ or 0.1–10 mockUSDC; maximum 5 unresolved accepted orders. Actual spendable inventory and fees may lower these limits, never raise them silently. These are prototype capacity settings, not authorization to move funds.
-- Quote issuance stops when inventory, sync freshness, price freshness, or fee budget is unavailable. Existing liabilities remain recorded and serviced.
+- Quote issuance stops when inventory, sync freshness, or fee budget is unavailable. New fixed-rate quotes do not depend on external price freshness. Existing liabilities remain recorded and serviced.
 
-Pricing modes are explicit and cannot silently fall back:
+Current pricing mode is explicit: `fixed-rate`, at 1 TAZ = 100 USDC in both
+directions, zero protocol fee and the existing 120-second quote acceptance
+window. Exact units use the existing fixed-output formula. No external price
+API is required. Internal legacy `fixture` and accepted `market-reference`
+records remain immutable and decodable. The previous market feature remains
+historical code/evidence with no new-admission dependency or activation.
 
-1. `fixture`: required initial mode for local and public-testnet acceptance, using the rate and limits above. No exchange or live price API is needed for the mockUSDC baseline.
-2. `market-reference`: optional later demonstration mode, not a dependency of G1–G7. Candidate Kraken ZEC/USD and USDC/USD data requires exact pair discovery and working TLS. Use conservative bid/ask conversion, validate both legs, and refuse snapshots older than 30 seconds since retrieval; retrieval age is not an exchange timestamp. Verify provider health/market status and add a timestamped feed if freshness cannot be established. Display that mockUSDC remains valueless even when a market reference is shown. Operator inventory, not an exchange trade, fulfills the quote. Do not assume live USDC/USD equals 1.
+Historical pricing decisions below are superseded for new quotes:
 
 26 October display-only decision: the user selected a real ZEC/USDC market
 reference for the interface while retaining the existing testnet quote/payout.
@@ -737,7 +759,7 @@ finalized 4,545,313 and original actual observation timestamp. Markers were clea
 control remained E222/xmin766729 and the 70-row financial digest/auth0 were
 unchanged. Root started ordinary Native following and observed advancement to
 4,545,325 with fresh metadata, matching cursor, active process and zero restarts.
-Base adoption/catch-up, capital allocation, market activation and the actual
+Base adoption/catch-up, capital allocation, fixed-rate activation and the actual
 funded circle remain open. Source readiness did not activate financial authority.
 
 Actual Base identity acceptance (27 October): Root installed and qualified the
@@ -809,7 +831,7 @@ Continuous Native APP following remains intentionally off for closed Base
 recovery; Core/Prep keep following and order/dispatch remain disabled. Fresh
 E225-bound Base read preparation is a new scope; do not rewrite stale E222 inputs.
 
-Amounts are canonical integer strings over APIs, `bigint` in TypeScript, and checked integer arithmetic in Rust/Solidity. Zcash uses 8 decimal places and mockUSDC uses 6. Store integer units in PostgreSQL using the `zee.atomic` NUMERIC domain with integral-value, 78-digit and asset-specific bounds. This replaces direct `NUMERIC(78,0)` assignment because PostgreSQL can round a fractional value before its check constraint. Prices use rational/scaled integers. Round destination output down and required input/fee reserves up; reject zero output or invalid decimals. References to USDC below describe the product asset role; all prototype execution and UI use mockUSDC explicitly.
+Amounts are canonical integer strings over APIs, `bigint` in TypeScript, and checked integer arithmetic in Rust/Solidity. Zcash uses 8 decimal places and mockUSDC uses 6. Store integer units in PostgreSQL using the `zee.atomic` NUMERIC domain with integral-value, 78-digit and asset-specific bounds. This replaces direct `NUMERIC(78,0)` assignment because PostgreSQL can round a fractional value before its check constraint. Prices use rational/scaled integers. Round destination output down and required input/fee reserves up; reject zero output or invalid decimals. The UI displays USDC with a clear testnet network label. Legacy internal asset IDs and the deployed test-token address remain unchanged; labels are not asset identity.
 
 ### Finality policy
 
@@ -1183,3 +1205,14 @@ with zero skips and API typechecking; peer review is clear. Old Source identity
 and R4 execution/prefix are preserved. The new75-pin permission, actual pilot,
 late-audit/cap/ETA qualification and near-head publication remain open. See
 [current-packet evidence](docs/evidence/envio-current-packet-overlap.md).
+
+Fixed-rate/faucet deployment checkpoint (27 October): Root passed57 backend
+cases locally and onLinux,71 web units,31 browsers,71 contract tests and the
+production build. The public site now shows1TAZ=100USDC and the three-asset
+Faucet popup; actual browser verification saw zero provider/POST requests and
+no page errors. The price service is disabled and its route returns410. The
+new API is read-only with static fixed pricing; whole E225/269Base/70financial/
+auth0 state stayed byte-exact. TAZ/ETH open verified external services. Direct
+USDC claiming awaits real deployment/funding and signer access; the successful
+Base Sepolia simulation is not a deployment. Existing Source recovery and
+funded settlement gates remain open. See docs/evidence/fixed-rate-faucet-live.md.

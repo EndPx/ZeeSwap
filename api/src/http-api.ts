@@ -8,6 +8,7 @@ import { isAddress, getAddress, zeroAddress, type Hex } from 'viem';
 import { transaction } from './db.ts';
 import { PrivateData, accessHash } from './private-data.ts';
 import { Repository } from './repository.ts';
+import {fixedOutput,fixedPricingConfiguration,validateFixedQuoteTerms,type FixedQuotePricing} from './fixed-pricing.ts';
 import { fixtureOutput } from './amounts.ts';
 import type { WalletAdapter } from './wallet-adapter.ts';
 import type { BaseContract } from './base-contract.ts';
@@ -17,7 +18,7 @@ import {assertContinuationOwner,assertContinuationQuote,continuationAdmission,co
 import {disabledServiceAvailability,requireServiceAdmission,servicePolicyBind,servicePolicyAdmission,type ServicePolicyApi} from './testnet-service-policy.ts';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-type Options={marketPolicy?:MarketPolicyApi;bridge?:BridgeService;pool:pg.Pool;keys:PrivateData;wallet:WalletAdapter;integrationOnly?:boolean;readOnly?:boolean;servicePolicy?:ServicePolicyApi;baseFeeBudget?:string;allowedOrigin?:string;base?:BaseContract;quoteBounds?:{inputAmountAtomic:'100000';maxAcceptedPerDirection:1}|{inputAmountAtomic:'100000';maxAcceptedByDirection:{ZCASH_TO_BASE:2|3;BASE_TO_ZCASH:1};newForwardCutoffBlocks:40;continuationSha256:string};continuation?:ContinuationApi;escrow?:{pool:pg.Pool;authorize:(terms:FundingTerms)=>Promise<Hex>}};
+type Options={fixedRate?:boolean;marketPolicy?:MarketPolicyApi;bridge?:BridgeService;pool:pg.Pool;keys:PrivateData;wallet:WalletAdapter;integrationOnly?:boolean;readOnly?:boolean;servicePolicy?:ServicePolicyApi;baseFeeBudget?:string;allowedOrigin?:string;base?:BaseContract;quoteBounds?:{inputAmountAtomic:'100000';maxAcceptedPerDirection:1}|{inputAmountAtomic:'100000';maxAcceptedByDirection:{ZCASH_TO_BASE:2|3;BASE_TO_ZCASH:1};newForwardCutoffBlocks:40;continuationSha256:string};continuation?:ContinuationApi;escrow?:{pool:pg.Pool;authorize:(terms:FundingTerms)=>Promise<Hex>}};
 class HttpError extends Error {constructor(readonly status:number,readonly code:string){super(code);}}
 function bearer(req:IncomingMessage){const value=req.headers.authorization?.match(/^Bearer ([A-Za-z0-9_-]{43})$/)?.[1];if(!value)throw new HttpError(401,'AUTH_REQUIRED');return value;}
 async function body(req:IncomingMessage):Promise<Record<string,unknown>> {
@@ -41,7 +42,7 @@ export function serializeFundingCutoffHeight(value:unknown):number|null{
 }
 
 export function createApi(options:Options){
- const {pool,keys,wallet}=options;const repo=new Repository(pool,keys);
+ const {pool,keys,wallet}=options;if(options.fixedRate&&options.marketPolicy)throw Error('FIXED_MARKET_MODE_CONFLICT');const repo=new Repository(pool,keys);
  if(options.marketPolicy&&(options.servicePolicy||options.continuation||options.quoteBounds||options.readOnly))throw Error('MARKET_POLICY_MUTUALLY_EXCLUSIVE');
  if(options.servicePolicy&&(options.continuation||options.quoteBounds||options.readOnly))throw Error('SERVICE_POLICY_MUTUALLY_EXCLUSIVE');
  if(options.continuation){const b=options.quoteBounds;if(!b||!('maxAcceptedByDirection'in b)||b.inputAmountAtomic!=='100000'||b.maxAcceptedByDirection.ZCASH_TO_BASE!==continuationQuoteBounds(options.continuation.approval,options.continuation.sha256).maxAcceptedByDirection.ZCASH_TO_BASE||b.maxAcceptedByDirection.BASE_TO_ZCASH!==1||b.newForwardCutoffBlocks!==40||b.continuationSha256!==options.continuation.sha256)throw Error('CONTINUATION_BOUNDS_AUTHORITY_MISMATCH');}
@@ -74,14 +75,14 @@ export function createApi(options:Options){
    escrowFunding={network:'base-sepolia',chainId:84532,contract:options.base.registry.contracts.ZeeSwapSettlement.address,
     token:options.base.registry.contracts.MockUSDC.address,terms:pinned.terms,signature:pinned.signature,calldata:fundingCall(options.base,pinned.terms,pinned.signature)};
   }
-  let marketPricing:MarketQuotePricing|undefined;
+  let marketPricing:MarketQuotePricing|undefined;const fixedPricing:FixedQuotePricing|undefined=privateQuote.priceMode==='fixed-rate'?validateFixedQuoteTerms(privateQuote,row):undefined;
   if(privateQuote.priceMode==='market-reference'){const stamp=(await pool.query('SELECT q.created_at,o.accepted_at FROM zee.quotes q LEFT JOIN zee.orders o USING(id) WHERE q.id=$1',[id])).rows[0];const acceptedAt=stamp.accepted_at?new Date(stamp.accepted_at).toISOString():null;const priced=marketOutput(row.input_amount,row.direction,privateQuote.pricing,new Date(acceptedAt??stamp.created_at).getTime());if(priced.outputAmount!==row.output_amount)throw new HttpError(503,'MARKET_PRICE_BINDING');marketPricing={...priced.pricing,acceptedAt,locked:acceptedAt!==null};}
   return {id,direction:row.direction,status:row.state||'QUOTED',inputAmount:row.input_amount,outputAmount:row.output_amount,
    executionMode:privateQuote.executionMode||'observe-only',
    escrowFunding,
    destination:options.base&&row.direction==='ZCASH_TO_BASE'?{network:'base-sepolia',status:receipt?'FINALIZED':paid?'PAYOUT_PENDING':attempts.length?'RESERVING':'NOT_SUBMITTED',
     transactionHash:receipt?.hash,blockNumber:receipt?.blockNumber}:reverseDestination,
-   priceMode:marketPricing?'market-reference':'fixture',pricing:marketPricing??null,integrationOnly:!!options.integrationOnly,expiresAt:row.expires_at,
+   priceMode:marketPricing?'market-reference':fixedPricing?'fixed-rate':'fixture',pricing:marketPricing??fixedPricing??null,sourceAsset:row.direction==='ZCASH_TO_BASE'?'TAZ':'USDC',destinationAsset:row.direction==='ZCASH_TO_BASE'?'USDC':'TAZ',testnet:true,integrationOnly:!!options.integrationOnly,expiresAt:row.expires_at,
    source:{received:!!row.deposit_id,confirmed:!!row.confirmed_at,confirmations:row.confirmations||0,
     policy:row.direction==='ZCASH_TO_BASE'?'zcash-10-confirmations':'base-finalized',requiredConfirmations:row.direction==='ZCASH_TO_BASE'?10:null},
    funding:funding&&row.state==='AWAITING_FUNDS'&&(!options.base||privateQuote.executionMode==='base-settlement-v1')?{network:'zcash-testnet',receiver:privateQuote.depositReceiver,
@@ -105,7 +106,7 @@ export function createApi(options:Options){
    const url=new URL(req.url||'/','http://localhost');if(url.search)throw new HttpError(400,'QUERY_NOT_ALLOWED');
    if(req.method==='GET'&&url.pathname==='/v1/bridge/status'){await handleBridge(req,res,url.pathname,options.readOnly?undefined:options.bridge);return;}
    if(req.method==='GET'&&url.pathname==='/health'){await pool.query('SELECT 1');reply(200,{status:'ok',integrationOnly:!!options.integrationOnly,...(options.quoteBounds?{quoteBounds:options.quoteBounds}:{})});return;}
-   if(req.method==='GET'&&url.pathname==='/pricing'){reply(200,marketPricingConfiguration(options.marketPolicy));return;}
+   if(req.method==='GET'&&url.pathname==='/pricing'){reply(200,options.fixedRate?fixedPricingConfiguration(!!options.servicePolicy,options.base?.registry.contracts.MockUSDC.address,options.servicePolicy?'100000':options.quoteBounds?.inputAmountAtomic):marketPricingConfiguration(options.marketPolicy));return;}
    if(req.method==='GET'&&url.pathname==='/availability'&&options.marketPolicy){await options.marketPolicy.recheck();reply(200,await options.marketPolicy.availability());return;}
    if(req.method==='GET'&&url.pathname==='/availability'){if(options.servicePolicy)await options.servicePolicy.recheck();reply(200,options.servicePolicy?await options.servicePolicy.availability():disabledServiceAvailability());return;}
    const token=bearer(req);const ip=req.socket.remoteAddress||'unknown';const now=Date.now();
@@ -117,7 +118,7 @@ export function createApi(options:Options){
     const input=await body(req);exact(input,input.direction==='BASE_TO_ZCASH'?['direction','inputAmount','recipient','refundRecipient','payer']:['direction','inputAmount','recipient','refundRecipient']);
     if(!['ZCASH_TO_BASE','BASE_TO_ZCASH'].includes(String(input.direction)))throw new HttpError(400,'INVALID_DIRECTION');
     const direction=input.direction as 'ZCASH_TO_BASE'|'BASE_TO_ZCASH';
-    const amount=string(input.inputAmount);try{if(options.marketPolicy){if(!/^[1-9][0-9]*$/.test(amount)||BigInt(amount)<100000n||BigInt(amount)>10000000n)throw Error();}else fixtureOutput(amount,direction);}catch{throw new HttpError(400,'INVALID_AMOUNT');}
+    const amount=string(input.inputAmount);try{if(options.marketPolicy){if(!/^[1-9][0-9]*$/.test(amount)||BigInt(amount)<100000n||BigInt(amount)>10000000n)throw Error();}else if(options.fixedRate)fixedOutput(amount,direction);else fixtureOutput(amount,direction);}catch{throw new HttpError(400,'INVALID_AMOUNT');}
     if(options.quoteBounds&&amount!==options.quoteBounds.inputAmountAtomic)throw new HttpError(400,'BOUNDED_AMOUNT_REQUIRED');
     if(options.servicePolicy&&amount!=='100000')throw new HttpError(400,'BOUNDED_AMOUNT_REQUIRED');
     if(options.continuation){await options.continuation.recheck();assertContinuationOwner(options.continuation.approval,token,direction);}
@@ -135,7 +136,7 @@ export function createApi(options:Options){
     if(options.servicePolicy)await requireServiceAdmission(options.servicePolicy,direction);
     let marketSnapshot:MarketSnapshot|undefined;
     if(options.marketPolicy){await requireMarketAdmission(options.marketPolicy,direction);marketSnapshot=await options.marketPolicy.source.current(pool);}
-    const expectedOutput=marketSnapshot?marketOutput(amount,direction,marketSnapshot,Date.now()).outputAmount:fixtureOutput(amount,direction);
+    const expectedOutput=marketSnapshot?marketOutput(amount,direction,marketSnapshot,Date.now()).outputAmount:options.fixedRate?fixedOutput(amount,direction):fixtureOutput(amount,direction);
     // Base-source funding must be a signed contract escrow request, never an EOA substitute.
     if(direction==='BASE_TO_ZCASH'&&(!options.base||!options.escrow))throw new HttpError(503,'BASE_ESCROW_NOT_READY');
     if(options.base){
@@ -148,7 +149,7 @@ export function createApi(options:Options){
      await c.query('SELECT pg_advisory_xact_lock($1::bigint)',[requestHash.readBigInt64BE().toString()]);
      const old=await c.query('SELECT quote_id,body_hash FROM zee.api_quote_requests WHERE request_hash=$1 AND owner_hash=$2',[requestHash,accessHash(token)]);
      if(old.rowCount){if(!old.rows[0].body_hash.equals(bodyHash))throw new HttpError(409,'IDEMPOTENCY_CONFLICT');return old.rows[0].quote_id;}
-     const q=await new Repository(c,keys).issueQuote({...normalized,depositReceiver,payoutFee:direction==='BASE_TO_ZCASH'?'10000':options.baseFeeBudget||'100000000000000',refundFee:direction==='BASE_TO_ZCASH'?options.baseFeeBudget||'100000000000000':'10000',
+     const q=await new Repository(c,keys).issueQuote({...normalized,...(options.fixedRate?{fixedRate:true as const}:{}),depositReceiver,payoutFee:direction==='BASE_TO_ZCASH'?'10000':options.baseFeeBudget||'100000000000000',refundFee:direction==='BASE_TO_ZCASH'?options.baseFeeBudget||'100000000000000':'10000',
       ...(options.base?{executionMode,baseContract:options.base.registry.contracts.ZeeSwapSettlement.address}:{}),...(marketSnapshot&&options.marketPolicy?{marketPricing:{snapshot:marketSnapshot,policySha256:options.marketPolicy.sha256}}:{})},token);
      if(options.servicePolicy){await options.servicePolicy.recheck();const bind=servicePolicyBind(q.id,token,options.servicePolicy);await c.query(bind.sql,bind.args);}
      await c.query('INSERT INTO zee.api_quote_requests(request_hash,owner_hash,body_hash,quote_id) VALUES($1,$2,$3,$4)',[requestHash,accessHash(token),bodyHash,q.id]);return q.id;
@@ -169,6 +170,7 @@ export function createApi(options:Options){
    if(req.method==='GET'&&!match[3]){reply(200,await view(id,token,match[1]==='orders'));return;}
    if(req.method==='POST'&&match[1]==='orders'&&match[3]){
     exact(await body(req),[]);await enabled();
+    if(options.fixedRate){const original=await repo.privateQuote(id,token) as any;const accepted=(await pool.query('SELECT 1 FROM zee.orders WHERE id=$1',[id])).rowCount;if(accepted){reply(200,await view(id,token,true));return;}if(original.priceMode==='market-reference')throw new HttpError(409,'QUOTE_MODE_MISMATCH');}
     if(options.base){const q=await repo.privateQuote(id,token) as any;if(q.executionMode!==(q.direction==='BASE_TO_ZCASH'?'base-escrow-v1':'base-settlement-v1')||q.baseContract?.toLowerCase()!==options.base.registry.contracts.ZeeSwapSettlement.address.toLowerCase())throw new HttpError(409,'QUOTE_MODE_MISMATCH');}
     if(options.marketPolicy){const original=await repo.privateQuote(id,token) as any;const accepted=(await pool.query('SELECT 1 FROM zee.orders WHERE id=$1',[id])).rowCount;
      if(original.priceMode!=='market-reference'){if(accepted){reply(200,await view(id,token,false));return;}throw new HttpError(409,'QUOTE_MODE_MISMATCH');}
@@ -183,6 +185,7 @@ export function createApi(options:Options){
   }catch(error){
    if(error instanceof HttpError){reply(error.status,{error:error.code});return;}
    const message=error instanceof Error?error.message:'';
+   if(message==='FIXED_PRICE_BINDING'){reply(503,{error:message});return;}
    if(/^MARKET_[A-Z_]+$/.test(message)){reply(message.includes('BOUNDS')?400:message.includes('EXPIRED')?409:503,{error:message});return;}
    if(message==='Order unavailable'){reply(404,{error:'NOT_FOUND'});return;}
    if(message==='INVALID_ZCASH_RECEIVER'){reply(400,{error:'INVALID_ZCASH_RECEIVER'});return;}

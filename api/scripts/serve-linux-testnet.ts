@@ -1,5 +1,5 @@
 import {requireRootAdmissionAuthorization} from '../src/native-circle-reconciled.ts';
-/** Linux-only API transport. Existing createApi and its financial rules remain unchanged. */
+/** Linux-only fixed-rate API. Existing policy, inventory and signer gates remain in force. */
 import {readFile,lstat,realpath} from 'node:fs/promises';
 import {verifyLinuxOperatorProfile,linuxRawSha256} from '../src/linux-testnet-profile.ts';
 import {connect} from '../src/db.ts';
@@ -10,7 +10,7 @@ import {BaseContract} from '../src/base-contract.ts';
 import {createApi} from '../src/http-api.ts';
 import {loadContinuationApi,continuationQuoteBounds} from '../src/continuation-api.ts';
 import {loadServicePolicyApi} from '../src/testnet-service-policy.ts';
-import {loadMarketServicePolicyApi} from '../src/market-service-policy.ts';
+
 const path=process.argv[2];if(process.argv.length!==3||!path)throw Error('Explicit Linux API profile required');
 const configBytes=await readFile(path),config=JSON.parse(configBytes.toString());
 if(config.version!==1||config.mode!=='LINUX_NATIVE_TESTNET_API'||path!=='/opt/zeeswap-testnet/secrets/api-profile.private.json')throw Error('LINUX_API_EXPLICIT_PROFILE_REQUIRED');
@@ -30,9 +30,9 @@ const base=new BaseContract({...registry,rpcUrl:config.baseRpcUrl});
 const wallet=new LocalWalletAdapter(config.walletPython,[config.walletScript,'--config',config.walletConfig]);
 const signer=new LocalReverseBaseSigner(config.walletPython,[config.fundingAuthorizer,'--config',config.fundingSignerConfig]);
 const policyScope={profileSha256:verified.profileSha256,handoffSha256:linuxRawSha256(handoffBytes),openingProofSha256:profile.immutable.openingProof.sha256};
-const marketPolicy=await loadMarketServicePolicyApi(process.env,{...policyScope,settlementContract:registry.contracts.ZeeSwapSettlement.address.toLowerCase(),tokenContract:registry.contracts.MockUSDC.address.toLowerCase()},worker);
-const servicePolicy=marketPolicy?undefined:await loadServicePolicyApi(process.env,{...policyScope,settlementContract:registry.contracts.ZeeSwapSettlement.address.toLowerCase(),tokenContract:registry.contracts.MockUSDC.address.toLowerCase()},worker);
-const continuation=marketPolicy||servicePolicy?undefined:await loadContinuationApi(process.env,policyScope,async approval=>{const c=(await worker.query('SELECT epoch::text,accepting_orders,dispatch_enabled,reconciliation_required FROM zee.runtime_control WHERE singleton')).rows[0];if(!c||c.epoch!==approval.resumedEpoch||!c.accepting_orders||!c.dispatch_enabled||c.reconciliation_required)throw Error('LINUX_CONTINUATION_ACTIVE_EPOCH_REQUIRED');if(approval.version===3)await requireRootAdmissionAuthorization(worker,approval,process.env.ZEESWAP_CIRCLE_CONTINUATION_SHA256!);});
-const server=createApi({pool:api,keys,wallet,base,...(marketPolicy?{marketPolicy}:servicePolicy?{servicePolicy}:continuation?{continuation,quoteBounds:continuationQuoteBounds(continuation.approval,continuation.sha256)}:{readOnly:true}),baseFeeBudget:'100000000000000',allowedOrigin:config.allowedOrigin,escrow:{pool:worker,authorize:terms=>signer.authorizeFunding(terms)}});
-server.listen(3031,'127.0.0.1',()=>{marketPolicy?.source.start();console.log(JSON.stringify({status:'LINUX_TESTNET_API_LISTENING',port:3031,branchId:profile.identity.branchId,profileSha256:verified.profileSha256,controlActivation:false}));});
-let stopping=false;const stop=()=>{if(stopping)return;stopping=true;marketPolicy?.source.stop();server.close(()=>{void Promise.all([api.end(),worker.end()]);});};process.on('SIGINT',stop);process.on('SIGTERM',stop);
+if(process.env.ZEESWAP_MARKET_POLICY_PROOF||process.env.ZEESWAP_MARKET_POLICY_SHA256)throw Error('LINUX_MARKET_ADMISSION_DISABLED_FIXED_RATE_REQUIRED');
+const servicePolicy=await loadServicePolicyApi(process.env,{...policyScope,settlementContract:registry.contracts.ZeeSwapSettlement.address.toLowerCase(),tokenContract:registry.contracts.MockUSDC.address.toLowerCase()},worker);
+const continuation=servicePolicy?undefined:await loadContinuationApi(process.env,policyScope,async approval=>{const c=(await worker.query('SELECT epoch::text,accepting_orders,dispatch_enabled,reconciliation_required FROM zee.runtime_control WHERE singleton')).rows[0];if(!c||c.epoch!==approval.resumedEpoch||!c.accepting_orders||!c.dispatch_enabled||c.reconciliation_required)throw Error('LINUX_CONTINUATION_ACTIVE_EPOCH_REQUIRED');if(approval.version===3)await requireRootAdmissionAuthorization(worker,approval,process.env.ZEESWAP_CIRCLE_CONTINUATION_SHA256!);});
+const server=createApi({pool:api,keys,wallet,base,fixedRate:true,...(servicePolicy?{servicePolicy}:continuation?{continuation,quoteBounds:continuationQuoteBounds(continuation.approval,continuation.sha256)}:{readOnly:true}),baseFeeBudget:'100000000000000',allowedOrigin:config.allowedOrigin,escrow:{pool:worker,authorize:terms=>signer.authorizeFunding(terms)}});
+server.listen(3031,'127.0.0.1',()=>{console.log(JSON.stringify({status:'LINUX_TESTNET_API_LISTENING',port:3031,branchId:profile.identity.branchId,profileSha256:verified.profileSha256,controlActivation:false}));});
+let stopping=false;const stop=()=>{if(stopping)return;stopping=true;server.close(()=>{void Promise.all([api.end(),worker.end()]);});};process.on('SIGINT',stop);process.on('SIGTERM',stop);
