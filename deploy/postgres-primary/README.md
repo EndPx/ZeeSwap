@@ -112,10 +112,12 @@ archive, stop and review a narrowly scoped source-side backup-role proposal;
 do not copy the local administrator password or run ad hoc grants.
 
 Main/Bridge scopes require direct Neon TLS endpoints and their worker/reader
-identities. Pooled hosts and owner/admin URLs are refused. SDK scope requires an
-explicit discovered non-Neon host, database and existing remote role. An existing
-SDK Docker source without TLS must be explicitly declared; that source exception
-does not weaken TLS on the new destination. The [Neon backup guide](https://neon.com/docs/import/migrate-from-postgres)
+identities. Pooled hosts and Main owner/admin URLs are refused. SDK scope requires the
+explicit exact source host and the actual known pairs: `zee_envio_20261023` /
+`zee_envio_export_20261023`, or `zee_chef_20261023` /
+`zee_chef_owner_20261023`. Those SDK sources may themselves be Neon; Neon still
+requires TLS. The actual Bridge read-only preflight may use
+`zee_bridge_runtime_20261029`. No role is granted new permissions by this change. The [Neon backup guide](https://neon.com/docs/import/migrate-from-postgres)
 uses direct connections for dump/restore operations.
 
 Root needs `/usr/bin/age` on the VPS and a public `age1...` recipient. Keep the
@@ -221,7 +223,7 @@ preserve Neon's archive/history and do not delete it as part of this workflow.
 
 ## Verification performed for this preparation
 
-Seven pure local Python tests passed, covering credential confinement, pooled/
+Eight pure local Python tests passed, covering credential confinement, pooled/
 admin/TLS refusal, complete-read permission gating, unrelated-container refusal,
 archive identity and secret-free SDK metadata projection. Python syntax compilation
 passed. Compose YAML parsed and isolation/resource assertions passed.

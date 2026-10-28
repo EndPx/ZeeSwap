@@ -33,16 +33,16 @@ def connection_files(url, database, user, scope='main', expected_host=None):
              database == 'zee_app_20261023', 'EXISTING_MAIN_WORKER_OR_READER_ONLY')
     elif scope == 'bridge':
         need(p.hostname.endswith('.neon.tech') and database == 'zee_bridge_20261029' and
-             re.fullmatch(r'zee_bridge_(worker|reader|read|readonly)_20261029', user),
+             re.fullmatch(r'zee_bridge_(worker|reader|read|readonly|runtime)_20261029', user),
              'EXISTING_BRIDGE_WORKER_OR_READER_ONLY')
     else:
+        known_sdk_roles = {'zee_envio_20261023': {'zee_envio_export_20261023'},
+                           'zee_chef_20261023': {'zee_chef_owner_20261023'}}
         need(scope == 'sdk' and expected_host and p.hostname == expected_host and
-             not p.hostname.endswith('.neon.tech') and user != 'neondb_owner' and
-             re.fullmatch('[A-Za-z_][A-Za-z0-9_]{0,62}', database) and
-             re.fullmatch('[A-Za-z_][A-Za-z0-9_]{0,62}', user), 'EXPLICIT_EXISTING_SDK_SOURCE_REQUIRED')
+             user in known_sdk_roles.get(database, set()), 'EXPLICIT_EXISTING_SDK_SOURCE_REQUIRED')
     q = parse_qs(p.query, strict_parsing=True)
     allowed_ssl = (['require'], ['verify-ca'], ['verify-full'])
-    if scope == 'sdk':
+    if scope == 'sdk' and not p.hostname.endswith('.neon.tech'):
         allowed_ssl += (['disable'], ['prefer'])
     need(set(q) <= {'sslmode', 'channel_binding', 'connect_timeout'} and
          q.get('sslmode') in allowed_ssl, 'TLS_REQUIRED')

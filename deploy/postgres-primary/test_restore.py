@@ -35,9 +35,23 @@ class RestoreBoundaryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             connection_files('postgresql://neondb_owner:fixture@ep-test.neon.tech/sdk_db?sslmode=require',
                              'sdk_db', 'neondb_owner', 'sdk', 'ep-test.neon.tech')
-        service, _ = connection_files('postgresql://sdk_reader:fixture@sdk-source/sdk_db?sslmode=disable',
-                                      'sdk_db', 'sdk_reader', 'sdk', 'sdk-source')
-        self.assertIn('host=sdk-source', service)
+        for database, role in [('zee_envio_20261023', 'zee_envio_export_20261023'),
+                               ('zee_chef_20261023', 'zee_chef_owner_20261023')]:
+            host = 'ep-exact-fixture.neon.tech'
+            service, _ = connection_files(f'postgresql://{role}:fixture@{host}/{database}?sslmode=require',
+                                         database, role, 'sdk', host)
+            self.assertIn('host=' + host, service)
+            for badhost, badrole, ssl in [('ep-other.neon.tech', role, 'require'),
+                                       (host, 'neondb_owner', 'require'),
+                                       (host, role, 'disable')]:
+                with self.assertRaises(ValueError):
+                    connection_files(f'postgresql://{badrole}:fixture@{badhost}/{database}?sslmode={ssl}',
+                                     database, badrole, 'sdk', host)
+
+    def test_actual_bridge_runtime_role_still_requires_complete_read_preflight(self):
+        service, _ = connection_files('postgresql://zee_bridge_runtime_20261029:fixture@ep-bridge.neon.tech/zee_bridge_20261029?sslmode=require',
+                                      'zee_bridge_20261029', 'zee_bridge_runtime_20261029', 'bridge')
+        self.assertIn('user=zee_bridge_runtime_20261029', service)
 
 
 if __name__ == '__main__':
