@@ -2,6 +2,17 @@
 
 Last updated: 2026-10-28 (Asia/Jakarta), for the isolated Linux testnet deployment. Execution evidence below retains its recorded dates.
 
+Neon branch retirement (28 October): the user authorized deleting unused
+branches. Four closed historical experiments (`zeeswap-g4-live-forward`,
+`zeeswap-g4-live-reverse`, `zeeswap-g5-live-refunds`, and
+`zeeswap-g5-live-soak`) were privately archived and deleted. Historical evidence
+and literal safety bindings remain historical; those endpoints are retired.
+Keep the live testnet branch, primary, both regression/settlement test branches,
+G2 intake evidence with unresolved state, and G5 retry with unresolved signed
+operations. Do not resume old actors. See
+`docs/evidence/neon-branch-retirement-20261028.md`. Deleting branches does not
+reset previously consumed network-transfer quota or activate financial gates.
+
 Motion demo (28 October): the user requested an original Remotion product film.
 Editable sources under `tools/demo-video/` produce an 80-second 1080p/30-fps
 English on-screen walkthrough with original instrumental/SFX and no narration.

@@ -8,6 +8,15 @@ worker uses a separate restricted signer and finalized receipt observer. See the
 
 ## Verified deployment
 
+The table and migration inventory below describe historical deployments.
+On 28 October 2026, the closed G4 forward/reverse and original G5 soak/refund
+branches were privately archived and deleted at the user's request. Their
+endpoint configurations are retired. The live application uses the separate
+`zeeswap-live-testnet-20261023` branch; primary, G2 intake, G2 regression tests,
+G3 settlement tests and G5 retry remain. See the
+[branch retirement record](../docs/evidence/neon-branch-retirement-20261028.md)
+for archive verification and the reasons for retaining unresolved histories.
+
 Project `raspy-truth-63998651`, database `neondb`:
 
 | Target | Branch ID | Purpose |
