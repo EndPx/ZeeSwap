@@ -1,0 +1,55 @@
+# VPS only. New isolated primary candidate; restore and cutover are separate Root gates.
+name: zeeswap-app-postgres-v1
+services:
+  postgres:
+    image: ${ZEE_PG_IMAGE:-postgres:18.6-bookworm}
+    container_name: zeeswap-app-postgres-v1
+    restart: unless-stopped
+    entrypoint: [/bin/sh, /opt/zeeswap-postgres/entrypoint.sh]
+    cpus: 1.0
+    mem_limit: 1g
+    shm_size: 128m
+    pids_limit: 128
+    stop_grace_period: 45s
+    environment:
+      POSTGRES_USER: zeeswap_migration_bootstrap
+      POSTGRES_DB: zeeswap_migration_admin
+      POSTGRES_PASSWORD_FILE: /run/secrets/bootstrap_password
+      PGDATA: /var/lib/postgresql/18/docker
+      POSTGRES_INITDB_ARGS: --data-checksums
+    secrets:
+      - bootstrap_password
+      - tls_certificate
+      - tls_private_key
+    ports:
+      - "127.0.0.1:55435:5432"
+    volumes:
+      - primary_pgdata:/var/lib/postgresql
+      - ./entrypoint.sh:/opt/zeeswap-postgres/entrypoint.sh:ro
+      - ./pg_hba.conf:/opt/zeeswap-postgres/pg_hba.conf:ro
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -h /var/run/postgresql -p 5432 -U zeeswap_migration_bootstrap -d zeeswap_migration_admin"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: "2"
+volumes:
+  primary_pgdata:
+    name: zeeswap_app_postgres_v1_pgdata
+networks:
+  default:
+    name: zeeswap_app_db_v1
+secrets:
+  bootstrap_password:
+    file: ${ZEE_PRIMARY_PASSWORD_FILE:?absolute new root-owned 0600 password file required}
+  tls_certificate:
+    file: ${ZEE_PRIMARY_TLS_CERT_FILE:?absolute root-owned server certificate file required}
+  tls_private_key:
+    file: ${ZEE_PRIMARY_TLS_KEY_FILE:?absolute root-owned 0600 TLS private key file required}

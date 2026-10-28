@@ -2,6 +2,21 @@
 
 Last updated: 2026-10-29 (Asia/Jakarta), for the isolated Linux testnet deployment. Execution evidence below retains its recorded dates.
 
+User hosting decision (29 October, supersedes the Neon runtime choice):
+PostgreSQL in Docker on the existing VPS becomes the primary datastore for
+ZeeSwap Main, its Envio projection, Chef consumer and bridge. Docker remains
+forbidden on the laptop. Preserve application rows, schema ownership/ACLs,
+wallets, keys, private journals and financial acceptance gates during cutover.
+Archive source transaction classifications and source xmin values with their
+original database identity; logical restore does not carry PostgreSQL transaction
+history into the new cluster. Verify the destination system identifier, TLS,
+restored semantic state and a new destination CAS baseline before enabling any
+writer. Envio's snapshot-based revision requires an explicit store-incarnation
+transition; old cursors and receipts retain their original meaning. No active
+ZeeSwap service may depend on Neon after the verified primary cutover. Keep the
+source and private backups until restoration and reconciliation are established;
+this does not authorize deleting unresolved historical evidence.
+
 Approved current-operator pilot opening (29 October): the user explicitly chose
 "Aktifkan pilot operator saat ini" instead of replaying the entire shared
 contract's historical gap. Qualify the application's current operator through
