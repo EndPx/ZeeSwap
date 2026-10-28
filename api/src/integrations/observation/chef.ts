@@ -21,6 +21,7 @@ export interface CanonicalReader {
   sample(signal: AbortSignal): Promise<CanonicalSample>;
   header(height: number, signal: AbortSignal): Promise<Header>;
   headers?(heights: readonly number[], signal: AbortSignal): Promise<Header[]>;
+  finalizedHeader?(signal:AbortSignal):Promise<Header>;
   readonly headerBatchSize?:number;
   headerOrigin?(height:number):CanonicalHeaderOrigin;
 }

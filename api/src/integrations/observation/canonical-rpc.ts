@@ -48,7 +48,7 @@ export function canonicalRpc(config: { url: string; authorization?: string; netw
   requireThat(!rate||batchSize<=rate,'CANONICAL_BATCH_EXCEEDS_RATE');
   return {
     headerBatchSize:batchSize,
-    ...(config.network === 'eip155:84532' ? { async headers(heights: readonly number[], signal: AbortSignal): Promise<Header[]> {
+    ...(config.network === 'eip155:84532' ? {finalizedHeader:(signal:AbortSignal)=>evmHeader('finalized',signal),async headers(heights: readonly number[], signal: AbortSignal): Promise<Header[]> {
       requireThat(heights.length > 0 && heights.length <= batchSize, 'CANONICAL_BATCH_LIMIT');
       const requests = heights.map((h,index) => ({jsonrpc:'2.0',id:index+1,method:'eth_getBlockByNumber',params:[`0x${height(h).toString(16)}`,false]}));
       const response = await request(requests,signal);

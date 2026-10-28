@@ -1,6 +1,6 @@
 /** Opt-in consumer only. Source producer/runtime and serial verifier are unchanged. */
 import {readJson} from './chef.ts';
-import {validateEventFirstExport,requireIndependentEventFirstSource,compareEventFirstLogs,type EventFirstReader,type EventFirstVerifiedExport} from './envio-event-first.ts';
+import {validateEventFirstExport,sampleIndependentEventFirstSource,compareEventFirstLogs,type EventFirstReader,type EventFirstVerifiedExport} from './envio-event-first.ts';
 import {fresh,requireThat,stable,type Policy} from './types.ts';
 /** At most two workers; first failure aborts and drains both before returning.
  * A rejected Promise.all alone would leave an RPC group running. */
@@ -12,7 +12,7 @@ export async function consumerGroups<T>(items:readonly T[],run:(item:T,signal:Ab
 export async function verifyEventFirstExportParallel(value:unknown,p:Policy,reader:EventFirstReader,outer=AbortSignal.timeout(30000)){
  const started=performance.now(),signal=AbortSignal.any([outer,AbortSignal.timeout(30000)]),v=validateEventFirstExport(value,p,Date.now(),reader.sourceId);signal.throwIfAborted();
  requireThat(reader.headerBatchSize===10&&reader.headers,'ENVIO_CONSUMER_PARALLEL_READER');const headers=reader.headers;
- const sample=await reader.sample(signal);fresh(sample.checkedAt,Date.now());requireIndependentEventFirstSource(v,sample,reader);
+ const sample=await sampleIndependentEventFirstSource(v,reader,signal);
  const initial=[{header:v.producer.through,code:'EVENT_FIRST_INDEPENDENT_M'},{header:v.producer.sourceHead,code:'EVENT_FIRST_INDEPENDENT_CLAIMED_HEAD_OR_FINALITY'},{header:v.verification.finalized,code:'EVENT_FIRST_INDEPENDENT_CLAIMED_HEAD_OR_FINALITY'}];
  await consumerGroups(initial,async(item,s)=>{requireThat(stable(await reader.header(item.header.height,s))===stable(item.header),item.code);},signal);
  const groups=[];for(let n=0;n<v.range.headers.length;n+=10)groups.push(v.range.headers.slice(n,n+10));

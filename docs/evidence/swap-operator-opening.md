@@ -172,3 +172,41 @@ passed with zero skips, and API TypeScript passed. The backup tests verify
 byte/mtime preservation, changed active data, corruption, existing intent and
 an unexpected directory. These local tests do not claim a live retry or Linux
 durability qualification beyond the existing Root file/fsync boundaries.
+
+## Ordinary Base startup proof and finalized-view handling
+
+Bounded live read-only diagnostics found Source HTTP export latency of about
+3.5 seconds for 32 headers and 4.6 seconds for 64. Independent dense header reads
+were already limited by the existing 24-method queue; two header workers alone
+did not materially change that pacing floor. Serial Source/verification stages
+therefore accumulated latency over a multi-packet opening handoff.
+
+The ordinary consumer now uses the existing one-future Source lookahead and
+two-worker verifier. If the moving SDK frontier leaves the initial range more
+than 40 blocks behind, it may append only a contiguous, fully verified suffix
+ending at an actual packet's observed producer checkpoint. The original 30-second
+deadline and 1000-total-block limit remain. Every header, raw log set, seam,
+generation, source clock, independent sample and end fence is still checked;
+final head lag is checked against the actual verified range end. No partial
+batch is published when a future request or proof fails.
+
+One bounded live read-only startup prototype began with 182 blocks, including
+the ordinary overlap, and verified 231 contiguous blocks after appending 49
+actually observed SDK blocks. It completed in 21.262 seconds with final claimed
+head lag 27, four Source exports and 275 actual independent RPC methods under
+the existing pacing. It made no SQL or admission-file publication. This is a
+read-path proof, not ordinary following or service readiness.
+
+Twelve bounded PublicNode samples also showed mixed finalized views: three
+returned an older finalized height while nine returned the newer height, despite
+fresh latest heads and matching explicit-number canonical hashes. No-cache or
+batching did not reliably prevent this. Shared serial/parallel verification now
+permits at most two additional actual finalized-only reads only when finality
+regression is the sole failed source conjunct. It preserves the initial head
+and clock and applies the existing explicit hash/end fences to the chosen real
+response. Publication separately retains the actual admitted SQL finality floor.
+Persistent regression, other source failures and forks still refuse.
+
+Thirty-nine focused/regression tests passed with zero skips, API TypeScript
+passed, and the real adapter test proves the H-H window remains within its
+original 16-method limit: 14 base methods plus two finalized-only responses.

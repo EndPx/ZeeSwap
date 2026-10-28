@@ -1,6 +1,7 @@
 /** V2 source proof: SDK-committed events/progress, bounded RPC headers and exact raw log equality.
  * No BlockVisit scan, SQL writes, signing, or compatibility relabeling of the old generation. */
 import {randomUUID} from 'node:crypto';
+import {setTimeout as delay} from 'node:timers/promises';
 import {decodeEventLog,encodeAbiParameters,encodeEventTopics,parseAbi,type Hex,type AbiEvent} from 'viem';
 import type {CanonicalReader,CanonicalSample} from './chef.ts';
 import {contentDigest,digest,fresh,height,hex,object,parseHeader,parseObservation,requireThat,stable,utc,validatePolicy,ObservationError,type BaseEvent,type Header,type Policy} from './types.ts';
@@ -89,6 +90,32 @@ export function requireIndependentEventFirstSource(v:EventFirstVerifiedExport,sa
  const checks={sourceId:sample.sourceId===reader.sourceId,hasFinalized:!!sample.finalized,headAtLeastClaimed:sample.head.height>=v.producer.sourceHead.height,headAtLeastM:sample.head.height>=v.producer.through.height,mLagWithin40:sample.head.height-v.producer.through.height<=40,finalityNotRegressed:!!sample.finalized&&v.verification.finalized.height<=sample.finalized.height};
  if(!Object.values(checks).every(Boolean)){const error=new ObservationError('EVENT_FIRST_INDEPENDENT_SOURCE');Object.assign(error,{details:{checks,source:{M:v.producer.through.height,head:v.producer.sourceHead.height,finalized:v.verification.finalized.height,readStartedAt:v.range.readStartedAt,readCompletedAt:v.range.readCompletedAt,sourceSampledAt:v.producer.sourceSampledAt},canonical:{head:sample.head.height,finalized:sample.finalized?.height??null,checkedAt:sample.checkedAt},mLag:sample.head.height-v.producer.through.height}});throw error;}
 }
+/** PublicNode can return an older finalized view on an otherwise current head.
+ * Retry only that sole failed conjunct, using actual responses and the SAME
+ * deadline. The original head/clock stays fixed for finalized-only rereads;
+ * chosen finalized/head hashes still undergo the normal explicit end fences. */
+export async function sampleIndependentEventFirstSource(v:EventFirstVerifiedExport,reader:EventFirstReader,signal:AbortSignal){
+ let sample=await reader.sample(signal);
+ for(let attempt=0;;attempt++){
+  signal.throwIfAborted();fresh(sample.checkedAt,Date.now());
+  try{requireIndependentEventFirstSource(v,sample,reader);return sample;}catch(error){
+   const d=safeIndependentSourceDetails(error),onlyFinality=d?.checks.finalityNotRegressed===false&&Object.entries(d.checks).every(([key,ok])=>key==='finalityNotRegressed'||ok===true);
+   if(!onlyFinality||attempt>=2)throw error;await delay(250,undefined,{signal});
+   if(reader.finalizedHeader){const finalized=await reader.finalizedHeader(signal);requireThat(finalized.height<=sample.head.height,'FINALIZED_HEAD_REGRESSION');sample={...sample,finalized};}
+   else sample=await reader.sample(signal);
+  }
+ }
+}
+/** A publication sample must also retain the already admitted SQL finality.
+ * Only an actual older finalized response may resample; no floor is fabricated. */
+export async function sampleCanonicalFinalityAtLeast(reader:CanonicalReader,sourceId:string,minimum:number,signal:AbortSignal){
+ requireThat(Number.isSafeInteger(minimum)&&minimum>=0,'INVALID_HEIGHT');let sample=await reader.sample(signal);
+ for(let attempt=0;;attempt++){
+  signal.throwIfAborted();fresh(sample.checkedAt,Date.now());requireThat(sample.sourceId===sourceId,'WRONG_CANONICAL_SOURCE');requireThat(sample.finalized&&sample.finalized.height<=sample.head.height,'WAIT_ENVIO_FINALITY');
+  if(sample.finalized.height>=minimum)return sample;if(attempt>=2)throw new ObservationError('WAIT_ENVIO_FINALITY');await delay(250,undefined,{signal});
+  if(reader.finalizedHeader){const finalized=await reader.finalizedHeader(signal);requireThat(finalized.height<=sample.head.height,'FINALIZED_HEAD_REGRESSION');sample={...sample,finalized};}else sample=await reader.sample(signal);
+ }
+}
 /** Operator CLI allowlist: never forward arbitrary provider error details. */
 export function safeIndependentSourceDetails(error:unknown){
  if(!(error instanceof ObservationError)||error.code!=='EVENT_FIRST_INDEPENDENT_SOURCE')return undefined;const d=(error as any).details;
@@ -99,7 +126,7 @@ export function safeIndependentSourceDetails(error:unknown){
 }
 /** Structural validation above is NOT an RPC attestation. Consumers/qualifiers call this IO verifier. */
 export async function verifyEventFirstExport(value:unknown,p:Policy,reader:EventFirstReader,signal=AbortSignal.timeout(30000),now=Date.now()):Promise<EventFirstVerifiedExport>{
- const started=performance.now(),v=validateEventFirstExport(value,p,now,reader.sourceId),sample=await reader.sample(signal);fresh(sample.checkedAt,Date.now());requireIndependentEventFirstSource(v,sample,reader);
+ const started=performance.now(),v=validateEventFirstExport(value,p,now,reader.sourceId),sample=await sampleIndependentEventFirstSource(v,reader,signal);
  requireThat(stable(await reader.header(v.producer.through.height,signal))===stable(v.producer.through),'EVENT_FIRST_INDEPENDENT_M');
  requireThat(stable(await reader.header(v.producer.sourceHead.height,signal))===stable(v.producer.sourceHead)&&stable(await reader.header(v.verification.finalized.height,signal))===stable(v.verification.finalized),'EVENT_FIRST_INDEPENDENT_CLAIMED_HEAD_OR_FINALITY');
  const size=reader.headerBatchSize??8;requireThat(Number.isSafeInteger(size)&&size>=1&&size<=50,'EVENT_FIRST_HEADER_BATCH');
