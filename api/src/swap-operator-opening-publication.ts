@@ -76,7 +76,10 @@ export function validatePriorOperatorOpening(r:any,i:OperatorOpeningIntent,a:Ope
  validateOperatorOpeningReceipt(r,i,a,approvalSha256);
  need(status==='committed'&&classifyOperatorOpening(status,current,i)==='COMMITTED_EXACT','PRIOR_EXACT_COMMITTED_STATE');
  need(e?.version===1&&e.status==='ROOT_BASE_OPERATOR_SCOPE_OPENING_COLLECTED'&&e.profileSha256===a.profileSha256&&e.registrySha256===a.registrySha256&&e.operator===a.operator&&e.financialDigest===a.financialDigest&&e.retainedRowsSha256===a.retainedRowsSha256&&e.archiveManifestSha256===a.archiveManifestSha256&&stable(e.before)===stable(i.before)&&stable(e.after)===stable(a.after),'PRIOR_EVIDENCE_BINDING');
- const F=parseHeader(e.selection?.selection?.verification?.finalized,'eip155:84532');
+ const F=parseHeader(e.selection?.independentSample?.finalized??e.selection?.selection?.verification?.finalized,'eip155:84532');
+ if(e.selection?.independentSample)need(e.selection.independentSample.sourceId===e.selection.producerCanonical?.sourceId,'PRIOR_INDEPENDENT_PROVIDER');
+ if(e.selection?.independentSample?.sourceId==='base-sepolia-official-independent-rpc')need(e.independentConsumer,'PRIOR_INDEPENDENT_PROVIDER');
+ if(e.independentConsumer){const p=e.independentConsumer;need(p.approval?.sourceId==='base-sepolia-official-independent-rpc'&&p.approval.sourceProofSourceId==='base-sepolia-publicnode-normal-rpc'&&e.selection.independentSample?.sourceId===p.approval.sourceId&&e.selection.selection.verification.canonicalSourceId===p.approval.sourceProofSourceId&&continuationDigest(e.archives)===a.archiveManifestSha256&&e.archives.some((r:any)=>r.pin?.path===p.pin.path&&r.pin.sha256===p.pin.sha256&&r.bytesSha256===p.pin.sha256),'PRIOR_INDEPENDENT_PROVIDER');}
  need(F.height===i.after.finalizedHeight&&Date.parse(F.time)===Date.parse(i.after.finalizedTime)&&e.selection.selection.range?.through?.height===i.after.height&&e.selection.selection.range.through.hash==='0x'+i.after.hash,'PRIOR_FINALITY_BINDING');return F;
 }
 /** Complete only the original transaction's durable file boundary. This kernel

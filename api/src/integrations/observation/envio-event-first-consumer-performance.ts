@@ -10,7 +10,7 @@ export async function consumerGroups<T>(items:readonly T[],run:(item:T,signal:Ab
  await Promise.allSettled([worker(),worker()]);if(first!==undefined)throw first;signal.throwIfAborted();
 }
 export async function verifyEventFirstExportParallel(value:unknown,p:Policy,reader:EventFirstReader,outer=AbortSignal.timeout(30000)){
- const started=performance.now(),signal=AbortSignal.any([outer,AbortSignal.timeout(30000)]),v=validateEventFirstExport(value,p,Date.now(),reader.sourceId);signal.throwIfAborted();
+ const started=performance.now(),signal=AbortSignal.any([outer,AbortSignal.timeout(30000)]),proofSourceId=reader.sourceProofSourceId??reader.sourceId,v=validateEventFirstExport(value,p,Date.now(),proofSourceId);signal.throwIfAborted();
  requireThat(reader.headerBatchSize===10&&reader.headers,'ENVIO_CONSUMER_PARALLEL_READER');const headers=reader.headers;
  const sample=await sampleIndependentEventFirstSource(v,reader,signal);
  const initial=[{header:v.producer.through,code:'EVENT_FIRST_INDEPENDENT_M'},{header:v.producer.sourceHead,code:'EVENT_FIRST_INDEPENDENT_CLAIMED_HEAD_OR_FINALITY'},{header:v.verification.finalized,code:'EVENT_FIRST_INDEPENDENT_CLAIMED_HEAD_OR_FINALITY'}];
@@ -20,7 +20,7 @@ export async function verifyEventFirstExportParallel(value:unknown,p:Policy,read
  compareEventFirstLogs(await reader.logs(v.range.fromHeight,v.range.through.height,signal),v.range.observations,p,v.range.headers,v.range.fromHeight,v.range.through.height);
  const end=[{header:v.producer.through,code:'EVENT_FIRST_INDEPENDENT_END_REORG'},{header:v.range.through,code:'EVENT_FIRST_INDEPENDENT_END_REORG'},{header:sample.head,code:'EVENT_FIRST_INDEPENDENT_SAMPLE_REORG'},{header:sample.finalized!,code:'EVENT_FIRST_INDEPENDENT_SAMPLE_REORG'}];
  await consumerGroups(end,async(item,s)=>{requireThat(stable(await reader.header(item.header.height,s))===stable(item.header),item.code);},signal);
- signal.throwIfAborted();requireThat(performance.now()-started<=30000,'EVENT_FIRST_READ_BUDGET');return validateEventFirstExport(v,p,Date.now(),reader.sourceId);
+ signal.throwIfAborted();requireThat(performance.now()-started<=30000,'EVENT_FIRST_READ_BUDGET');return validateEventFirstExport(v,p,Date.now(),proofSourceId);
 }
 /** HTTP/structural stage only. Never marks an independent proof or writes files.
  * Original source clocks are left untouched and revalidated at verification time. */

@@ -210,3 +210,41 @@ Persistent regression, other source failures and forks still refuse.
 Thirty-nine focused/regression tests passed with zero skips, API TypeScript
 passed, and the real adapter test proves the H-H window remains within its
 original 16-method limit: 14 base methods plus two finalized-only responses.
+
+## Independent consumer provider and continuous quota qualification
+
+Subsequent ordinary execution showed that Source proof production and consumer
+verification both used PublicNode through separate nominal 24-method queues.
+Overlapping those processes could exceed the shared provider quota. The nominal
+batch queue also allowed three ten-method batches within one rolling second.
+
+An explicit Root-protected independent-reader approval now separates the actual
+Official consumer endpoint from the unchanged PublicNode Source proof identity.
+Raw Source certificates retain `base-sepolia-publicnode-normal-rpc`; actual
+consumer samples, coverage and service source identity use
+`base-sepolia-official-independent-rpc`. No endpoint is relabelled. Source
+generation/projection and producer code remain unchanged. Consumer dispatch
+retains its previous spacing and now additionally enforces weighted rolling
+24 methods per second across batches, samples, logs and retries.
+
+Three consecutive bounded full startup proofs ran in one process with the same
+strict queue, each starting with 182 blocks and retaining every header/log/fence:
+
+| Run | Verified blocks | Actual SDK suffix | Elapsed | Final lag | RPC methods | HTTP 429 / JSON errors |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| 1 | 230 | 48 | 24.149 s | 32 | 274 | 0 / 0 |
+| 2 | 236 | 54 | 24.515 s | 30 | 280 | 0 / 0 |
+| 3 | 233 | 51 | 24.819 s | 33 | 277 | 0 / 0 |
+
+All three observed a maximum rolling count of 24. These were read-only full
+Source/Official proofs; no SQL/admission publication or policy activation follows
+from them. Private numeric metrics are preserved outside Git.
+
+`verifyEventFirstExportWithSample` returns the actual independent sample from the
+same verification without another RPC sample. Opening and window qualification
+use its independently observed finalized header, preserving the raw Source
+certificate's separate finalized field. Prior-opening continuation prefers this
+actual sample with explicit provider/archive binding; legacy completed openings
+retain the original Source-finality fallback. Forty-four focused tests and API
+TypeScript passed, including honest dual-provider identity, strict rolling count,
+WithSample RPC count and new/legacy prior-finality binding.

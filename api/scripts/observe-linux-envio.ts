@@ -20,7 +20,7 @@ export function normalEnvioCanonical(url:string,sourceId:string,seam:Pick<Parame
 async function main(){
 const [path,flag]=process.argv.slice(2);
 requireThat(path&&process.argv.length<=4&&(!flag||['--once','--initialize-empty-consumer'].includes(flag)),'LINUX_ENVIO_EXPLICIT_COMMAND');
-const {profile:p,runtime,registry,source,token,normal,eventFirst}=await loadLinuxEnvioObservationProfile(path);
+const {profile:p,runtime,registry,source,token,normal,eventFirst,consumerVerification}=await loadLinuxEnvioObservationProfile(path);
 const keys=new PrivateData(Buffer.from(runtime.payloadKeyHex,'hex'),Buffer.from(runtime.lookupKeyHex,'hex'));
 const context='envio-funding-hints:br-broad-pine-ao79wemx:zee_app_20261023:v1';
 const pool=connect(runtime.workerUrl,2),lease=await pool.connect();
@@ -58,7 +58,7 @@ try{
    if(state.checkpoint)requireThat(Number.isSafeInteger(state.checkpoint.height)&&/^0x[0-9a-f]{64}$/.test(state.checkpoint.hash)&&state.checkpoint.generation===source.generation&&state.checkpoint.projectionDigest===source.policy.projectionDigest,'INVALID_HINT_JOURNAL');return state;
   },async save(state:EnvioAdmissionState){const tmp=p.admissionPath+'.'+randomUUID()+'.tmp',fd=await open(tmp,'wx',0o600);try{await fd.writeFile(keys.seal(state,context));await fd.sync();}finally{await fd.close();}await rename(tmp,p.admissionPath);}};
   await hints.load();const base=new BaseContract(registry),stop=new AbortController();
-  const eventReader=eventFirst?eventFirstRpc({...source.verification!,contract:source.policy.contract!}):undefined;
+  const eventReader=eventFirst?eventFirstRpc({...consumerVerification!,contract:source.policy.contract!}):undefined;
   const canonical=eventReader??normalEnvioCanonical(normal.url,normal.sourceId,{},normal.overlay);
   if(normal.overlay)await verifyNormalEnvioOverlay(normal.overlay,canonical,AbortSignal.timeout(30000));
   lease.on('error',()=>stop.abort());process.once('SIGTERM',()=>stop.abort());process.once('SIGINT',()=>stop.abort());

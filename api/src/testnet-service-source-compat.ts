@@ -6,7 +6,7 @@ import {chefPersistedCanonical} from './integrations/observation/chef-live.ts';
 import type {CanonicalReader} from './integrations/observation/chef.ts';
 import {readJson,safeEndpoint} from './integrations/observation/chef.ts';
 import {digest,object,parseHeader,requireThat,stable,type Header,type Policy} from './integrations/observation/types.ts';
-import {EVENT_FIRST_MAX_EXPORT_BLOCKS,validateEventFirstState,verifyEventFirstExport,type EventFirstReader} from './integrations/observation/envio-event-first.ts';
+import {EVENT_FIRST_MAX_EXPORT_BLOCKS,validateEventFirstState,verifyEventFirstExportWithSample,type EventFirstReader} from './integrations/observation/envio-event-first.ts';
 import {validateTip5744Approval,validateTip5744Intent,type Tip5744Approval,type Tip5744Intent} from './app-chef-5744-tip-repair.ts';
 import {validateEmptyTailApproval,validateEmptyTailIntent,type EmptyTailApproval,type EmptyTailIntent} from './app-chef-empty-tail-repair.ts';
 
@@ -53,10 +53,10 @@ export async function readServiceEventFirstSelection(url:string,token:string,pol
  const status=object(await readJson(response,signal,8_000_000),['protocol','maxExportBlocks','state']);requireThat(status.protocol==='zee-envio-event-first-status-v1'&&status.maxExportBlocks===EVENT_FIRST_MAX_EXPORT_BLOCKS,'SERVICE_EVENT_FIRST_STATUS');
  const state=validateEventFirstState(status.state,policy,generation),H=state.progress.height,u=new URL('/zee-observation/event-first/export',base);u.searchParams.set('from',String(H));u.searchParams.set('through',String(H));
  const raw=await request(u,{headers,redirect:'error',signal});requireThat(raw.ok,'SERVICE_EVENT_FIRST_EXPORT_HTTP');
- const selection=await verifyEventFirstExport(await readJson(raw,signal,8_000_000),policy,reader,signal);
+ const verified=await verifyEventFirstExportWithSample(await readJson(raw,signal,8_000_000),policy,reader,signal),selection=verified.packet;
  requireThat(selection.producer.generation===generation&&selection.range.fromHeight===H&&selection.range.through.height===H&&selection.range.headers.length===1,'SERVICE_EVENT_FIRST_SELECTED_RANGE');
  const M=selection.producer.through,actual=await reader.header(M.height,signal);requireThat(stable(actual)===stable(M),'SERVICE_EVENT_FIRST_PRODUCER_CHANGED');signal.throwIfAborted();
- return{selection,producerCanonical:{sourceId:reader.sourceId,height:actual.height,hash:actual.hash,checkedAt:new Date().toISOString()}};
+ return{selection,independentSample:verified.independentSample,producerCanonical:{sourceId:reader.sourceId,height:actual.height,hash:actual.hash,checkedAt:new Date().toISOString()}};
 }
 
 /** Completed metadata is archival evidence, checked at original approval issuance. */
