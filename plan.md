@@ -2,6 +2,16 @@
 
 Last updated: 2026-10-28 (Asia/Jakarta), for the isolated Linux testnet deployment. Execution evidence below retains its recorded dates.
 
+Browser wallet decision (28 October): the user explicitly requested direct Noir
+connection. The web interface now uses the injected Noir Zcash provider for an
+explicit Testnet connection, separate from the Base Sepolia wallet. Only a
+checksum-valid testnet unified address can populate Zcash fields. Connecting
+does not send. Accepted-order payments preserve exact original amount/memo,
+shielded funding, fresh service/order checks and cross-tab/reload resend guards.
+The tested browser scenarios use synthetic providers; installed-extension
+approval and a real shielded payment remain separate verification. This changes
+the browser connector, not source recovery, financial activation or old G5 scope.
+
 Execution discipline (28 October): reuse successful checks while their inputs
 remain unchanged. Repeat only the changed scope, a failed check, or a live
 state-dependent qualification that has become invalid. Preserve accepted

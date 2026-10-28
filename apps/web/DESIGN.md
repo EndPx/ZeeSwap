@@ -99,6 +99,17 @@ Unbroken addresses wrap inside min-width:0 containers.
 - Funding QR: local lazy-loaded ZIP 321 encoder, 240px black/white functional QR
   with four-module quiet zone; exact testnet amount, shielded receiver and encoded
   canonical memo only. Private order capabilities never enter the payment URI.
+- Noir: reuse the wallet dialog, existing buttons, notices and private-value
+  wrapping for a separate shielded Zcash testnet connection. Connection is an
+  explicit gesture and never depends on swap admission. Empty-field autofill
+  is explicit; account changes clear only values inserted by Noir. The accepted
+  order offers a separate shielded payment approval with submitted/unknown
+  states, an exclusive same-origin per-order Web Lock and a persistent resend
+  fence. Contention is refused immediately; unsupported browsers retain manual
+  funding instructions. Missing extension links to
+  official Testnet installation guidance; mainnet/invalid accounts fail closed.
+  Direct payment requires a verifiable time cutoff and fresh active service
+  policy; manual instructions retain their original API meaning.
 - Activity row: private session order, API state, amount and reopen action. Empty
   state invites a first quote; no invented transaction rows.
 - Primitive harness at `/design` exercises button/notice/input states for visual QA.
