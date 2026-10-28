@@ -148,3 +148,27 @@ changed checkpoint xmin, altered archived finality or a forged complete-history
 claim. API TypeScript passed. Existing actual PostgreSQL CAS/rollback/finish
 qualification is reused because the transaction kernel is unchanged. No live
 continuation was performed for these tests.
+
+## Transient readiness and pre-intent backup retry
+
+Native readiness may retry only the typed `WAIT_SOURCE_UNREADY` gate or HTTP
+429/503, at most six requests within the original 30-second signal/deadline.
+The delay defaults to one second; a valid Retry-After is honored only within a
+five-second bound. Authentication, malformed/stale data, wrong project, changed
+generation and canonical failures are not retried into readiness. The original
+Source clocks are preserved, and the SQL observation must still be fresh when
+the check finishes.
+
+A publication retry may reuse an already-created original-admission backup
+only before any publication intent exists. The active bytes must hash to the
+approved original, and the protected regular backup must contain those exact
+bytes. Reuse reads the file without replacing it. Corrupt/different files,
+unknown entries, changed active bytes or any existing intent refuse; an intent
+always requires original-XID reconciliation. The metadata transaction kernel
+and post-intent no-replay behavior are unchanged.
+
+Ten focused readiness, real temporary-file backup and publication regressions
+passed with zero skips, and API TypeScript passed. The backup tests verify
+byte/mtime preservation, changed active data, corruption, existing intent and
+an unexpected directory. These local tests do not claim a live retry or Linux
+durability qualification beyond the existing Root file/fsync boundaries.
