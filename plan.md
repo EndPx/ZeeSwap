@@ -1,6 +1,23 @@
 # ZeeSwap implementation plan
 
-Last updated: 2026-10-27 (Asia/Jakarta), for the isolated Linux testnet deployment. Execution evidence below retains its recorded dates.
+Last updated: 2026-10-28 (Asia/Jakarta), for the isolated Linux testnet deployment. Execution evidence below retains its recorded dates.
+
+Execution discipline (28 October): reuse successful checks while their inputs
+remain unchanged. Repeat only the changed scope, a failed check, or a live
+state-dependent qualification that has become invalid. Preserve accepted
+read-only prefixes; if their exact control basis changes, archive them with
+their original meaning rather than silently rebasing their authority.
+Expired campaign permits remain expired. A fresh campaign requires its own
+explicit current-state authority and retains the existing resource limits.
+
+Current bounded work: recover the missing Base event history, collect the
+Native gap through the existing finite traversal and linked journal kernels,
+then qualify exact metadata commits and ordinary observation. Ordinary Native
+traversal cannot consume the observed 3,020-block gap inside its 1,000-block
+limit; no larger range or partial-prefix live readiness is authorized.
+The new Base publication kernel passed eight isolated PostgreSQL tests;
+actual live publication, policy activation and the funded two-way circle
+remain open. Do not restart the old G5 soak.
 
 Current product decision (27 October, supersedes market pricing):
 The user selected a fixed two-way rate of **1 TAZ = 100 USDC** and USDC as

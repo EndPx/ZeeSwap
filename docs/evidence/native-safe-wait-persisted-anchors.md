@@ -28,3 +28,47 @@ cases passed with zero skips. The ordinary follower was started from that new
 release with exit-78 restart prevention preserved and zero restarts. Starting
 the process alone does not establish fresh following or financial readiness;
 those require the actual observed cycle and the remaining Base/service gates.
+
+
+## Follow-up typed checkpoint regression, 28 October 2026
+
+A later operator report described a `TRAVERSE` failure before publication at
+Core checkpoint 4547133, with stored tip 4547131 and disagreeing Core and fresh
+independent hashes. Inspection of tracked commit 446fafc found that the typed
+`SourceCheckpointMismatch` safe-wait branch already exists. The error code alone
+therefore does not establish that this wait case needs a new eligibility rule.
+
+Two added synthetic regressions reproduce that shape through the actual
+`ChefAdapter` with mature tail two, its typed mismatch, a fresh diagnostic and
+`ordinaryChefCanonicalRecheck`. With every persisted header canonical, the
+existing implementation verifies the dense 4531977..4547131 prefix and permits
+wait only after the unchanged-state callbacks before and after the durable
+witness. A conflict at the cursor boundary refuses without canonical reads or
+a witness. A state change during witness persistence refuses on the second
+reread. Classification of the rejected traversal remains uncalled.
+
+The runner's private checkpoint diagnostic now also records an error-valued
+`recheckFailure` (name, message and stack), matching the existing private head
+change diagnostic. Previously a dense-proof timeout or mismatch could retain
+the correct original fatal code while concealing its attached recheck cause in
+that private file. Public output and wait eligibility are unchanged. This is
+an observability correction, not proof of the later runtime failure's cause.
+
+Focused command from `api/`:
+
+```
+node --import tsx --test test/integrations/chef-safe-wait-volatile-head.test.ts
+```
+
+Result: **7/7 PASS**, zero skips, 3.831 seconds. The initial run of the two new
+fixtures failed because the reused old factory also injected its earlier
+4547011 fork inside the new persisted range; that fixture was corrected to
+retain a coherent stored prefix. No eligibility code was changed. Scoped
+`git diff --check` passed. API typecheck was attempted and encountered two
+concurrent Base runner errors at `observe-linux-envio.ts:56` (`loaded` undefined);
+that result is not recorded as a Native typecheck pass.
+
+No SSH, database reads or writes, process restarts, wallet access or live
+qualification was performed by this coding agent. The new tests establish
+existing local behavior; the actual private recheck cause and deployed runtime
+identity remain operator evidence to inspect before any live restart decision.

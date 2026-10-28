@@ -12,7 +12,7 @@ import {eventFirstRpc} from '../src/integrations/observation/envio-event-first-r
 import {connect} from '../src/db.ts';
 import {PrivateData} from '../src/private-data.ts';
 import {BaseContract} from '../src/base-contract.ts';
-import {observeEnvioOnce,type EnvioAdmissionState} from '../src/integrations/observation/envio-live.ts';
+import {observeEnvioOnce,validateLiveEnvioAdmission,type EnvioAdmissionState} from '../src/integrations/observation/envio-live.ts';
 import {canonicalRpc} from '../src/integrations/observation/canonical-rpc.ts';
 import {requireThat} from '../src/integrations/observation/types.ts';
 import {requireNoEnvioRecovery} from '../src/integrations/observation/envio-recovery.ts';
@@ -53,7 +53,7 @@ try{
   const hints={async load():Promise<EnvioAdmissionState>{
    const s=await lstat(p.admissionPath);requireThat(s.isFile()&&!s.isSymbolicLink()&&(s.mode&0o077)===0,'LINUX_ENVIO_JOURNAL_PRIVATE_REQUIRED');
    const state=keys.open(await readFile(p.admissionPath),context) as EnvioAdmissionState;
-   requireThat(state.version===2&&Array.isArray(state.hints)&&state.hints.length<=500,'INVALID_HINT_JOURNAL');
+   validateLiveEnvioAdmission(state,source.generation,source.policy.projectionDigest);
    for(const h of state.hints)requireThat(typeof h.orderId==='string'&&/^0x[0-9a-f]{64}$/.test(h.txHash)&&Number.isSafeInteger(h.height),'INVALID_HINT_JOURNAL');
    if(state.checkpoint)requireThat(Number.isSafeInteger(state.checkpoint.height)&&/^0x[0-9a-f]{64}$/.test(state.checkpoint.hash)&&state.checkpoint.generation===source.generation&&state.checkpoint.projectionDigest===source.policy.projectionDigest,'INVALID_HINT_JOURNAL');return state;
   },async save(state:EnvioAdmissionState){const tmp=p.admissionPath+'.'+randomUUID()+'.tmp',fd=await open(tmp,'wx',0o600);try{await fd.writeFile(keys.seal(state,context));await fd.sync();}finally{await fd.close();}await rename(tmp,p.admissionPath);}};

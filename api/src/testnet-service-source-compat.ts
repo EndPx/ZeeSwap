@@ -1,3 +1,4 @@
+import {validateEventAuditMetadataReceipt} from './integrations/observation/envio-closed-event-publication.ts';
 /** Current source qualification only. No SQL mutation, authority minting or timestamp renewal. */
 import {chefPersistedCanonical} from './integrations/observation/chef-live.ts';
 import type {CanonicalReader} from './integrations/observation/chef.ts';
@@ -44,6 +45,7 @@ export async function readServiceEventFirstSelection(url:string,token:string,pol
 /** Completed metadata is archival evidence, checked at original approval issuance. */
 export function validateServiceMetadataReceipt(kind:'nativeMetadata'|'baseMetadata',receipt:any,intent:any,approval:any,approvalSha256:string){
  requireThat(receipt?.version===1&&receipt.financialAction===false&&receipt.approvalSha256===approvalSha256&&intent?.approvalSha256===approvalSha256,'SERVICE_METADATA_BINDING');
+ if(kind==='baseMetadata'&&receipt.status==='BASE_CLOSED_EVENT_COVERAGE_COMMITTED_EXACT'){validateEventAuditMetadataReceipt(receipt,intent,approval,approvalSha256);return;}
  if(kind==='baseMetadata'){requireThat(receipt.status==='ENVIO_CLOSED_METADATA_COMMITTED_EXACT'&&receipt.intentDigest===digest(intent),'SERVICE_BASE_METADATA_INTENT');return;}
  requireThat(receipt.afterDigest===digest(intent.after)&&receipt.transactionId===intent.transactionId,'SERVICE_NATIVE_METADATA_INTENT');
  if(receipt.status==='CLOSED_HISTORY_CHEF_SINGLE_TIP_COMMITTED_EXACT')return;

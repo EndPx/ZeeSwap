@@ -9,11 +9,17 @@ import {fresh,requireThat,stable,type Policy,type ReplaceRange} from './types.ts
 import{requiredEnvioAnchors}from'./envio-required-anchors.ts';
 import {validateEventFirstState,type EventFirstReader} from './envio-event-first.ts';
 import {fetchEventFirstReplacement} from './envio-event-first-consumer.ts';
+import {validateEventAuditAdmission,type EventAuditAdmission} from './envio-closed-event-publication.ts';
 
 /** New testnet app observer only. Source events are hints for the original
  * finalized receipt verifier; this module cannot sign or dispatch payments. */
 export type FundingHint={orderId:string;txHash:`0x${string}`;height:number;blockHash?:string};
-export type EnvioAdmissionState={version:2;hints:FundingHint[];checkpoint?:{height:number;hash:string;generation:string;projectionDigest:string}};
+export type EnvioAdmissionState={version:2;hints:FundingHint[];checkpoint?:{height:number;hash:string;generation:string;projectionDigest:string}}|EventAuditAdmission;
+export function validateLiveEnvioAdmission(state:EnvioAdmissionState,generation:string,projectionDigest:string){
+ requireThat(state&&[2,3].includes(state.version)&&Array.isArray(state.hints)&&state.hints.length<=500,'INVALID_HINT_JOURNAL');
+ if(state.version===3)validateEventAuditAdmission(state,generation,projectionDigest);
+ return state;
+}
 export interface FundingHintJournal{load():Promise<EnvioAdmissionState>;save(state:EnvioAdmissionState):Promise<void>}
 export function envioAdmissionFrom(policy:Policy,through:number,previousSqlHeight:number|undefined,state:EnvioAdmissionState,acceptedOrders:number){
  requireThat(Number.isSafeInteger(through)&&through>=policy.birthday,'INVALID_ENVIO_FRONTIER');
@@ -43,6 +49,8 @@ export async function observeEnvioOnce(pool:pg.Pool,keys:PrivateData,base:BaseCo
  if(config.eventFirst){requireThat(status.protocol==='zee-envio-event-first-status-v1','EVENT_FIRST_STATUS_PROTOCOL');producerThrough=validateEventFirstState(status.state,config.policy,config.eventFirst.generation).progress.height;}
  else{requireThat(status.protocol==='zee-envio-status-v1'&&status.checkpoint?.complete===true&&Number.isSafeInteger(status.checkpoint.through?.height),'COHERENT_CHECKPOINT_REQUIRED');producerThrough=Number(status.checkpoint.through!.height);}
  const admission=await config.hints.load();
+ validateLiveEnvioAdmission(admission,config.eventFirst?.generation??admission.checkpoint?.generation??'',config.policy.projectionDigest);
+ requireThat(admission.version!==3||config.eventFirst,'EVENT_AUDIT_REQUIRES_EVENT_FIRST_SOURCE');
  const previous=(await pool.query("SELECT scanned_height::text FROM zee.scanner_checkpoints WHERE network='base-sepolia'")).rows[0];
  const accepted=Number((await pool.query('SELECT count(*)::text AS count FROM zee.orders')).rows[0]?.count);
  const from=envioAdmissionFrom(config.policy,producerThrough,previous?Number(previous.scanned_height):undefined,admission,accepted);
@@ -79,7 +87,7 @@ export async function observeEnvioOnce(pool:pg.Pool,keys:PrivateData,base:BaseCo
  signal.throwIfAborted();
  await publishObserverBatch(pool,'envio-coherent-live',[{network:'base-sepolia',height:batch.coverage.through.height,hash:batch.coverage.through.hash.slice(2),
   finalizedHeight:finalized.height,finalizedTime:new Date(finalized.time),observedAt:new Date(batch.coverage.sourceSampledAt)}],uniqueBlocks);
- const next:EnvioAdmissionState={version:2,hints:[...pending.values()],checkpoint:{height:batch.coverage.through.height,hash:batch.coverage.through.hash,generation:batch.coverage.generation,projectionDigest:config.policy.projectionDigest}};
+ const next:EnvioAdmissionState={...admission,hints:[...pending.values()],checkpoint:{height:batch.coverage.through.height,hash:batch.coverage.through.hash,generation:batch.coverage.generation,projectionDigest:config.policy.projectionDigest}};
  await config.hints.save(next);
  for(const [id,hint] of pending){
   requireThat(bindings.some(row=>row.id===hint.orderId),'UNKNOWN_STORED_FUNDING_ORDER');

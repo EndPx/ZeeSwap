@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {ChefCanonicalHeadChanged,type CanonicalReader} from '../../src/integrations/observation/chef.ts';
-import {chefHeadChangeCanWait,type ChefPersistedState} from '../../src/integrations/observation/chef-live.ts';
+import {ChefAdapter,ChefCanonicalHeadChanged,SourceCheckpointMismatch,type CanonicalReader} from '../../src/integrations/observation/chef.ts';
+import {chefHeadChangeCanWait,diagnoseSourceCheckpointMismatch,type ChefPersistedState} from '../../src/integrations/observation/chef-live.ts';
 import {serviceNativeDenseCanonical} from '../../src/testnet-service-source-compat.ts';
 import {ordinaryChefCanonicalRecheck} from '../../scripts/observe-linux-chef.ts';
 import type {Header} from '../../src/integrations/observation/types.ts';
@@ -15,3 +15,28 @@ test('persisted financial/final/tip forks remain fatal and never cache partial p
 test('a fully canonical replacement of the stored tip refuses wait without a diagnostic or mutation',async()=>{const f=factory({fork:tip}),c=ordinaryChefCanonicalRecheck(f.reader,'native');let diagnostics=0;assert.equal(await chefHeadChangeCanWait(original(),false,state(),cursor,c,async()=>true,AbortSignal.timeout(180000),'VERIFY_ANCHORS',async()=>{diagnostics++;}),false);assert.equal(diagnostics,0);});
 test('persisted endpoint uses new uncached reader rather than range cache',async()=>{const f=factory({freshFork:tip}),c=ordinaryChefCanonicalRecheck(f.reader,'native'),error=original();await assert.rejects(chefHeadChangeCanWait(error,false,state(),cursor,c,async()=>true,AbortSignal.timeout(180000),'VERIFY_ANCHORS'),e=>e===error);assert.match(String(error.recheckFailure),/PERSISTED_RANGE_CHANGED/);await assert.rejects(c.header(tip,AbortSignal.timeout(1000)),/CACHE_REQUIRED/);});
 test('same deadline/source/world and prepublication guards stay mandatory',async()=>{const stop=new AbortController(),f=factory({onRead:h=>{if(h===min+3)stop.abort(Error('ORIGINAL_180S_STOP'));}}),c=ordinaryChefCanonicalRecheck(f.reader,'native'),error=original();let world=0;await assert.rejects(chefHeadChangeCanWait(error,false,state(),cursor,c,async()=>{world++;return true;},stop.signal,'VERIFY_ANCHORS'),e=>e===error);assert.match(String(error.recheckFailure),/ORIGINAL_180S_STOP/);assert.equal(world,0);const wrong=()=>({sample:async()=>({sourceId:'wrong',checkedAt:stamp,head:header(volatile)}),header:async(h:number)=>header(h)});await assert.rejects(ordinaryChefCanonicalRecheck(wrong,'native').prefetchPersisted([min,tip],AbortSignal.timeout(1000)),/CANONICAL_SOURCE/);const clean=factory(),reader=ordinaryChefCanonicalRecheck(clean.reader,'native');assert.equal(await chefHeadChangeCanWait(original(),false,state(),cursor,reader,async()=>false,AbortSignal.timeout(180000),'VERIFY_ANCHORS'),false);assert.equal(await chefHeadChangeCanWait(original(),true,state(),cursor,reader,async()=>true,AbortSignal.timeout(1000),'VERIFY_ANCHORS'),false);});
+
+// Reproduce the later TRAVERSE incident through the adapter, not a generic error.
+async function checkpointIncident(){
+ const M=4547133,stored=M-2,coreHash='00001673c11c49c06d4b3e703b42f44862487c5da41e84d3e2285d20b97c2a07',actualHash='000004aa75eeb25791474c849c0ef30ab54692e3e815ba003b1123d248d885a0';
+ const f=factory(),before=state();before.checkpoint!.scanned_height=String(stored);before.checkpoint!.tip_hash=hash(stored);before.headers[3]={height:String(stored),block_hash:hash(stored)};
+ const current={processedThrough:stored,tipHash:hash(stored)},fresh={...header(M),hash:actualHash},time=new Date().toISOString();let classified=0;
+ const source={project:'incident-fixture',generation:'13d3e6eb-ecfe-4159-8cde-b5d9ed00151e',revision:'15209',checkpoint:{height:M,hash:coreHash,anchorHash:null,status:'ready',undoFloor:min},lastCommitAt:null,source:{status:'available',checkedAt:time,prepIndexedHeight:M,sourceObservedHeight:M,sourceObservedAt:Math.floor(Date.now()/1000)}};
+ const adapter=new ChefAdapter({url:'http://127.0.0.1/',token:'fixture',project:source.project,matureTailBlocks:2,policy:{adapter:'zeer-chef',network:'zcash-testnet',birthday:min,registryDigest:hash(1),projectionDigest:hash(2),canonicalSourceId:'native',accountFingerprint:'fixture'},canonical:{sample:async()=>({sourceId:'native',checkedAt:time,head:header(M)}),header:async h=>h===M?fresh:header(h),headerOrigin:()=>({kind:'fresh'})},classify:async()=>{classified++;throw Error('rejected batch must not classify');},fetch:async(_input,init)=>init?.body?Response.json({data:{ReadableNoteList:{items:[],nextCursor:null}}}):Response.json(source)});
+ let caught:unknown;try{await adapter.traverse(stored-1);}catch(error){caught=error;}
+ assert.ok(caught instanceof SourceCheckpointMismatch);assert.equal(caught.expectedCore.hash,coreHash);assert.equal(caught.actualHeader.hash,actualHash);assert.equal(classified,0);
+ const signal=AbortSignal.timeout(180000);await diagnoseSourceCheckpointMismatch(caught,async(h,s)=>{assert.equal(h,M);assert.equal(s,signal);return fresh;},signal);
+ // The sampled unpersisted head changes while the entire stored prefix stays canonical.
+ const reader=(_range?:{fromHeight:number;throughHeight:number}):CanonicalReader=>({sample:async s=>{s.throwIfAborted();f.signals.push(s);return{sourceId:'native',checkedAt:new Date().toISOString(),head:header(M)};},header:async(h,s)=>{s.throwIfAborted();f.reads.push(h);f.signals.push(s);return h===M?fresh:header(h);}});
+ return{before,current,error:caught,signal,reader,reads:f.reads};
+}
+test('actual mature-tail checkpoint TRAVERSE mismatch waits only after dense persisted proof and two durable-state rereads',async()=>{
+ const f=await checkpointIncident(),snapshot=JSON.stringify(f.before);let unchanged=0,diagnostics=0;
+ assert.equal(await chefHeadChangeCanWait(f.error,false,f.before,f.current,ordinaryChefCanonicalRecheck(f.reader,'native'),async()=>{unchanged++;return true;},f.signal,'TRAVERSE',async()=>{diagnostics++;assert.equal(unchanged,1);}),true);
+ assert.equal(unchanged,2);assert.equal(diagnostics,1);assert.equal(JSON.stringify(f.before),snapshot);const covered=new Set(f.reads);for(let h=min;h<=f.current.processedThrough;h++)assert.ok(covered.has(h),'missing '+h);
+});
+test('actual typed checkpoint path refuses persisted boundary and changed state after the durable witness',async()=>{
+ const f=await checkpointIncident();let diagnostics=0,reads=0;const current={...f.current,processedThrough:f.error.expectedCore.height,tipHash:hash(f.error.expectedCore.height)};
+ assert.equal(await chefHeadChangeCanWait(f.error,false,f.before,current,ordinaryChefCanonicalRecheck(()=>{reads++;return f.reader();},'native'),async()=>true,f.signal,'TRAVERSE',async()=>{diagnostics++;}),false);assert.equal(reads,0);assert.equal(diagnostics,0);
+ let same=true,rereads=0;assert.equal(await chefHeadChangeCanWait(f.error,false,f.before,f.current,ordinaryChefCanonicalRecheck(f.reader,'native'),async()=>{rereads++;return same;},f.signal,'TRAVERSE',async()=>{diagnostics++;same=false;}),false);assert.equal(rereads,2);assert.equal(diagnostics,1);
+});

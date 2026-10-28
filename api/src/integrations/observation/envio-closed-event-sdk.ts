@@ -1,0 +1,24 @@
+/** Dedicated direct pg connection: one MVCC statement per bounded SDK read.
+ * No migration, app write, Source write, retry or provider fallback. */
+import type pg from 'pg';
+import {CLOSED_EVENT_IO,closedEventSdkQuery} from './envio-closed-event-io.ts';
+import {validateEventFirstState,type EventFirstSnapshot,type EventFirstState} from './envio-event-first.ts';
+import {requireThat,validatePolicy,type BaseEvent,type Policy} from './types.ts';
+const need=(v:unknown,c:string)=>requireThat(v,'CLOSED_EVENT_SDK_'+c);
+const context=`current_database() db,current_user role,current_setting('transaction_read_only') readonly,current_setting('default_transaction_read_only') default_readonly,current_setting('statement_timeout') statement_timeout,(SELECT rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls FROM pg_roles WHERE rolname=current_user) elevated,EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='envio_live_final' AND c.relkind IN('r','p') AND has_table_privilege(current_user,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) writable,has_schema_privilege(current_user,'envio_live_final','CREATE') ddl,has_table_privilege(current_user,'envio_live_final."SettlementEvent"','SELECT') raw_events,has_table_privilege(current_user,'envio_live_final.zee_event_first_state','SELECT') state_select`;
+export const CLOSED_EVENT_SDK_SETUP="SET default_transaction_read_only=on; SET statement_timeout='5000ms'; SET idle_in_transaction_session_timeout='10000ms'";
+export const CLOSED_EVENT_SDK_CONTEXT=`SELECT ${context}`;
+export const CLOSED_EVENT_SDK_FENCE=`SELECT payload,${context} FROM envio_live_final.zee_event_first_state WHERE stream_id='base-v1'`;
+/** Uses the frozen raw-event query verbatim; every component uses one statement snapshot. */
+export function closedEventSdkSnapshotStatement(){return `WITH event_data AS (${closedEventSdkQuery()}) SELECT payload,${context},event_data.n,event_data.bytes,event_data.rows FROM envio_live_final.zee_event_first_state CROSS JOIN event_data WHERE stream_id='base-v1'`;}
+function requireContext(r:any){need(r?.db==='zee_envio_20261023'&&r.role==='zee_envio_export_20261023'&&r.readonly==='on'&&r.default_readonly==='on'&&['5s','5000ms'].includes(r.statement_timeout)&&r.elevated===false&&r.writable===false&&r.ddl===false&&r.raw_events===true&&r.state_select===true,'READER_CONTEXT');}
+export function createClosedEventSdkTransport(client:Pick<pg.PoolClient,'query'>,policy:Policy,generation:string){
+ validatePolicy(policy);const C=CLOSED_EVENT_IO;need(policy.adapter==='envio-hyperindex'&&policy.network==='eip155:84532'&&policy.contract===C.contract&&policy.token===C.token&&policy.canonicalSourceId===C.sdkId&&policy.projectionDigest===C.projection&&generation===C.generation,'SOURCE_IDENTITY');
+ let initialized=false,poisoned=false,busy=false;
+ async function read<T>(signal:AbortSignal,work:()=>Promise<T>):Promise<T>{signal.throwIfAborted();need(initialized&&!poisoned&&!busy,'CONNECTION_NOT_READY');busy=true;try{const value=await work();signal.throwIfAborted();return value;}catch(e){poisoned=true;throw e;}finally{busy=false;}}
+ return{
+  async initialize(signal:AbortSignal){signal.throwIfAborted();need(!initialized&&!poisoned&&!busy,'INITIALIZE_ONCE');busy=true;try{await client.query(CLOSED_EVENT_SDK_SETUP);signal.throwIfAborted();const rows=(await client.query(CLOSED_EVENT_SDK_CONTEXT)).rows;need(rows.length===1,'CONTEXT_ROW');requireContext(rows[0]);signal.throwIfAborted();initialized=true;}catch(e){poisoned=true;throw e;}finally{busy=false;}},
+  async snapshot(from:number,to:number,signal:AbortSignal):Promise<EventFirstSnapshot>{need(Number.isSafeInteger(from)&&Number.isSafeInteger(to)&&from>=policy.birthday&&to>=from&&to-from+1<=C.interval,'RANGE');return read(signal,async()=>{const rows=(await client.query(closedEventSdkSnapshotStatement(),[from,to,policy.abiDigest,policy.contract])).rows;need(rows.length===1,'STATE_ROW');const row=rows[0];requireContext(row);const state=validateEventFirstState(row.payload,policy,generation);need(to<=state.progress.height,'SDK_BEHIND_RANGE');need(Number.isSafeInteger(row.n)&&row.n>=0&&row.n<=C.maxEvents&&typeof row.bytes==='string'&&/^(0|[1-9][0-9]*)$/.test(row.bytes)&&BigInt(row.bytes)<=7900000n&&Array.isArray(row.rows)&&row.rows.length===row.n,'OVERFLOW');need(row.rows.every((r:any)=>r.contractVersion==='v1'),'UNKNOWN_VERSION');const events=row.rows.map((r:any)=>r.payload) as BaseEvent[];need(Buffer.byteLength(JSON.stringify(events))<=C.maxBytes,'BYTES');return{state,events};});},
+  async fence(signal:AbortSignal):Promise<EventFirstState>{return read(signal,async()=>{const rows=(await client.query(CLOSED_EVENT_SDK_FENCE)).rows;need(rows.length===1,'STATE_ROW');requireContext(rows[0]);return validateEventFirstState(rows[0].payload,policy,generation);});},
+ };
+}

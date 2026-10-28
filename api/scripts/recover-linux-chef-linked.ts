@@ -80,12 +80,13 @@ export function validateChefLinkedCurrentClosedBooks(a:Pick<Extract<ChefLinkedAp
  need(s.orders!.every(r=>['SETTLED','REFUNDED','EXPIRED_UNFUNDED'].includes(r.state))&&s.obligations!.every(r=>r.state==='DISCHARGED')&&s.reservations!.every(r=>r.released_at)&&s.operations!.every(r=>r.state==='CONFIRMED')&&s.outbox_jobs!.every(r=>r.status==='DONE'&&r.lease_owner===null&&r.lease_until===null)&&s.inventory_accounts!.every(r=>String(r.reserved)==='0'),'CURRENT_CLOSED_OPEN_LIABILITY');
  need(s.chain_transactions!.every(r=>['CONFIRMED','REVERTED','EXPIRED'].includes(r.state))&&['base_attempts','escrow_commits','reverse_payouts','escrow_settlements'].every(t=>s[t]!.every(r=>r.confirmed===true))&&s.source_refunds!.every(r=>r.confirmed===true&&r.base_confirmed===true),'CURRENT_CLOSED_UNRESOLVED_ATTEMPT');
 }
-type FinalFenceState={database:string;role:string;persisted:ChefPersistedState;checkpointXmin:string;books:Record<string,any[]>;authorizationRows:string};
+type FinalFenceState={nativeMetadata?:{height:string;block_hash:string;block_time:string;xmin:string}[];database:string;role:string;persisted:ChefPersistedState;checkpointXmin:string;books:Record<string,any[]>;authorizationRows:string};
 /** One MVCC statement preserves all native persisted fields and the complete
  * financial snapshot. It does not replace the full preselection/SQL guard. */
-export async function readChefLinkedFinalState(client:Pick<pg.PoolClient,'query'>):Promise<FinalFenceState>{
+export async function readChefLinkedFinalState(client:Pick<pg.PoolClient,'query'>,includeNativeMetadata=false):Promise<FinalFenceState>{
  const books=continuationTables.map(table=>`'${table}',(SELECT COALESCE(jsonb_agg(row ORDER BY row::text),'[]'::jsonb) FROM (SELECT to_jsonb(t) AS row FROM zee.${table} t ORDER BY to_jsonb(t)::text LIMIT 129) bounded)`);
  return(await client.query(`SELECT current_database() AS database,current_user AS role,
+  ${includeNativeMetadata?`(SELECT COALESCE(jsonb_agg(row ORDER BY (row->>'height')::bigint),'[]'::jsonb) FROM (SELECT jsonb_build_object('height',height::text,'block_hash',block_hash,'block_time',to_char(block_time AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),'xmin',xmin::text) row FROM zee.chain_observations WHERE network='zcash-testnet' ORDER BY height LIMIT 10005) bounded) AS "nativeMetadata",`:''}
   jsonb_build_object(
    'control',(SELECT to_jsonb(c)||jsonb_build_object('xmin',xmin::text) FROM zee.runtime_control c WHERE singleton),
    'checkpoint',(SELECT to_jsonb(c) FROM zee.scanner_checkpoints c WHERE network='zcash-testnet'),
