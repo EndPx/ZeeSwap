@@ -3,6 +3,14 @@
 This records implementation and isolated PostgreSQL evidence, not a live
 application metadata publication or financial activation.
 
+Private publication integration was qualified separately on Linux. Keeping an
+owner file inside the capture's writer lock was incompatible with the frozen
+case byte ledger. The revised publisher keeps that permanent lock empty and
+pins an external fsynced ownership receipt. Three pure checks passed, followed
+by all three actual Linux filesystem checks. The initial filesystem fixtures
+used an invalid namespace; only those three corrected cases were repeated.
+The public capture/ledger implementation and active capture bytes were retained.
+
 Root ran the new restricted PostgreSQL harness on 28 October against the
 existing isolated G2 test database. All eight tests passed, with zero skips:
 reader/worker restrictions, failed-intent rollback, a genuine checkpoint CAS

@@ -1,5 +1,27 @@
 # Current closed Native catchup adapter
 
+Root execution on 28 October completed four finite private ranges, followed by
+the maintained current-tail preparation and metadata transaction. The original
+transaction `1219148` committed exactly: Native checkpoint advanced from
+4547131 to 4550777, with finalized anchor 4550768. Independent reader-role
+readback verified the original XID, unchanged control epoch 230, all 70
+financial rows, every one of the 2762 old metadata tuples, and the two new
+metadata rows. The cursor's exact bytes, service ownership and mode were
+verified; the completed recovery marker was clear.
+
+Collection used short bounded pauses of the ZeeSwap-owned Chef follower at
+ready checkpoints to keep its historical query revision stable. Each pause
+was followed by unpause in the same operator command. Prep and Envio stayed
+running. The ordinary Native application observer subsequently followed fresh
+blocks through 4550801 with zero restarts on the recorded readback.
+This is metadata and observation recovery, not a swap or financial activation.
+
+The activation receipt validator now explicitly accepts this catchup completion
+kind without adding aliases to historical artifacts. Sixteen relevant existing
+source/empty-tail checks remained valid; three focused receipt checks passed
+after fixture corrections, and API typechecking passed. Original-XID status
+remains independently checked by both policy preparation/admin consumers.
+
 On 28 October 2026, Root reported that the original persisted Native prefix was
 canonical: all 2,762 stored rows passed a fresh dense independent check in
 47.671 seconds. This is Root-reported operator evidence, not a chain read made
