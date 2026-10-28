@@ -1,84 +1,102 @@
-# Zecathon submission readiness
+# Submission readiness
 
-Reviewed against the [official event, rules and submission form](https://thezecathon.com/)
-on 2026-10-14 (Asia/Jakarta). This repository is an implementation checkpoint;
-the project has not been submitted and the full product is not complete.
+**Status checkpoint: 29 October 2026 (Asia/Jakarta).** This is the single summary
+of changing deployment and submission facts. Historical evidence retains its
+own date and scope; a later deployment does not retroactively qualify it.
 
-The intended track is **Cross-Chain**. The product goal is bidirectional swaps,
-constrained intents and a backed-token bridge between shielded Zcash and Base.
-The prototype uses TAZ and project-owned mockUSDC, with fixture pricing.
+## Current deployment
 
-Bridge implementation checkpoint (26 October): the separate TAZ/zeeTAZ interface
-is visible on the public site with new deposits and burns disabled. Its paused
-contract, encrypted accounting and private API preparation have local and
-isolated PostgreSQL evidence; actual live bridge delivery remains unproven.
-Use the [bridge implementation](evidence/g6-bridge-implementation.md) and
-[actual public web check](evidence/g6-bridge-web-live.md) for the current scope.
-Do not present the earlier swap receipts as bridge mint/redemption evidence.
+| Surface | Verified scope / current limit | Evidence |
+| --- | --- | --- |
+| Public frontend | [zeeswap.endpx.cloud](https://zeeswap.endpx.cloud/) is published with Swap, Bridge, wallet connection and Faucet flows; original wallet/network artwork is deployed | [Web guide](../apps/web/README.md), [original artwork check](../apps/web/evidence/original-brand-assets.md) |
+| Noir connection | Explicit Zcash testnet provider integration, separate from the Base wallet; synthetic-provider browser checks passed | [Noir evidence](evidence/noir-wallet-connection.md); real installed-extension approval and shielded funding remain distinct checks |
+| Swap admission | Latest public read reported availability disabled and policy `null`; fresh public settlement is not enabled | [Bounded service policy](evidence/bounded-testnet-service-policy.md), [source incident](evidence/native-chef-fatal-supervision.md), [plan](../plan.md) |
+| Fixed rate / faucet | Fixed swap rule is 1 TAZ = 100 USDC, zero protocol fee, with network fees separate. The USDC faucet has a verified historical claim | [Fixed-rate/public UI check](evidence/fixed-rate-faucet-live.md), [faucet deployment and claim](evidence/usdc-faucet-live.md) |
+| Public bridge API | Latest public read reported `BRIDGE_NOT_CONFIGURED`; new deposits/burns remain unavailable | [Historical public Bridge check](evidence/g6-bridge-web-live.md), [implementation](evidence/g6-bridge-implementation.md) |
+| New bridge deployment | Independently finalized on two Base RPCs and paused; roles, eight decimals, zeeTAZ identity, zero supply/unpaid redemptions and gas funding verified. Public runtime configuration remains pending | Canonical checkpoint below; finality is not bridge delivery or backing proof |
+| Active deployment acceptance | Source-history recovery, fresh ordinary observation, financial qualification and a funded two-way browser circle remain open | [Plan and acceptance gates](../plan.md) |
 
-## Reviewer entry points
+The new bridge identity is Base Sepolia
+[`0xF291F0569b89f06B800B98004eC263bAE0A5cc4D`](https://sepolia.basescan.org/address/0xF291F0569b89f06B800B98004eC263bAE0A5cc4D),
+with deployment transaction
+[`0x469f9cb8361b60d52a63dc042c09b75ba0f406eb428ad8e7f290c3d4f402698e`](https://sepolia.basescan.org/tx/0x469f9cb8361b60d52a63dc042c09b75ba0f406eb428ad8e7f290c3d4f402698e).
+Root independently verified both readers against common finalized anchor
+`51460583`, hash `0xc6949a52caf8cdd3a03202d656a49136732d8a90993dc48b94d06822a62c29ea`,
+observed at `2026-10-28T19:22:13Z`. Runtime code matched the expected dual-RPC
+creation simulation and source metadata checks. This verifies the paused deployment,
+not public admission, backing sufficiency or a mint/redemption circle. Do not
+fund this contract from this page.
 
-| Material | Current evidence |
+The [curated deployment registry](../contracts/deployments/base-sepolia-bridge.json)
+preserves these public identities and the independently verified finalized anchor.
+
+Read this table ahead of older module checkpoints that say a deployment or
+adapter has not yet been prepared. Keep activation closed until its own checks
+pass. Connectivity, a green UI build and included contract creation are separate
+from financial readiness.
+
+## Submission materials
+
+| Material | Status |
 | --- | --- |
-| Product, architecture and acceptance gates | [plan.md](../plan.md) |
-| Repository and reproducible offline checks | [README](../README.md) |
-| Deployed frontend and HTTPS API | [Public testnet interface](https://zeeswap.endpx.cloud/) and [Linux deployment checkpoint](evidence/native-linux-live-checkpoint.md); trading paused pending source freshness and the new funded circle |
-| Shielded wallet feasibility | [G1 testnet receipts](evidence/g1-feasibility.md) |
-| Accounting and persistence | [Database evidence](evidence/g2-database.md) |
-| Real incoming payment through the local API and scanner | [G2 intake evidence](evidence/g2-api-scanner.md) |
-| Foundry contracts and verified Base Sepolia deployment | [G3 contract evidence](evidence/g3-contracts.md) |
-| Forward backend and durable signer integration | [Anvil + Neon integration evidence](evidence/g3-base-integration.md); live connection checks without payment |
-| One real forward public-testnet swap | [G4 receipts and reconciliation](evidence/g4-live-forward.md): 0.001 shielded TAZ to 0.1 mockUSDC, finalized and SETTLED |
-| Reverse escrow/signing prerequisites | [Historical reverse preflight](evidence/g4-reverse-preflight.md) |
-| Durable reverse execution and recovery | [SDK adapter and repeatable tests](evidence/g4-reverse-recovery.md); distinguish synthetic destination proofs from live receipts |
-| One real reverse public-testnet swap | [G4 reverse receipts and reconciliation](evidence/g4-live-reverse.md): 0.1 mockUSDC to 0.001 shielded TAZ, confirmed recipient delta and finalized Base acknowledgement |
-| Same-user public-testnet roundtrip | [First G5 circle](evidence/g5-first-roundtrip.md): shielded TAZ to mockUSDC and back to the original shielded wallet; two SETTLED orders, finalized original receipts, exact user balances and twelve-wallet/accounting reconciliation. The twenty-order G5 gate remains open |
-| Both full-principal source refunds | [Live refund experiments](evidence/g5-live-refund-experiments.md): finalized original shielded refund after permanent Base cancellation, plus finalized mockUSDC escrow refund after its accepted deadline |
-| Forward worker process interruption | [G5 local recovery evidence](evidence/g5-worker-interruption.md): killed after Anvil PAY broadcast; fresh connections reconcile one original payment and exact accounting. This is not a public-testnet soak or old-snapshot restore |
-| Forward old database snapshot restore | [G5 snapshot/journal recovery](evidence/g5-snapshot-restore.md): actual PostgreSQL rollback, atomic pause and canonical original PAY reconstruction; fixture signer, no live keystore or reverse wallet restore claimed |
-| Public transaction lookup | [Explorer discrepancy and replacement link](evidence/explorer-verification.md) |
+| Public repository | [EndPx/ZeeSwap](https://github.com/EndPx/ZeeSwap) |
+| Reviewer entry point | [Judge guide](judge-guide.md), [architecture](architecture.md), [evidence index](evidence-index.md) |
+| Public interactive interface | [Testnet interface](https://zeeswap.endpx.cloud/); financial availability is qualified above |
+| Product film | Original-logo revision completed: 80.100 seconds, 1920×1080, 30 fps, H.264/AAC. Albary / Eleven v4 narration and ElevenLabs Music v2.5; [verification and provenance](../tools/demo-video/PROVENANCE.md) |
+| Public video | [Published prerelease](https://github.com/EndPx/ZeeSwap/releases/tag/demo-2026-10-29) and [direct MP4](https://github.com/EndPx/ZeeSwap/releases/download/demo-2026-10-29/zeeswap-original-logos.mp4); release asset digest matches the verified export |
+| Film review | Complete technical decode and sampled visual checks passed; full human normal-speed playback/listening remains unperformed |
+| Project license | Maintainer-selected [MIT](../LICENSE), copyright 2026 ZeeSwap contributors. Third-party assets/dependencies retain their own terms; see [license and asset notes](../README.md#license-and-asset-terms) |
+| Final event form / deadline / submission receipt | **Unverified in this pass.** The old readiness review recorded event requirements on 14 October. Recheck the official event before final submission; no new submission receipt is claimed |
 
-Only source, migrations, lockfiles, tests, configuration examples and sanitized
-evidence are published. Credentials, wallet stores, viewing/spending keys, raw
-note listings, access capabilities and local operator tooling remain private.
+The film's UI, wallet and architecture scenes are illustrations, not a freshly
+recorded completed settlement. Generated audio/video files stay outside source
+Git. The deliberate public release hosts the final film; its SHA-256 is
+`db243d9884ebf59833029f34679b96a537d83605316aee0c14b2aff7e79fbd19`.
 
-## Remaining submission gates
+## Evidence already available
 
-The official form requires a project name, one track, description (up to 2,000
-characters), repository URL, usable demo URL, a two-minute video and confirmation
-that the repository will be public. The rules also require code written within
-the build window, allow libraries and require open source at submission.
-Review provenance and select an explicit project license before final submission;
-public repository visibility alone does not grant an open-source license.
+Historical public-testnet forward and reverse swaps, a same-user roundtrip and
+both full-principal refunds have original receipt/accounting reports. Local
+recovery, contract and browser evidence cover additional failure boundaries.
+Use the [evidence index](evidence-index.md) to distinguish those classes.
 
-The inspected deadline is **2026-10-28 23:59 UTC / 2026-10-29 06:59 WIB**.
-Recheck the official form before the final submission. No draft or submission
-was saved during this review.
+The stopped G5 campaign reached **12 SQL SETTLED, 11 ordinary receipt-verified
+settlements and barriers [5,10]** at its retained 16 October checkpoint. It did
+not complete 20/20. Unresolved original operations and historical accounting are
+preserved; this is not permission to resume the campaign or reuse its expired
+policy.
 
-The public repository, frontend and HTTPS API exist. The new deployment still
-needs source-freshness acceptance and its funded two-way circle; a public
-walkthrough video remains missing. mockUSDC and settlement contracts are deployed and source-verified.
-Forward service integration and payout accounting have passed Anvil + Neon tests.
-One public-testnet swap in each direction passed, including exact recipient
-balance deltas and final accounting. The operator's reverse signer and original
-transaction recovery were exercised with real TAZ. The first same-user circle
-and both full-principal refund experiments also passed. Public reverse HTTP
-intake, broader recovery/soak tests, end-user wallet integration and the
-two-direction bridge remain open under G4–G7.
-Never present `READY` as a successful destination payment.
+## Remaining acceptance work
 
-## Historical clean-export verification
+1. Complete the separately approved source-history recovery and qualify fresh
+   ordinary observation without weakening canonicality or finality checks.
+2. Qualify current service policy, inventory/backing, fee reserves and restricted
+   signing identities before enabling financial admission.
+3. Demonstrate the active deployment's actual funded two-way browser flow with
+   independently verified destination receipts and reconciled books.
+4. For the bridge, independently qualify its deployment, native/Base adapters,
+   dedicated backing and mint/redemption lifecycle. Swap receipts cannot satisfy
+   this gate.
+5. Finish normal-speed film review and recheck the actual submission form.
+   The public film and maintainer-selected MIT license are now available.
 
-An export containing only staged public files passed frozen-lockfile installation,
-TypeScript typecheck, five unit tests and five Python receipt tests on 2026-10-14.
-These checks ran without private configuration. A targeted staged-file scan found
-no matches for the locally configured credentials or the checked secret patterns;
-it is not a comprehensive security audit. All eight exported migration checksums
-match the applied working files, including their original line endings.
-Historical live database/HTTP results are recorded separately in G2 evidence.
-No test payment was resent while correcting explorer links.
+## Documentation verification for this refresh
 
-The later bounded forward harness passed nine unit, 38 DB/HTTP, eight Anvil/Neon
-and eight Python tests; see [G4 preparation](evidence/g4-forward-preflight.md).
-The live settlement publication additionally passed TypeScript typecheck and the
-read-only chain/database verifier described in [G4 evidence](evidence/g4-live-forward.md).
+The prior root README was copied byte-for-byte to
+[history/legacy-readme-20261029.txt](history/legacy-readme-20261029.txt).
+Root README, judge guide, architecture, evidence index and this readiness page
+were checked for relative file/anchor targets and command names against the
+actual package scripts: 111 relative file/anchor targets, six root scripts and
+web typecheck passed with zero errors. Targets were restricted to Git-tracked
+files plus the intentional new docs, MIT license and film poster; unrelated
+untracked operator work was not counted as published evidence. The legacy README matches the original
+HEAD bytes (SHA-256 `e694cefb2f73d5b34d7c2a4272fd7ddf5443c236f4167b05b079ab21fc8c0679`).
+This was a documentation check; no product test,
+financial operation, wallet action or deployment was performed for the refresh.
+
+## User-validation gate
+
+No user interviews, recruitment results, active-user count, revenue or external
+partnership is claimed by this submission. The [five-user experiment](judge-guide.md#first-user-validation-plan)
+is a proposed first channel and measurement plan. It starts with a no-funding
+walkthrough; any funded trial depends on the independent acceptance gates above.

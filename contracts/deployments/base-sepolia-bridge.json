@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "network": "Base Sepolia",
+  "chainId": 84532,
+  "statusAtVerification": "FINALIZED_PAUSED_DEPLOYMENT_ONLY",
+  "verifiedAt": "2026-10-28T19:22:13.264Z",
+  "contracts": {
+    "ZeeSwapBridge": {
+      "address": "0xF291F0569b89f06B800B98004eC263bAE0A5cc4D",
+      "transactionHash": "0x469f9cb8361b60d52a63dc042c09b75ba0f406eb428ad8e7f290c3d4f402698e",
+      "blockNumber": 51455923,
+      "blockHash": "0xe6ed0c6feb26e086904b1d78d473a21b1fb7b1ff784e6524c45cbd5601b7d42c",
+      "runtimeCodeHash": "0xb26ce7cf7b88bf78f4e55d801729d9da9e74ef0e92521aad1ef520045d52f1aa",
+      "admin": "0x373cAB1d8b5859F0Dc6116b11d4875Df3f857c1F",
+      "operator": "0x9823c85e5f1a924Fb6bD2cf00e3C21b4a4503799",
+      "authorizer": "0x9823c85e5f1a924Fb6bD2cf00e3C21b4a4503799",
+      "decimals": 8,
+      "symbol": "zeeTAZ",
+      "pausedAtVerification": true,
+      "totalSupplyAtomicAtVerification": "0",
+      "unpaidRedemptionPrincipalAtomicAtVerification": "0"
+    }
+  },
+  "independentFinalizedAnchor": {
+    "height": 51460583,
+    "hash": "0xc6949a52caf8cdd3a03202d656a49136732d8a90993dc48b94d06822a62c29ea",
+    "timestamp": 1793213985
+  },
+  "publicAdmissionQualified": false,
+  "compiler": {
+    "version": "0.8.30",
+    "evmVersion": "cancun",
+    "optimizerRuns": 200
+  },
+  "sourceKeccak256": "0xb82d2308a0797d88486770cd5df97b8b09c144fdd264e78d3d704281d5959daa"
+}
