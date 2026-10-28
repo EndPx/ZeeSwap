@@ -15,11 +15,12 @@ export type OperatorOpeningApproval={version:1;status:'ROOT_BASE_OPERATOR_SCOPE_
  generation:string;projectionDigest:string;unverifiedHistoricalInterval:{from:number;through:number};verifiedAt:string;expiresAt:string};
 export type OperatorOpeningAdmission={version:4;kind:'OPERATOR_SCOPE_OPENING';hints:FundingHint[];checkpoint:{height:number;hash:string;generation:string;projectionDigest:string};
  scope:{operator:string;openingHeight:number;approvalSha256:string;evidenceSha256:string;archiveManifestSha256:string;retainedRowsSha256:string;unverifiedHistoricalInterval:{from:number;through:number}}};
+export function validOperatorOpeningEpoch(v:unknown):v is string{return typeof v==='string'&&/^[1-9][0-9]*$/.test(v)&&BigInt(v)>=230n&&BigInt(v)<=9223372036854775807n;}
 export function validateOperatorOpeningApproval(a:OperatorOpeningApproval,now=Date.now()){
  need(a?.version===1&&a.status==='ROOT_BASE_OPERATOR_SCOPE_OPENING_APPROVED'&&a.metadataOnly===true&&a.financialAction===false&&a.explicitHistoricalCoverageAmendment===true,'EXPLICIT_AMENDMENT');
  need([a.profileSha256,a.registrySha256,a.handoffSha256,a.openingProofSha256,a.evidenceSha256,a.archiveManifestSha256,a.retainedRowsSha256,a.financialDigest,a.originalAdmissionSha256,a.projectionDigest].every(hash)&&/^[a-f0-9]{40}$/.test(a.publicCommit),'PINS');
  need(a.profileSha256==='76711023c2313cf7e1e30382ea1591f5ff7721b56f68b3094ad7dd0f92ff8251'&&a.registrySha256==='56072db2d7b7f40b183257d07ac5384179dcff357c50610ce79feeebd13a3e69'&&a.handoffSha256==='394b2f41bafe98a7e165a8e33ce94232ad8726e160852deaf4e1e877b4d13b57'&&a.openingProofSha256==='9e2141e85105d881c82710a7f859545b6d8702666086bddeb247e71f887ab3c3','CURRENT_MAIN_PROFILE');
- need(a.operator==='0x24faff408e7bb3c0ab076aecc8fd3c00bd8b3087'&&a.generation.length>0&&a.control.epoch==='230'&&!a.control.accepting_orders&&!a.control.dispatch_enabled&&a.control.reconciliation_required===true&&/^[1-9][0-9]*$/.test(a.control.xmin),'SCOPE');
+ need(a.operator==='0x24faff408e7bb3c0ab076aecc8fd3c00bd8b3087'&&a.generation.length>0&&validOperatorOpeningEpoch(a.control.epoch)&&!a.control.accepting_orders&&!a.control.dispatch_enabled&&a.control.reconciliation_required===true&&/^[1-9][0-9]*$/.test(a.control.xmin),'SCOPE');
  const at=Date.parse(a.verifiedAt),expires=Date.parse(a.expiresAt);need(Number.isFinite(at)&&at<=now+5000&&now<expires&&expires>at&&expires-at<=300000,'APPROVAL_CLOCK');
  need(Number.isSafeInteger(a.before.height)&&Number.isSafeInteger(a.after.height)&&a.after.height>a.before.height&&a.before.finalizedHeight<=a.before.height
   &&a.after.finalizedHeight>=a.before.finalizedHeight&&a.after.finalizedHeight<=a.after.height&&hash(a.before.hash)&&hash(a.after.hash)

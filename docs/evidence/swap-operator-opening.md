@@ -33,6 +33,16 @@ must remain consumable within the real SDK retained floor, including ordinary
 overlap, with at most 150 blocks from the opening anchor and no newly observed
 event requiring reconciliation.
 
+Fresh authority after a Native metadata repair binds the exact newly captured
+paused control epoch and xmin; canonical decimal epochs from 230 through the
+PostgreSQL bigint maximum are permitted. An older approval still fails its exact
+control/books/checkpoint CAS. The collector and publication guards independently
+require a fresh Native SQL checkpoint, ready/fresh Chef source, correctly bound
+current cursor and canonical SQL tip/finalized/cursor/source headers. A Native
+checkpoint mismatch, stale observation or changed generation stops this path.
+This permits a separately reviewed post-repair opening without renewing any old
+Base campaign authority or bypassing the Native repair.
+
 `publish` durably records the original XID and sealed candidate before the sole
 checkpoint CAS. It never updates an old retained header or a financial row.
 `finish` reads the original transaction's terminal status under the existing
