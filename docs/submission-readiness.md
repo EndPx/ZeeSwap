@@ -43,7 +43,7 @@ from financial readiness.
 | Reviewer entry point | [Judge guide](judge-guide.md), [architecture](architecture.md), [evidence index](evidence-index.md) |
 | Public interactive interface | [Testnet interface](https://zeeswap.endpx.cloud/); financial availability is qualified above |
 | Product film | Original-logo revision completed: 80.100 seconds, 1920×1080, 30 fps, H.264/AAC. Albary / Eleven v4 narration and ElevenLabs Music v2.5; [verification and provenance](../tools/demo-video/PROVENANCE.md) |
-| Public video | [Published prerelease](https://github.com/EndPx/ZeeSwap/releases/tag/demo-2026-10-29) and [direct MP4](https://github.com/EndPx/ZeeSwap/releases/download/demo-2026-10-29/zeeswap-original-logos.mp4); release asset digest matches the verified export |
+| Public video | [Official YouTube video](https://youtu.be/tqusmo-u0Pc) and [direct MP4](https://github.com/EndPx/ZeeSwap/releases/download/demo-2026-10-29/zeeswap-original-logos.mp4); release asset digest matches the verified export |
 | Film review | Complete technical decode and sampled visual checks passed; full human normal-speed playback/listening remains unperformed |
 | Project license | Maintainer-selected [MIT](../LICENSE), copyright 2026 ZeeSwap contributors. Third-party assets/dependencies retain their own terms; see [license and asset notes](../README.md#license-and-asset-terms) |
 | Final event form / deadline / submission receipt | **Unverified in this pass.** The old readiness review recorded event requirements on 14 October. Recheck the official event before final submission; no new submission receipt is claimed |

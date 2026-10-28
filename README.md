@@ -8,16 +8,16 @@ between a shielded Zcash wallet and Base without publishing their Zcash receiver
 in Base calldata. The testnet prototype uses **TAZ ↔ USDC** for swaps and
 **TAZ ↔ zeeTAZ** for the bridge.
 
-[Explore the testnet](https://zeeswap.endpx.cloud/) · [Watch the film](https://github.com/EndPx/ZeeSwap/releases/tag/demo-2026-10-29) · [Judge guide](docs/judge-guide.md) · [Current readiness](docs/submission-readiness.md) · [Evidence](docs/evidence-index.md)
+[Explore the testnet](https://zeeswap.endpx.cloud/) · [Watch the film](https://youtu.be/tqusmo-u0Pc) · [Judge guide](docs/judge-guide.md) · [Current readiness](docs/submission-readiness.md) · [Evidence](docs/evidence-index.md)
 
 > **Testnet prototype.** The interface is public; transaction availability is
 > controlled by independent backend gates. Read the [current status](docs/submission-readiness.md)
 > before trying a transaction. Historical settlements prove bounded experiments,
 > not an always-on public service. All depicted tokens are test assets.
 
-[![Watch the ZeeSwap product film — illustrated testnet walkthrough](docs/assets/zeeswap-product-film-poster.png)](https://github.com/EndPx/ZeeSwap/releases/tag/demo-2026-10-29)
+[![Watch the ZeeSwap product film — illustrated testnet walkthrough](docs/assets/zeeswap-product-film-poster.png)](https://youtu.be/tqusmo-u0Pc)
 
-*Actual frame from the 80-second product film. [Watch/download the MP4](https://github.com/EndPx/ZeeSwap/releases/download/demo-2026-10-29/zeeswap-original-logos.mp4).
+*Actual frame from the 80-second product film. [Download the MP4](https://github.com/EndPx/ZeeSwap/releases/download/demo-2026-10-29/zeeswap-original-logos.mp4).
 UI and wallet actions are illustrations; the film does not record a fresh settlement.*
 
 ## Why ZeeSwap
@@ -85,7 +85,7 @@ The larger G5 soak was stopped before completion. Its partial results are
 retained with their original limits in the [evidence index](docs/evidence-index.md).
 
 The motion demo is an **illustrated walkthrough**, with simulated UI and wallet
-steps. Its [published film](https://github.com/EndPx/ZeeSwap/releases/tag/demo-2026-10-29)
+steps. Its [published film](https://youtu.be/tqusmo-u0Pc)
 and [source/provenance](tools/demo-video/PROVENANCE.md) are public. It does not
 depict a freshly completed transaction.
 
