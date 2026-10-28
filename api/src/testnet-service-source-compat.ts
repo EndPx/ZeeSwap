@@ -28,7 +28,22 @@ export async function serviceNativeDenseCanonical(heights:number[],factory:(rang
  }
  const overlap=headers.get(boundary)!;requireThat(stable(await factory().header(boundary,signal))===stable(overlap),'SERVICE_NATIVE_FRESH_BOUNDARY_FORK');
  if(fence==='persisted-range'){for(const phase of phases)requireThat(stable(await factory().header(phase.throughHeight,signal))===stable(headers.get(phase.throughHeight)),'SERVICE_NATIVE_PERSISTED_RANGE_CHANGED');}else for(const head of samples)requireThat(stable(await factory().header(head.height,signal))===stable(head),'SERVICE_NATIVE_HEAD_CHANGED');
- signal.throwIfAborted();requireThat(heights.every(h=>headers.has(h)),'SERVICE_NATIVE_MISSING_ROW');return{headers,phases,overlap,verifiedDenseHeaders:phases.reduce((n,p)=>n+p.throughHeight-p.fromHeight+1,0)};
+ signal.throwIfAborted();requireThat(heights.every(h=>headers.has(h)),'SERVICE_NATIVE_MISSING_ROW');return{headers,phases,overlap,samples,verifiedDenseHeaders:phases.reduce((n,p)=>n+p.throughHeight-p.fromHeight+1,0)};
+}
+
+/** Service preparation across a growing retained prefix. Each chunk retains the
+ * existing dense range and sampled-head fences; the caller's original deadline
+ * spans every chunk and all final rechecks. No partial proof is returned. */
+export async function serviceNativeTiledCanonical(heights:number[],factory:(range?:{fromHeight:number;throughHeight:number})=>CanonicalReader,sourceId:string,signal:AbortSignal){
+ requireThat(heights.length>0&&heights.length<=10004&&heights.every(h=>Number.isSafeInteger(h)&&h>=0),'SERVICE_NATIVE_AUDIT_BOUND');
+ const min=Math.min(...heights),max=Math.max(...heights),wanted=new Set(heights),headers=new Map<number,Header>(),phases:{fromHeight:number;throughHeight:number}[]=[],samples:Header[]=[];let verifiedDenseHeaders=0;
+ for(let from=min;;){signal.throwIfAborted();const through=Math.min(max,from+9999),part=[...wanted].filter(h=>h>=from&&h<=through),verified=await serviceNativeDenseCanonical([...new Set([from,...part,through])],factory,sourceId,signal,'sampled-head');
+  for(const[h,header]of verified.headers){const old=headers.get(h);requireThat(!old||stable(old)===stable(header),'SERVICE_NATIVE_TILED_OVERLAP_FORK');headers.set(h,header);}
+  phases.push({fromHeight:from,throughHeight:through});samples.push(...verified.samples);verifiedDenseHeaders+=through-from+1;if(through===max)break;from=through;
+ }
+ for(const phase of phases){signal.throwIfAborted();requireThat(stable(await factory().header(phase.throughHeight,signal))===stable(headers.get(phase.throughHeight)),'SERVICE_NATIVE_TILED_BOUNDARY_CHANGED');}
+ for(const sample of samples){signal.throwIfAborted();requireThat(stable(await factory().header(sample.height,signal))===stable(sample),'SERVICE_NATIVE_HEAD_CHANGED');}
+ signal.throwIfAborted();requireThat(heights.every(h=>headers.has(h)),'SERVICE_NATIVE_MISSING_ROW');return{headers,phases,samples,verifiedDenseHeaders};
 }
 
 /** The status clock is validated, then the actual H..H export is independently verified. */
