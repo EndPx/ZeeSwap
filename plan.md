@@ -2,6 +2,13 @@
 
 Last updated: 2026-10-28 (Asia/Jakarta), for the isolated Linux testnet deployment. Execution evidence below retains its recorded dates.
 
+Motion demo (28 October): the user requested an original Remotion product film.
+Editable sources under `tools/demo-video/` produce an 80-second 1080p/30-fps
+English on-screen walkthrough with original instrumental/SFX and no narration.
+UI/Noir scenes are labelled illustrations; no fresh settlement or financial
+readiness follows from the film. Generated media stays outside Git. No live
+service, source recovery gate, wallet or old G5 process is changed for footage.
+
 Browser wallet decision (28 October): the user explicitly requested direct Noir
 connection. The web interface now uses the injected Noir Zcash provider for an
 explicit Testnet connection, separate from the Base Sepolia wallet. Only a
