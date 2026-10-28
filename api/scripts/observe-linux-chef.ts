@@ -25,7 +25,19 @@ export async function requireChefRecoveryMarkersClear(directory:string){await re
 /** Used only for a prepublication safe-wait diagnostic; failure never publishes. */
 export function ordinaryChefCanonicalRecheck(factory:(range?:{fromHeight:number;throughHeight:number})=>CanonicalReader,sourceId:string){
  let cache=new Map<number,Header>();
- return{sample:(signal:AbortSignal)=>factory().sample(signal),async header(h:number,_signal:AbortSignal){const actual=cache.get(h);requireThat(actual,'CHEF_PERSISTED_CANONICAL_CACHE_REQUIRED');return actual;},async prefetchPersisted(heights:number[],signal:AbortSignal){cache.clear();const verified=await serviceNativeDenseCanonical(heights,factory,sourceId,signal,'persisted-range');cache=verified.headers;}};
+ return{sample:(signal:AbortSignal)=>factory().sample(signal),async header(h:number,_signal:AbortSignal){const actual=cache.get(h);requireThat(actual,'CHEF_PERSISTED_CANONICAL_CACHE_REQUIRED');return actual;},async prefetchPersisted(heights:number[],signal:AbortSignal){
+  cache.clear();requireThat(heights.length>0&&heights.length<=10004&&heights.every(h=>Number.isSafeInteger(h)&&h>=0),'CHEF_PERSISTED_STATE_BOUND');
+  // Retained opening/financial anchors stay fixed while the live cursor grows.
+  // Tile the diagnostic under its original deadline instead of inheriting the
+  // service-launch helper's two-phase total-span limit. Every tile remains dense.
+  const min=Math.min(...heights),max=Math.max(...heights),wanted=new Set(heights),complete=new Map<number,Header>(),seams:number[]=[];
+  for(let from=min;;){signal.throwIfAborted();const through=Math.min(max,from+9999),part=[...wanted].filter(h=>h>=from&&h<=through),verified=await serviceNativeDenseCanonical([...new Set([from,...part,through])],factory,sourceId,signal,'persisted-range');
+   for(const[h,header]of verified.headers){const previous=complete.get(h);requireThat(!previous||stable(previous)===stable(header),'CHEF_PERSISTED_PHASE_OVERLAP_FORK');complete.set(h,header);}
+   seams.push(through);if(through===max)break;from=through;
+  }
+  for(const h of seams){signal.throwIfAborted();requireThat(stable(await factory().header(h,signal))===stable(complete.get(h)),'CHEF_PERSISTED_PHASE_CHANGED');}
+  signal.throwIfAborted();requireThat(heights.every(h=>complete.has(h)),'CHEF_PERSISTED_CANONICAL_CACHE_REQUIRED');cache=complete;
+ }};
 }
 export async function runObserveLinuxChef(path:string,once:boolean){
  const {c,runtime,env,policy,openingCapital,profile}=await loadLinuxChefRuntime(path);requireThat([5,10].includes(c.pollSeconds),'CHEF_LINUX_POLL_INTERVAL');
