@@ -38,9 +38,11 @@ Video render requires a working ffprobe (or `FFPROBE_PATH`) and valid originals.
 Eight original ElevenLabs files are imported locally and verified; revised video
 render and media QA are separate checks. No local score fallback is loaded.
 
-The delivered revision is `out/zeeswap-elevenlabs-final.mp4`: 80.100 seconds,
+The latest delivery is `out/zeeswap-original-logos.mp4`: 80.100 seconds,
 1080p/30 fps, with Audiobooks narration using Albary / Eleven v4 and instrumental
-ElevenLabs Music v2.5. Root rendered `out/zeeswap-elevenlabs-raw.mp4`, then applied
+ElevenLabs Music v2.5. The mechanism uses original Zeer and Envio assets, with
+sources and usage terms in `public/brand/README.md`. The logo correction retains
+the finished audio byte-for-byte. Root rendered `out/zeeswap-elevenlabs-raw.mp4`, then applied
 two-pass FFmpeg loudness normalization to the mixed audio while copying the
 video stream. Default Remotion rendering produces the unnormalized mix; repeat
 the measurement and finishing pass when rebuilding a delivery. See

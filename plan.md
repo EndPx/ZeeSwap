@@ -23,6 +23,9 @@ full human playback/listening remains unperformed. UI/Noir scenes are labelled
 illustrations; no fresh settlement or financial readiness follows from the film.
 Generated media stays outside Git. No live service, source recovery gate, wallet
 or old G5 process is changed for footage. See `tools/demo-video/PROVENANCE.md`.
+The 29 October logo correction replaces the mechanism's placeholder marks with
+original Zeer and Envio assets. The updated MP4 preserves the finished encoded
+ElevenLabs audio; only the mechanism scene was rerendered.
 
 Browser wallet decision (28 October): the user explicitly requested direct Noir
 connection. The web interface now uses the injected Noir Zcash provider for an

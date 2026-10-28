@@ -1,0 +1,32 @@
+Envio Brand Asset License
+=========================
+
+These logos, marks, and brand assets are made available so partners, press,
+integrators, and the wider community can refer to Envio accurately.
+
+YOU CAN
+-------
+- Use the Envio logo to refer to Envio in editorial, news, blog posts,
+  podcasts, conference talks, documentation, and integration listings.
+- Display a "Powered by Envio" or "Integrated with Envio" badge on your
+  product, provided the Envio name is not the most prominent element of
+  the surrounding material.
+- Resize the logo proportionally to fit your layout.
+
+YOU CANNOT
+----------
+- Modify the logo files (recolour, restyle, redraw, or apply effects). The
+  approved colour and white versions are the only sanctioned variants.
+- Use the logo in a way that implies a partnership, endorsement, sponsorship,
+  or affiliation that does not exist.
+- Use the logo as part of your own product name, logo, domain, social handle,
+  or trademark.
+- Sell or include these assets in a paid product, asset pack, or template.
+
+QUESTIONS
+---------
+For permissions outside the above, partnership use, or anything you are
+unsure about, contact the Envio team via https://envio.dev with your
+context and we will get back to you.
+
+Full brand guidelines: https://envio.dev/brand

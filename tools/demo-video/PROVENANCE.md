@@ -1,5 +1,28 @@
 # ZeeSwap film provenance and verification
 
+## Original-logo correction — 29 October 2026
+
+The mechanism scene now uses the original Zeer SVG from its repository and
+Envio's unmodified official gradient wordmark. Source URLs, hashes and usage
+terms are recorded in `public/brand/README.md` and `ENVIO-LICENSE.txt`.
+The two typed placeholder marks were removed. Typecheck passed, and Root
+inspected the rendered 1080p mechanism frame for logo proportions and spacing.
+
+Only the 480-frame mechanism scene was rerendered. Root replaced master frames
+1500 through 1979 with that scene and retained the surrounding visual sequence.
+The final video stream was re-encoded; the existing finished AAC stream was
+copied from the earlier ElevenLabs delivery. Independent ADTS extraction from
+both movies produced the same SHA-256:
+`30e0c38db44fd8b2d71e8bdab981f68a701f2361b6ccd95766c4fcc636b8da74`.
+No narration or music regeneration or additional provider credits were needed.
+
+The latest delivery is `out/zeeswap-original-logos.mp4`: 80.100 seconds,
+1920 x 1080, 30 fps, H.264/AAC, 6,706,388 bytes. SHA-256:
+`db243d9884ebf59833029f34679b96a537d83605316aee0c14b2aff7e79fbd19`.
+Full FFmpeg audio/video decode passed. The prior -16.04 LUFS / -1.50 dBTP
+measurement applies to the unchanged encoded audio. Full human playback and
+listening remain unperformed. Earlier deliveries below remain historical.
+
 ## ElevenLabs revision status
 
 The earlier instrumental delivery and its measurements below are historical.
