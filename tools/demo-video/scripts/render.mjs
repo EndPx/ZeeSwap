@@ -3,6 +3,7 @@ import {renderMedia,renderStill,selectComposition} from '@remotion/renderer';
 import {readFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {validateAudio} from './audio-contract.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const timeline=JSON.parse(await readFile(path.join(root,'timeline.json'),'utf8'));
@@ -10,6 +11,7 @@ const args=process.argv.slice(2);
 const option=(key,fallback)=>{const i=args.indexOf(`--${key}`);return i<0?fallback:args[i+1];};
 const mode=option('mode','preview');
 if(!['still','preview','full'].includes(mode))throw new Error('mode must be still, preview, or full');
+if(mode!=='still')validateAudio(timeline,root);
 const compositionId=option('composition','Master');
 const concurrency=Number(option('concurrency','1'));
 if(!Number.isInteger(concurrency)||concurrency<1)throw new Error('Positive integer concurrency required');

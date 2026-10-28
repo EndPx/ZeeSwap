@@ -1,5 +1,79 @@
 # ZeeSwap film provenance and verification
 
+## ElevenLabs revision status
+
+The earlier instrumental delivery and its measurements below are historical.
+The revised sources now use seven original ElevenLabs Audiobooks paragraphs,
+single narrator Albary / Eleven v4, plus **ZeeSwap Flow**, original ElevenLabs
+Music v2.5. The operator verified these selections in the ElevenLabs UI. No
+separate SFX are used; no synthetic score or synthetic effects are loaded.
+
+All eight imported files were independently hashed and probed from disk by the
+render preflight. Their SHA-256 hashes, measured durations, source names and
+placements are recorded in `timeline.json`; `AUDIO.md` provides the readable
+mapping. The original Paragraphs ZIP SHA-256 is
+`b628da84c4d5a4137aa230cda1965013689987cfed102419380d73bd880d145d`.
+Independent ZIP inspection confirmed all seven imported paragraph copies match
+their original ZIP entries byte for byte. Originals and ZIP remain ignored.
+
+The revised composition is 2,402 frames / 80.066667 seconds at 30 fps. Scene
+starts are 0, 210, 480, 720, 1170, 1500 and 1980. Every paragraph starts nine
+frames after its scene and fits complete with at least nine tail frames. The
+80.039167-second original music fits complete in 2,402 frames. Speech is not
+split, clipped, accelerated, stretched or faded. Narration gain is 1; music
+gain is 0.06 with a 45-frame intro fade and 90-frame outro fade, derived from
+frame position. There is no postmix normalization in the source pipeline.
+Any later encoded-mix processing must be recorded with its measured outcome.
+
+Source verification performed for this revision:
+
+- Typecheck passed with the existing pinned Remotion/React dependencies.
+- Eight source tests passed, covering original-file validation, hash/duration
+  mismatch, speech overflow, provenance, paragraph coverage, music requirement,
+  path bounds, timeline/beat coverage, deterministic motion and click geometry.
+- The actual-file audio preflight passed all eight originals using ffprobe.
+- The skill timeline auditor passed 2,402 frames under the 110-second cap with
+  no warnings. The auditor's scene-audio view was derived in memory from the
+  authoritative `timeline.audio`; no second tracked timing authority was added.
+  Its local report is ignored at `out/elevenlabs-originals/timeline-audit.json`.
+
+The operator observed 1,200 credits for the one music variant. The initial
+balance was 6,512 credits; after narration and music, the Audiobooks UI showed
+4,430 remaining. No credits or subscription were purchased. This film work
+creates no live quote, order, payment or settlement.
+
+## Encoded ElevenLabs delivery — 29 October 2026
+
+Root rendered the revised composition once with concurrency 1, using a headless
+browser without desktop input. The raw export is
+`out/zeeswap-elevenlabs-raw.mp4`. Its mix measured -25.77 LUFS integrated and
+-10.47 dBTP. Root then applied FFmpeg's two-pass `loudnorm` to the mixed audio,
+targeting -16 LUFS, -1.5 dBTP and LRA 11. The H.264 video stream was copied;
+only the mixed audio was re-encoded to AAC at 192 kb/s and 48 kHz. All eight
+original imported MP3 files remain byte-identical to their source exports.
+
+| Final artifact | Measured result |
+| --- | --- |
+| `out/zeeswap-elevenlabs-final.mp4` | 80.100 s, 1920 x 1080, 30 fps, H.264/AAC, 7,157,610 bytes |
+| Final integrated loudness | -16.04 LUFS |
+| Final true peak | -1.50 dBTP |
+| Full FFmpeg decode | PASS, audio and video present |
+
+Final SHA-256:
+`eaaee1cac63acd1f5457a9e46e545f688b4998f659303a00a92208ab3660f759`.
+The 80.100-second encoded container includes AAC padding; the visual composition
+remains 2,402 frames / 80.066667 seconds. Both are below the 110-second cap.
+
+Root inspected twelve frames sampled from the final encoded film across its
+whole visual arc. The original mascot, fixed-rate example, Noir illustration,
+privacy boundary, source/destination distinction and closing disclosures fit.
+Complete decode and numeric audio measurements passed. Full normal-speed human
+playback and listening were not performed; these checks do not establish
+pronunciation or subjective mix quality. The generated reports, contact sheet,
+Audiobooks UI proof, original ZIP and media remain outside Git.
+
+## Earlier instrumental delivery
+
 Created 28 October 2026 for the requested hackathon motion demo. The final
 landscape film is an English on-screen product walkthrough, with original
 instrumental audio and sound effects, and no spoken narration.

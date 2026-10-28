@@ -1,6 +1,6 @@
 # ZeeSwap implementation plan
 
-Last updated: 2026-10-28 (Asia/Jakarta), for the isolated Linux testnet deployment. Execution evidence below retains its recorded dates.
+Last updated: 2026-10-29 (Asia/Jakarta), for the isolated Linux testnet deployment. Execution evidence below retains its recorded dates.
 
 Neon branch retirement (28 October): the user authorized deleting unused
 branches. Four closed historical experiments (`zeeswap-g4-live-forward`,
@@ -13,12 +13,16 @@ operations. Do not resume old actors. See
 `docs/evidence/neon-branch-retirement-20261028.md`. Deleting branches does not
 reset previously consumed network-transfer quota or activate financial gates.
 
-Motion demo (28 October): the user requested an original Remotion product film.
-Editable sources under `tools/demo-video/` produce an 80-second 1080p/30-fps
-English on-screen walkthrough with original instrumental/SFX and no narration.
-UI/Noir scenes are labelled illustrations; no fresh settlement or financial
-readiness follows from the film. Generated media stays outside Git. No live
-service, source recovery gate, wallet or old G5 process is changed for footage.
+Motion demo (29 October, supersedes the earlier instrumental edit): the user
+requested ElevenLabs Audiobooks, Albary and Eleven v4 for narration, plus
+ElevenLabs music. Seven original paragraph exports and an instrumental Music
+v2.5 track now drive the Remotion film. The final MP4 is 80.100 seconds,
+1080p/30 fps, with measured -16.04 LUFS / -1.50 dBTP after two-pass mix finishing.
+Full decode, twelve sampled frames, original-file checks and source tests passed;
+full human playback/listening remains unperformed. UI/Noir scenes are labelled
+illustrations; no fresh settlement or financial readiness follows from the film.
+Generated media stays outside Git. No live service, source recovery gate, wallet
+or old G5 process is changed for footage. See `tools/demo-video/PROVENANCE.md`.
 
 Browser wallet decision (28 October): the user explicitly requested direct Noir
 connection. The web interface now uses the injected Noir Zcash provider for an
