@@ -120,3 +120,31 @@ runtime and `swap-operator-opening.ts collect|publish|finish`, with explicit raw
 SHA-256 pins for the configuration and, for publication/finish, Root approval.
 Keep every actual capture, order mapping, journal, encrypted admission and
 provider/configuration credential outside Git.
+
+## Exact prior-opening continuation
+
+If handoff delays leave an exact completed opening outside ordinary traversal's
+finite gap, a new collection may name `priorOpening` with raw pins for its
+`approval`, `intent`, `completed` and `evidence`. All four pins must also appear
+in the new case's immutable archive manifest. This continues the same approved
+operator pilot; it does not renew an old global recovery campaign.
+
+The collector validates the original receipt and original committed XID, exact
+current checkpoint/xmin, unchanged control/books/retained rows, and the exact
+current sealed admission. Only then can the prior Source proof supply the
+previous finalized hash when that metadata-only opening intentionally inserted
+no header at that height. Both independent RPCs must still match its height,
+hash and timestamp. No synthetic SQL header is inserted.
+
+The new case repeats current operator/journal/liability/source/capital checks,
+records its new unverified interval and retains the prior interval and artifact
+pins in its evidence/archive chain. The original sealed admission is backed up
+before the existing unchanged checkpoint CAS. The ordinary observer must be
+started immediately after exact completion using the reviewed readable release.
+
+Five publication tests passed after this continuation change, including absent
+SQL finalized-row fallback and refusal of unknown/aborted XID, changed control,
+changed checkpoint xmin, altered archived finality or a forged complete-history
+claim. API TypeScript passed. Existing actual PostgreSQL CAS/rollback/finish
+qualification is reused because the transaction kernel is unchanged. No live
+continuation was performed for these tests.

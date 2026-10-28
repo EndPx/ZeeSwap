@@ -3,7 +3,7 @@ import type pg from 'pg';
 import type {ClosedSnapshot,ClosedRows} from './integrations/observation/envio-closed-recovery.ts';
 import type {CampaignCheckpoint,CampaignControl} from './integrations/observation/envio-linked-campaign.ts';
 import {continuationDigest} from './native-circle-continuation.ts';
-import {stable} from './integrations/observation/types.ts';
+import {stable,parseHeader,type Header} from './integrations/observation/types.ts';
 import type {FundingHint} from './integrations/observation/envio-live.ts';
 import {createHash} from 'node:crypto';
 const hash=(v:unknown)=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v)&&v!=='0'.repeat(64);
@@ -68,6 +68,16 @@ export function validateOperatorOpeningReceipt(r:any,i:OperatorOpeningIntent,a:O
   &&r.approvalSha256===approvalSha256&&i.approvalSha256===approvalSha256&&stable(i.approval)===stable(a)&&r.intentDigest===continuationDigest(i)
   &&r.transactionId===i.transactionId&&stable(r.checkpoint)===stable(i.after)&&r.retainedRowsSha256===a.retainedRowsSha256
   &&r.evidenceSha256===a.evidenceSha256&&r.archiveManifestSha256===a.archiveManifestSha256&&stable(r.unverifiedHistoricalInterval)===stable(a.unverifiedHistoricalInterval),'RECEIPT_BINDING');
+}
+/** An already committed scoped opening may supply its own archived finalized
+ * anchor when that metadata-only operation intentionally inserted no SQL header.
+ * It cannot justify changed control, books, checkpoint, rows or a nonterminal XID. */
+export function validatePriorOperatorOpening(r:any,i:OperatorOpeningIntent,a:OperatorOpeningApproval,approvalSha256:string,e:any,status:string,current:ClosedSnapshot):Header{
+ validateOperatorOpeningReceipt(r,i,a,approvalSha256);
+ need(status==='committed'&&classifyOperatorOpening(status,current,i)==='COMMITTED_EXACT','PRIOR_EXACT_COMMITTED_STATE');
+ need(e?.version===1&&e.status==='ROOT_BASE_OPERATOR_SCOPE_OPENING_COLLECTED'&&e.profileSha256===a.profileSha256&&e.registrySha256===a.registrySha256&&e.operator===a.operator&&e.financialDigest===a.financialDigest&&e.retainedRowsSha256===a.retainedRowsSha256&&e.archiveManifestSha256===a.archiveManifestSha256&&stable(e.before)===stable(i.before)&&stable(e.after)===stable(a.after),'PRIOR_EVIDENCE_BINDING');
+ const F=parseHeader(e.selection?.selection?.verification?.finalized,'eip155:84532');
+ need(F.height===i.after.finalizedHeight&&Date.parse(F.time)===Date.parse(i.after.finalizedTime)&&e.selection.selection.range?.through?.height===i.after.height&&e.selection.selection.range.through.hash==='0x'+i.after.hash,'PRIOR_FINALITY_BINDING');return F;
 }
 /** Complete only the original transaction's durable file boundary. This kernel
  * contains no checkpoint UPDATE and cannot replay a new metadata transaction. */

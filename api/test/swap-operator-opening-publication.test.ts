@@ -1,7 +1,7 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {continuationDigest} from '../src/native-circle-continuation.ts';
-import {operatorOpeningAdmission,validateOperatorOpeningApproval,validateOperatorOpeningAdmission,publishOperatorOpening,classifyOperatorOpening,validateOperatorOpeningReceipt,validOperatorOpeningEpoch,type OperatorOpeningApproval,type OperatorOpeningIntent} from '../src/swap-operator-opening-publication.ts';
+import {operatorOpeningAdmission,validateOperatorOpeningApproval,validateOperatorOpeningAdmission,publishOperatorOpening,classifyOperatorOpening,validateOperatorOpeningReceipt,validatePriorOperatorOpening,validOperatorOpeningEpoch,type OperatorOpeningApproval,type OperatorOpeningIntent} from '../src/swap-operator-opening-publication.ts';
 import {validateServiceMetadataReceipt} from '../src/testnet-service-source-compat.ts';
 import type {ClosedSnapshot} from '../src/integrations/observation/envio-closed-recovery.ts';
 const h='a'.repeat(64),b='b'.repeat(64);
@@ -26,4 +26,15 @@ test('stale or intervened metadata stops before UPDATE and rolls back',async()=>
  const{before,a}=fixture(),queries:string[]=[];const db={async query(sql:string){queries.push(sql);return{rows:sql.includes('pg_try_advisory')?[{ok:true}]:[]};}};
  await assert.rejects(publishOperatorOpening(db as any,a,h,async()=>({...before,authorizationRows:1}),async()=>{},Buffer.from(JSON.stringify(operatorOpeningAdmission(a,h))),b=>JSON.parse(b.toString()),async()=>{}),/EXACT_BASELINE/);
  assert.equal(queries.at(-1),'ROLLBACK');assert.equal(queries.some(q=>q.startsWith('UPDATE')),false);
+});
+test('exact committed prior opening supplies its archived finalized anchor without synthesizing SQL rows',()=>{
+ const{before,a}=fixture(),after={...a.after,xmin:'104'},i:OperatorOpeningIntent={version:1,purpose:'BASE_OPERATOR_SCOPE_OPENING_METADATA',approvalSha256:h,approval:a,transactionId:'4294967400',expectedXmin:'104',before,after,afterRows:before.rows,candidateAdmissionSha256:b,candidateAdmissionBase64:''},current={...before,checkpoint:after};
+ const r={version:1,status:'BASE_OPERATOR_SCOPE_OPENING_COMMITTED_EXACT',financialAction:false,completeContractHistory:false,approvalSha256:h,intentDigest:continuationDigest(i),transactionId:i.transactionId,checkpoint:i.after,retainedRowsSha256:a.retainedRowsSha256,evidenceSha256:a.evidenceSha256,archiveManifestSha256:a.archiveManifestSha256,unverifiedHistoricalInterval:a.unverifiedHistoricalInterval};
+ const finalized={height:after.finalizedHeight,hash:'0x'+b,parentHash:'0x'+h,time:after.finalizedTime},e={version:1,status:'ROOT_BASE_OPERATOR_SCOPE_OPENING_COLLECTED',profileSha256:a.profileSha256,registrySha256:a.registrySha256,operator:a.operator,financialDigest:a.financialDigest,retainedRowsSha256:a.retainedRowsSha256,archiveManifestSha256:a.archiveManifestSha256,before,after:a.after,selection:{selection:{verification:{finalized},range:{through:{height:after.height,hash:'0x'+after.hash}}}}};
+ assert.equal(current.rows.some(row=>row.height===after.finalizedHeight),false);assert.deepEqual(validatePriorOperatorOpening(r,i,a,h,e,'committed',current),finalized);assert.deepEqual(current.rows,before.rows);
+ for(const status of['in progress','aborted','unknown'])assert.throws(()=>validatePriorOperatorOpening(r,i,a,h,e,status,current),/PRIOR_EXACT_COMMITTED/);
+ assert.throws(()=>validatePriorOperatorOpening(r,i,a,h,e,'committed',{...current,control:{...current.control,epoch:'233'}}),/PRIOR_EXACT_COMMITTED/);
+ assert.throws(()=>validatePriorOperatorOpening(r,i,a,h,e,'committed',{...current,checkpoint:{...current.checkpoint,xmin:'105'}}),/PRIOR_EXACT_COMMITTED/);
+ assert.throws(()=>validatePriorOperatorOpening(r,i,a,h,{...e,selection:{selection:{...e.selection.selection,verification:{finalized:{...finalized,height:finalized.height+1}}}}},'committed',current),/PRIOR_FINALITY_BINDING/);
+ assert.throws(()=>validatePriorOperatorOpening({...r,completeContractHistory:true},i,a,h,e,'committed',current),/RECEIPT_BINDING/);
 });
