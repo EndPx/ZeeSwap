@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { getAddress, isAddress } from 'viem';
 
 export interface EthereumProvider {
+  isMetaMask?:boolean;
   request(args:{method:string;params?:unknown[]}):Promise<unknown>;
   on?(name:string,listener:(value:unknown)=>void):void;
   removeListener?(name:string,listener:(value:unknown)=>void):void;
@@ -24,7 +25,7 @@ export function useWallet(){
     const announce=(event:Event)=>{const detail=(event as AnnounceEvent).detail;if(!detail?.info?.uuid||!detail.info.name||typeof detail.provider?.request!=='function')return;
       setOptions(current=>current.some(w=>w.id===detail.info.uuid)?current:[...current,{id:detail.info.uuid,name:detail.info.name.slice(0,60),provider:detail.provider}]);};
     window.addEventListener('eip6963:announceProvider',announce);window.dispatchEvent(new Event('eip6963:requestProvider'));
-    const timer=window.setTimeout(()=>{if(window.ethereum)setOptions(current=>current.length?current:[{id:'injected',name:'Browser wallet',provider:window.ethereum!}]);},100);
+    const timer=window.setTimeout(()=>{if(window.ethereum)setOptions(current=>current.length?current:[{id:'injected',name:window.ethereum!.isMetaMask?'MetaMask':'Browser wallet',provider:window.ethereum!}]);},100);
     return()=>{clearTimeout(timer);window.removeEventListener('eip6963:announceProvider',announce);};
   },[]);
   useEffect(()=>{if(!selected)return;const accounts=(value:unknown)=>setAddress(account(value)),chains=(value:unknown)=>setChainId(chain(value));
@@ -36,5 +37,5 @@ export function useWallet(){
   }catch(error){setError(walletError(error));}finally{setBusy(false);}},[busy]);
   const switchChain=useCallback(async()=>{if(!selected||busy)return;setBusy(true);setError('');try{await selected.provider.request({method:'wallet_switchEthereumChain',params:[{chainId:'0x14a34'}]});
     const network=await selected.provider.request({method:'eth_chainId'});setChainId(chain(network));}catch(error){setError(walletError(error));}finally{setBusy(false);}},[selected,busy]);
-  return{provider:selected?.provider,options,address,chainId,busy,error,connect,switchChain,disconnect:()=>{setAddress(null);setChainId(null);setSelected(null);setError('');}};
+  return{name:selected?.name,provider:selected?.provider,options,address,chainId,busy,error,connect,switchChain,disconnect:()=>{setAddress(null);setChainId(null);setSelected(null);setError('');}};
 }

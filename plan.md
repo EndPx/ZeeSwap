@@ -2,6 +2,12 @@
 
 Last updated: 2026-10-29 (Asia/Jakarta), for the isolated Linux testnet deployment. Execution evidence below retains its recorded dates.
 
+Original web artwork (29 October): wallet, asset and network images now use local
+MetaMask, Noir, Zcash, Base and USDC source assets; project-issued zeeTAZ uses the
+original ZeeSwap mark. The reviewed static build is live. Admission and bridge
+availability still come from the backend; no UI readiness guard was removed.
+See `apps/web/evidence/original-brand-assets.md`.
+
 Neon branch retirement (28 October): the user authorized deleting unused
 branches. Four closed historical experiments (`zeeswap-g4-live-forward`,
 `zeeswap-g4-live-reverse`, `zeeswap-g5-live-refunds`, and

@@ -21,3 +21,23 @@
 
 .faucet-asset{padding-block:24px;border-bottom:1px solid var(--line)}.faucet-asset:last-child{border-bottom:0}.faucet-title{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.faucet-title h3{font-size:22px}.faucet-title>span{font-size:12px;color:var(--muted)}.faucet-asset>p{font-size:14px;line-height:1.8;color:var(--muted);margin-block:12px}.faucet-asset>.button{margin:8px 8px 0 0}.faucet-account{margin-top:16px}.faucet-account>span{font-size:12px;color:var(--muted)}.faucet-account .private-value{margin-block:8px}.faucet-asset .notice{margin-top:16px;overflow-wrap:anywhere}
 @media(max-width:600px){.site-header{height:auto;min-height:86px;flex-wrap:wrap;column-gap:16px;row-gap:8px;padding-top:16px;padding-bottom:8px}.header-actions{margin-left:auto}.main-nav{order:3;flex-basis:100%;justify-content:center;gap:28px}.main-nav button{min-height:44px}.main-nav button:last-child{display:none}.faucet-title h3{font-size:20px}}
+
+/* Authentic local artwork keeps its source colors and aspect ratio. */
+.brand-mark{display:block;object-fit:contain;flex-shrink:0;width:32px;height:32px}
+.token-mark{width:32px;height:32px;border-radius:0;background:transparent;color:inherit;letter-spacing:normal}
+.token-mark:before,.token-mark:after{content:none}
+.token-mark>.brand-mark{width:100%;height:100%}
+.token-mark.small{width:24px;height:24px}
+.chain-dot{width:14px;height:14px;background:var(--surface);border-radius:4px;overflow:hidden}
+.chain-dot>.brand-mark{width:100%;height:100%}
+.token-usdc .chain-dot{background:var(--surface)}
+.wallet-provider-mark>.brand-mark{width:28px;height:28px}
+.wallet-avatar>.brand-mark{width:40px;height:40px}
+.header-wallet-mark{display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.header-wallet-mark>.brand-mark{width:20px;height:20px}
+.wallet-heading{display:flex;align-items:center;gap:8px}
+.wallet-heading>.brand-mark,.button>.brand-mark{width:24px;height:24px}
+.footer-network>.brand-mark{width:14px;height:14px}
+@media(max-width:700px){.wallet-button>.header-wallet-mark{display:flex}.token-chip .token-mark{width:32px;height:32px}}
+
+.funding-section .wallet-heading{margin-bottom:12px}.funding-section+.wallet-heading{margin-block:20px 8px}

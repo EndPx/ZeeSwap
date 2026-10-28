@@ -16,7 +16,7 @@ locked palette. StyleGallery's split-screen/cluster grammar informs composition;
 the document owns scrolling. The beui button source/reference informs explicit
 idle/loading/error feedback and press motion, implemented with CSS. Parent supplied
 an original ImageGen raccoon asset, inspected at `public/brand/zee-mascot.png`.
-No third-party product screenshots, logos or invented market/evidence metrics ship.
+No third-party product screenshots or invented market/evidence metrics ship. Official locally stored brand assets identify wallets, assets and networks; provenance lives in public/brand/README.md.
 
 ## 1. Intent and content hierarchy
 
@@ -84,7 +84,8 @@ Unbroken addresses wrap inside min-width:0 containers.
 
 - Button: primary charcoal/orange, quiet and icon variants; min 44px touch target;
   visible focus, hover tint, pressed transform, disabled explanation, busy spinner.
-- Token chip: circular original protocol text mark + network label + chevron;
+- Brand image: official unmodified local artwork with object-fit contain, intrinsic proportions and original colors. Adjacent text supplies the accessible name; decorative images use empty alt. Wallet marks use 20/34px slots and a 40px connected avatar. Token marks use 32px (24px compact); 14px network badges distinguish chains. zeeTAZ uses the original ZeeSwap mark with a Base badge because it is project issued. No external runtime image requests.
+- Token chip: authentic local asset image + network label + chevron;
   opens an accessible native dialog with both supported test assets.
 - Amount panel: visible label, decimal text input, testnet label and network;
   output always says indicative fixture when not a bound API quote.
