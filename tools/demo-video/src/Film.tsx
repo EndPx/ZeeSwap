@@ -38,6 +38,3 @@ export const scenes={hook:Hook,boundary:Boundary,brand:BrandScene,route:Route,no
 export type SceneId=keyof typeof scenes;
 export function Scene({id}:{id:SceneId}){const f=useCurrentFrame();const Component=scenes[id];return <AbsoluteFill className="canvas"><Component f={f}/></AbsoluteFill>;}
 export function Film(){return <AbsoluteFill className="canvas"><Audio src={staticFile('audio/score.wav')}/>{timeline.scenes.map(s=><Sequence key={s.id} from={s.startFrame} durationInFrames={s.durationInFrames}><Scene id={s.id as SceneId}/></Sequence>)}</AbsoluteFill>;}
-
-
-
