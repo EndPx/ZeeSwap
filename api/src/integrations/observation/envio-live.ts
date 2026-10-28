@@ -10,14 +10,16 @@ import{requiredEnvioAnchors}from'./envio-required-anchors.ts';
 import {validateEventFirstState,type EventFirstReader} from './envio-event-first.ts';
 import {fetchEventFirstReplacement} from './envio-event-first-consumer.ts';
 import {validateEventAuditAdmission,type EventAuditAdmission} from './envio-closed-event-publication.ts';
+import {validateOperatorOpeningAdmission,type OperatorOpeningAdmission} from '../../swap-operator-opening-publication.ts';
 
 /** New testnet app observer only. Source events are hints for the original
  * finalized receipt verifier; this module cannot sign or dispatch payments. */
 export type FundingHint={orderId:string;txHash:`0x${string}`;height:number;blockHash?:string};
-export type EnvioAdmissionState={version:2;hints:FundingHint[];checkpoint?:{height:number;hash:string;generation:string;projectionDigest:string}}|EventAuditAdmission;
+export type EnvioAdmissionState={version:2;hints:FundingHint[];checkpoint?:{height:number;hash:string;generation:string;projectionDigest:string}}|EventAuditAdmission|OperatorOpeningAdmission;
 export function validateLiveEnvioAdmission(state:EnvioAdmissionState,generation:string,projectionDigest:string){
- requireThat(state&&[2,3].includes(state.version)&&Array.isArray(state.hints)&&state.hints.length<=500,'INVALID_HINT_JOURNAL');
+ requireThat(state&&[2,3,4].includes(state.version)&&Array.isArray(state.hints)&&state.hints.length<=500,'INVALID_HINT_JOURNAL');
  if(state.version===3)validateEventAuditAdmission(state,generation,projectionDigest);
+ if(state.version===4)validateOperatorOpeningAdmission(state,generation,projectionDigest);
  return state;
 }
 export interface FundingHintJournal{load():Promise<EnvioAdmissionState>;save(state:EnvioAdmissionState):Promise<void>}
@@ -51,6 +53,7 @@ export async function observeEnvioOnce(pool:pg.Pool,keys:PrivateData,base:BaseCo
  const admission=await config.hints.load();
  validateLiveEnvioAdmission(admission,config.eventFirst?.generation??admission.checkpoint?.generation??'',config.policy.projectionDigest);
  requireThat(admission.version!==3||config.eventFirst,'EVENT_AUDIT_REQUIRES_EVENT_FIRST_SOURCE');
+ requireThat(admission.version!==4||config.eventFirst,'OPERATOR_OPENING_REQUIRES_EVENT_FIRST_SOURCE');
  const previous=(await pool.query("SELECT scanned_height::text FROM zee.scanner_checkpoints WHERE network='base-sepolia'")).rows[0];
  const accepted=Number((await pool.query('SELECT count(*)::text AS count FROM zee.orders')).rows[0]?.count);
  const from=envioAdmissionFrom(config.policy,producerThrough,previous?Number(previous.scanned_height):undefined,admission,accepted);

@@ -2,6 +2,23 @@
 
 Last updated: 2026-10-29 (Asia/Jakarta), for the isolated Linux testnet deployment. Execution evidence below retains its recorded dates.
 
+Approved current-operator pilot opening (29 October): the user explicitly chose
+"Aktifkan pilot operator saat ini" instead of replaying the entire shared
+contract's historical gap. Qualify the application's current operator through
+its original cancellation, protected signer/journal inventory, closed current
+books, independently explained old shared-contract liabilities, fresh Source
+SDK/RPC anchors and actual Native capital. Preserve the old G5 actors as stopped,
+their two unresolved orders and all archived history, including the 768,000-block
+partial audit. The distinct opening records the unverified historical interval;
+it must never claim complete historical event coverage. Publish only through the
+reviewed original-XID/CAS metadata boundary, then retain the existing five-minute
+source window, fee/capital allocation and policy guards. Pilot amounts remain
+**0.001 TAZ / 0.1 USDC**, two accepted orders per direction and one active order.
+This supersedes the full-history recovery prerequisite only for the approved
+current-operator opening; it does not close or restart the old campaign. See
+`docs/evidence/swap-operator-opening.md` and
+`docs/proposals/swap-closed-state-reconciliation.md`.
+
 Original web artwork (29 October): wallet, asset and network images now use local
 MetaMask, Noir, Zcash, Base and USDC source assets; project-issued zeeTAZ uses the
 original ZeeSwap mark. The reviewed static build is live. Admission and bridge
