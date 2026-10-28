@@ -59,6 +59,29 @@ amounts, worker supervision, receipt and funded browser-circle checks remain.
 
 ## Verification
 
+### Production record representation qualification
+
+The first live read-only collection refused before publication because its
+refund binding compared a raw transaction ID with the database's private HMAC
+lookup. The actual record was consistent: its `base_hash` matched
+`PrivateData.lookup('base-tx', originalHash)`, and the authenticated encrypted
+`CANCEL-proof` receipt matched the original transaction, height and block.
+No metadata or financial SQL was written by the refused collection.
+
+The collector now decodes the actual PostgreSQL JSONB bytea representation,
+verifies the HMAC and authenticates the receipt in its original order/phase
+context. Six raw policy-digest columns in activation classification use the same
+strict representation decoder, without changing SQL string-literal escaping.
+Sixteen focused tests and API TypeScript checking passed.
+
+Root then ran two actual PostgreSQL tests on the existing isolated G2 regression
+branch (`br-muddy-waterfall-aoqd8o9b`, `ep-polished-hill-ao5ulo5g`, `neondb`):
+the SELECT-only HMAC/AEAD roundtrip and the invocation-owned service lifecycle
+schema covering SQL installation, fee allocation, lost-COMMIT acknowledgement,
+policy/control CAS and exact activation classification. Both passed, with zero
+skips. Only the test's own random schema was created and cleaned. No active
+application or historical financial records were modified.
+
 Focused local tests cover cancellation signature/receipt/event binding, current
 main closed books, retained old liabilities, prefix packet/interval accounting,
 SDK floor/overlap, explicit approval, honest unverified interval, metadata CAS,

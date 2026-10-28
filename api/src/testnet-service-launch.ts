@@ -1,5 +1,6 @@
 /** Explicit Root launch transactions. No signer, payer, faucet or automatic credit. */
 import type pg from 'pg';
+import {decodePgJsonbBytea} from './pg-jsonb-bytea.ts';
 import {continuationTables,continuationDigest} from './native-circle-continuation.ts';
 import type {ControlRow,SourceIdentity,WindowSample} from './linux-control.ts';
 import {readServicePolicySnapshot,servicePolicySqlBinding,validateServicePolicy,type ServicePolicyApproval} from './testnet-service-policy.ts';
@@ -75,4 +76,21 @@ export async function activateServicePolicy(c:Pick<pg.PoolClient,'query'>,guard:
  const insert=servicePolicyInsert(p,sha256);await c.query(insert.sql,insert.args);validateServiceLaunchWindow(w,p,sha256);await capitalGuard();currentPolicy();const r=await c.query('UPDATE zee.runtime_control SET epoch=$1,accepting_orders=true,dispatch_enabled=true,reconciliation_required=false WHERE singleton AND epoch=$2 AND xmin::text=$3 AND NOT accepting_orders AND NOT dispatch_enabled AND reconciliation_required RETURNING xmin::text',[p.activeEpoch,p.auditedControl.epoch,p.auditedControl.xmin]);need(r.rows.length===1&&r.rows[0].xmin===expectedXmin,'ACTIVATION_CAS');currentPolicy();commitSent=true;await c.query('COMMIT');return i;
  }catch(e){if(!commitSent)await c.query('ROLLBACK').catch(()=>{});throw e;}
 }
-export function classifyServiceActivation(status:string,current:ServiceLaunchState,i:ServiceActivationIntent){if(status==='aborted'&&stable(current)===stable(i.before))return'ABORTED_EXACT_NO_REPLAY';const p=i.policy,c=current.control;if(status!=='committed'||c.epoch!==p.activeEpoch||c.xmin!==i.expectedXmin||!c.accepting_orders||!c.dispatch_enabled||c.reconciliation_required||current.authorizationRows!==0||current.globalBusy)return'UNKNOWN_OR_INTERVENED_NO_REPLAY';const rows=current.snapshot.root_testnet_service_policies!.filter(r=>r.policy_sha256==='\\x'+i.policySha256);if(rows.length!==1)return'UNKNOWN_OR_INTERVENED_NO_REPLAY';const row=rows[0],normalized=Object.fromEntries(Object.entries(row).map(([k,v])=>[k,typeof v==='string'&&v.startsWith('\\x')?v.slice(2):v]));try{servicePolicySqlBinding(normalized,p,i.policySha256);}catch{return'UNKNOWN_OR_INTERVENED_NO_REPLAY';}if(String(row.created_xid)!==i.transactionId||Date.parse(row.created_at)!==Date.parse(p.verifiedAt))return'UNKNOWN_OR_INTERVENED_NO_REPLAY';const restored=structuredClone(current.snapshot);restored.root_testnet_service_policies=restored.root_testnet_service_policies!.filter(r=>r.policy_sha256!=='\\x'+i.policySha256);return stable(restored)===stable(i.before.snapshot)&&current.feeXmin===i.before.feeXmin?'COMMITTED_EXACT':'UNKNOWN_OR_INTERVENED_NO_REPLAY';}
+export function classifyServiceActivation(status:string,current:ServiceLaunchState,i:ServiceActivationIntent){
+ if(status==='aborted'&&stable(current)===stable(i.before))return'ABORTED_EXACT_NO_REPLAY';
+ const p=i.policy,c=current.control;
+ if(status!=='committed'||c.epoch!==p.activeEpoch||c.xmin!==i.expectedXmin||!c.accepting_orders||!c.dispatch_enabled||c.reconciliation_required||current.authorizationRows!==0||current.globalBusy)return'UNKNOWN_OR_INTERVENED_NO_REPLAY';
+ try {
+  // These six columns store raw 32-byte digests, unlike private HMAC lookups.
+  const digestColumns=['policy_sha256','profile_sha256','source_identity_digest','canonical_audit_sha256','capital_allocation_sha256','initial_books_sha256'];
+  const all=current.snapshot.root_testnet_service_policies!;
+  const decoded=all.map(row=>({row,normalized:{...row,...Object.fromEntries(digestColumns.map(k=>[k,decodePgJsonbBytea(row[k],32).toString('hex')]))}}));
+  const rows=decoded.filter(r=>r.normalized.policy_sha256===i.policySha256);
+  if(rows.length!==1)return'UNKNOWN_OR_INTERVENED_NO_REPLAY';
+  const {row,normalized}=rows[0]!;servicePolicySqlBinding(normalized,p,i.policySha256);
+  if(String(row.created_xid)!==i.transactionId||Date.parse(row.created_at)!==Date.parse(p.verifiedAt))return'UNKNOWN_OR_INTERVENED_NO_REPLAY';
+  const restored=structuredClone(current.snapshot);
+  restored.root_testnet_service_policies=all.filter(r=>r!==row);
+  return stable(restored)===stable(i.before.snapshot)&&current.feeXmin===i.before.feeXmin?'COMMITTED_EXACT':'UNKNOWN_OR_INTERVENED_NO_REPLAY';
+ } catch {return'UNKNOWN_OR_INTERVENED_NO_REPLAY';}
+}
