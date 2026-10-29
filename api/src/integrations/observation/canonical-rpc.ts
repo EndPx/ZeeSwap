@@ -13,7 +13,7 @@ export function canonicalRetryAfterMs(value:string|null,now=Date.now()):number|n
 }
 
 /** Deliberately exposes only allowlisted read RPC methods, never a generic RPC passthrough. */
-export function canonicalRpc(config: { url: string; authorization?: string; network: Policy["network"]; sourceId: string; consensusBranchId?: string; fetch?: typeof fetch; now?: () => number;headerBatchSize?:number;maxMethodsPerSecond?:number;diagnostic?:(value:CanonicalRpcDiagnostic)=>void;headerDiagnostic?:(value:CanonicalHeaderRowDiagnostic)=>void }): CanonicalReader {
+export function canonicalRpc(config: { url: string; authorization?: string; network: Policy["network"]; sourceId: string; consensusBranchId?: string; fetch?: typeof fetch; now?: () => number;headerBatchSize?:number;maxMethodsPerSecond?:number;batchEvmSample?:true;diagnostic?:(value:CanonicalRpcDiagnostic)=>void;headerDiagnostic?:(value:CanonicalHeaderRowDiagnostic)=>void }): CanonicalReader {
   const endpoint = safeEndpoint(config.url); const now = config.now ?? Date.now;
   const rate=config.maxMethodsPerSecond??0;requireThat(rate===0||Number.isSafeInteger(rate)&&rate>=1&&rate<=100,'CANONICAL_RATE_LIMIT');
   let nextMethodAt=0,permits=Promise.resolve();
@@ -60,7 +60,9 @@ export function canonicalRpc(config: { url: string; authorization?: string; netw
        if(!Array.isArray(rows)||rows.length!==wanted.length||new Set(rows.map(row=>row?.id)).size!==rows.length){let emitted=false;for(let i=0;i<wanted.length;i++)if(!Array.isArray(rows)||!rows.some(row=>row?.id===i+1)){diagnostic(3,wanted[i]!.height);emitted=true;}if(!emitted)diagnostic(3,wanted[0]!.height);throw new ObservationError('CANONICAL_BATCH_RESPONSE');}
        // Validate every non-null row before scheduling any additional read.
        for(let i=0;i<wanted.length;i++){const h=wanted[i]!.height,row=rows.find(row=>row?.id===i+1);
-        if(!row||row.result===undefined||row.error!=null){diagnostic(row?.error!=null?2:3,h,row);throw new ObservationError('CANONICAL_RPC_ERROR');}
+        if(!row){diagnostic(3,h);throw new ObservationError('CANONICAL_RPC_ERROR');}
+        if(row.error!=null){diagnostic(2,h,row);if(row.error.code===-32007&&row.result==null){missing.push(wanted[i]!);continue;}throw new ObservationError('CANONICAL_RPC_ERROR');}
+        if(row.result===undefined){diagnostic(3,h,row);throw new ObservationError('CANONICAL_RPC_ERROR');}
         if(row.result===null){diagnostic(1,h,row);missing.push(wanted[i]!);continue;}
         const header=parseEvmHeader(row.result);requireThat(header.height===h,'CANONICAL_RPC_HEADER_MISMATCH');values.set(wanted[i]!.index,header);
        }return missing;
@@ -70,8 +72,14 @@ export function canonicalRpc(config: { url: string; authorization?: string; netw
     }} : {}),
     async sample(signal): Promise<CanonicalSample> {
       if (config.network === "eip155:84532") {
-        requireThat(await call("eth_chainId", [], signal) === "0x14a34", "WRONG_RPC_NETWORK");
-        const head = await evmHeader("latest", signal), finalized = await evmHeader("finalized", signal);
+        let head:Header,finalized:Header;
+        if(config.batchEvmSample){
+          const response=await request([{jsonrpc:'2.0',id:1,method:'eth_chainId',params:[]},{jsonrpc:'2.0',id:2,method:'eth_getBlockByNumber',params:['latest',false]},{jsonrpc:'2.0',id:3,method:'eth_getBlockByNumber',params:['finalized',false]}],signal);requireThat(response.ok,'CANONICAL_RPC_HTTP_ERROR');
+          const rows=await readJson(response,signal) as Array<{id:number;result?:unknown;error?:unknown}>;
+          requireThat(Array.isArray(rows)&&rows.length===3&&new Set(rows.map(r=>r?.id)).size===3&&rows.every(r=>r&&[1,2,3].includes(r.id)),'CANONICAL_BATCH_RESPONSE');
+          requireThat(rows.every(r=>r.error==null&&r.result!=null),'CANONICAL_RPC_ERROR');
+          requireThat(rows.find(r=>r.id===1)!.result==='0x14a34','WRONG_RPC_NETWORK');head=parseEvmHeader(rows.find(r=>r.id===2)!.result);finalized=parseEvmHeader(rows.find(r=>r.id===3)!.result);
+        }else{requireThat(await call("eth_chainId", [], signal) === "0x14a34", "WRONG_RPC_NETWORK");head=await evmHeader('latest',signal);finalized=await evmHeader('finalized',signal);}
         requireThat(finalized.height <= head.height, "FINALIZED_HEAD_REGRESSION");
         return { sourceId: config.sourceId, head, finalized, checkedAt: new Date(now()).toISOString() };
       }

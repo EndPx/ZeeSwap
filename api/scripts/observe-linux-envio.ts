@@ -1,3 +1,4 @@
+import {safeIndependentSourceDetails} from '../src/integrations/observation/envio-event-first.ts';
 import {eventFirstTailFailureMetadata} from '../src/integrations/observation/envio-event-first-consumer.ts';
 import {observerCadenceDelay} from '../src/observer-cadence.ts';
 /** Native Linux consumer only. Contains no signer or dispatch adapter. */
@@ -59,7 +60,7 @@ try{
    if(state.checkpoint)requireThat(Number.isSafeInteger(state.checkpoint.height)&&/^0x[0-9a-f]{64}$/.test(state.checkpoint.hash)&&state.checkpoint.generation===source.generation&&state.checkpoint.projectionDigest===source.policy.projectionDigest,'INVALID_HINT_JOURNAL');return state;
   },async save(state:EnvioAdmissionState){const tmp=p.admissionPath+'.'+randomUUID()+'.tmp',fd=await open(tmp,'wx',0o600);try{await fd.writeFile(keys.seal(state,context));await fd.sync();}finally{await fd.close();}await rename(tmp,p.admissionPath);}};
   await hints.load();const base=new BaseContract(registry),stop=new AbortController();
-  const eventReader=eventFirst?eventFirstRpc({...consumerVerification!,contract:source.policy.contract!}):undefined;
+  const eventReader=eventFirst?eventFirstRpc({...consumerVerification!,contract:source.policy.contract!,batchSample:true}):undefined;
   const canonical=eventReader??normalEnvioCanonical(normal.url,normal.sourceId,{},normal.overlay);
   if(normal.overlay)await verifyNormalEnvioOverlay(normal.overlay,canonical,AbortSignal.timeout(30000));
   lease.on('error',()=>stop.abort());process.once('SIGTERM',()=>stop.abort());process.once('SIGINT',()=>stop.abort());
@@ -71,7 +72,7 @@ try{
     requireThat(status.ok,'WAIT_ENVIO_EXPORT');const body=await status.json() as {protocol?:string;checkpoint?:{generation?:string}};
     requireThat(eventFirst?body.protocol==='zee-envio-event-first-status-v1':body.protocol==='zee-envio-status-v1'&&body.checkpoint?.generation===source.generation,'ENVIO_ADMISSION_GENERATION_CHANGED');
     const result=await observeEnvioOnce(pool,keys,base,{url:p.sourceUrl,token,policy:source.policy,hints,canonical,verificationSourceId:normal.sourceId,...(eventReader?{eventFirst:{generation:source.generation,reader:eventReader}}:{})});console.log(JSON.stringify({event:'linux-envio-observation',cycleMs:Math.round(performance.now()-cycleStarted),...result}));}
-   catch(e){const code=(e as {code?:string}).code??'LINUX_ENVIO_OBSERVATION_FAILED',tail=eventFirstTailFailureMetadata(e);console.log(JSON.stringify({event:'linux-envio-observation',status:'WAIT_SOURCE',code,...(tail?{tail}:{}),cycleMs:Math.round(performance.now()-cycleStarted),financialAction:false}));if(flag==='--once'||['ENVIO_ADMISSION_GAP','ENVIO_ADMISSION_JOURNAL_REQUIRED','ENVIO_ADMISSION_GENERATION_CHANGED','ENVIO_ADMISSION_REORG_BLOCK','INVALID_HINT_JOURNAL'].includes(code))throw e;}
+   catch(e){const code=(e as {code?:string}).code??'LINUX_ENVIO_OBSERVATION_FAILED',tail=eventFirstTailFailureMetadata(e),independentSource=safeIndependentSourceDetails(e);console.log(JSON.stringify({event:'linux-envio-observation',status:'WAIT_SOURCE',code,...(tail?{tail}:{}),...(independentSource?{independentSource}:{}),cycleMs:Math.round(performance.now()-cycleStarted),financialAction:false}));if(flag==='--once'||['ENVIO_ADMISSION_GAP','ENVIO_ADMISSION_JOURNAL_REQUIRED','ENVIO_ADMISSION_GENERATION_CHANGED','ENVIO_ADMISSION_REORG_BLOCK','INVALID_HINT_JOURNAL'].includes(code))throw e;}
    if(flag!=='--once')await delay(observerCadenceDelay(cycleStarted,performance.now()),undefined,{signal:stop.signal}).catch(()=>{});
   }while(flag!=='--once'&&!stop.signal.aborted);
  }
