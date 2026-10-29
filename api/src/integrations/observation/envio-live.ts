@@ -57,7 +57,7 @@ export async function observeEnvioOnce(pool:pg.Pool,keys:PrivateData,base:BaseCo
  const previous=(await pool.query("SELECT scanned_height::text,finalized_height::text FROM zee.scanner_checkpoints WHERE network='base-sepolia'")).rows[0];
  const accepted=Number((await pool.query('SELECT count(*)::text AS count FROM zee.orders')).rows[0]?.count);
  const from=envioAdmissionFrom(config.policy,producerThrough,previous?Number(previous.scanned_height):undefined,admission,accepted);
- const batch=config.eventFirst?await fetchEventFirstReplacement(config.url,config.token,from,producerThrough,config.policy,config.eventFirst.generation,config.eventFirst.reader,signal,fetch,{boundedFinalTail:true,preReadFreshness:true}):await fetchEnvioExport(config.url,config.token,from,config.policy,config.canonical,Date.now(),fetch,config.verificationSourceId);
+ const batch=config.eventFirst?await fetchEventFirstReplacement(config.url,config.token,from,producerThrough,config.policy,config.eventFirst.generation,config.eventFirst.reader,signal,fetch,{boundedFinalTail:true,preReadFreshness:true,fixedReadStartTarget:true}):await fetchEnvioExport(config.url,config.token,from,config.policy,config.canonical,Date.now(),fetch,config.verificationSourceId);
  fresh(batch.coverage.sourceSampledAt,Date.now());
  requireThat(batch.coverage.sourceHead.height-batch.coverage.through.height<=40,'WAIT_ENVIO_BEHIND_HEAD');
  const sample=await sampleCanonicalFinalityAtLeast(config.canonical,config.verificationSourceId??config.policy.canonicalSourceId,Number(previous?.finalized_height??0),signal);

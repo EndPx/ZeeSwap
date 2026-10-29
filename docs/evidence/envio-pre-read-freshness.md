@@ -58,3 +58,44 @@ now keeps its packet verifier on the normal reader and supplies a separate,
 same-source canonical reader for the desired final sample. No production guard
 changed for that repair. The scoped rerun of those two existing fixture files
 passed all 17 cases with zero skips; no live RPC or database was used.
+
+## Fixed read-start target
+
+A subsequent ordinary run still refused a late final tail at 20.139 seconds,
+then exhausted 30-second cycles and accumulated another gap. The aligned
+freshness comparison had no new mLag failure, but chasing an advancing SDK tip
+still prevented a complete bounded cycle. This is a separate liveness issue.
+
+Ordinary observation now explicitly opts into a **fixed read-start target**:
+the SDK through-height captured at cycle start never extends. There is no tail
+status request, recursive target update or final header chase. Every header and
+log from the admitted start through that fixed height must be verified within
+the original 1000-block/30-second bounds before replacement can return.
+
+The first actual consumer-owned pre-fetch sample must independently reach that
+target with a lead of at most 40 blocks. Internal replacement coverage carries
+that exact sampled head, not the target relabelled as a head and not a later
+moving SDK head. Source sampled-at remains the minimum actual packet Source
+stamp. Raw SDK packets, their claimed 40 bounds, per-packet pre-read and later
+peer checks, full header/log equality, finality and end fences are unchanged.
+Default serial/adaptive callers retain their previous behavior.
+
+Six deterministic local fixed-target cases pass with zero skips, and whitespace
+checks pass. Initial production typechecking passed; the later whole-API check
+was blocked by a concurrent catch-up kernel type error outside this packet. Its
+owner handles that independent fix before final publication. They cover complete 150-header coverage while the
+chain advances 75 blocks, exact first-sample head preservation, no tail status,
+stale/behind initial target refusal, original Source claimed-lag refusal,
+header/log/end-reorg failures, cancellation draining and a complete read that
+exceeds the original 30-second budget. No live observer, Source or RPC probe was
+run. Root must repair only the permitted current coverage gap and qualify actual
+normal observation before treating Source as fresh for the activated policy.
+
+The two existing final-publication fixtures now explicitly target the fixed SDK
+height rather than the former extended tail. Packet verification retains its
+normal reader, while a separate same-source canonical reader supplies the final
+publication delta. The planned widths are 64, 64, 64, 64, 7 with zero tail-status
+requests. The requested scoped rerun passed all 23 cases (six fixed-target,
+fourteen final-tail and three admission fixtures), zero skips, without live
+Source or database access. Test-name spacing was corrected afterward without
+changing assertions or production behavior.
