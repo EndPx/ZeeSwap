@@ -1,4 +1,4 @@
-import { applyEvent, digest, guard, integer, type Books, type Order, type VerifiedEvent } from './model.ts';
+import { applyEvent, digest, guard, integer, validateAnchor,type Pair,type Books, type Order, type VerifiedEvent } from './model.ts';
 import type { BridgeStore } from './repository.ts';
 
 /** Canonical verification must compare both independent chain readers, exact network,
@@ -18,6 +18,9 @@ export interface BridgeDurableSigner {
  /** MUST use an independent durable broadcastOnce journal (BridgeJournal) before
   * RPC, and reject a prior UNKNOWN submission even after application DB restore. */
  broadcastOriginal(prepared:PreparedDelivery):Promise<void>;
+ /** Optional concrete post-proving canonical reread; implementations must verify
+  * admitted ancestry and original source, never merely stamp the old heights. */
+ refreshCanonicalPair?(order:Readonly<Order>,books:Readonly<Books>):Promise<Pair>;
 }
 export class BridgeWorker {
  constructor(private store:BridgeStore,private verifier:BridgeEvidenceVerifier,private signer:BridgeDurableSigner){}
@@ -47,6 +50,7 @@ export class BridgeWorker {
    await this.signer.assertFreshCanonical(structuredClone(o),structuredClone(b));
    guard(b,current(),false);
    const signed=await this.signer.recoverOrPrepare(intent);
+   if(this.signer.refreshCanonicalPair){const pair=await this.signer.refreshCanonicalPair(structuredClone(o),structuredClone(b));validateAnchor(pair.zcash,current(),true);validateAnchor(pair.base,current(),true);b.pair=pair;}
    guard(b,current(),false);
    if(signed.intentId!==intent.intentId||! /^(0x)?[a-f0-9]{64}$/.test(signed.txid)||! /^[a-f0-9]+$/.test(signed.raw)||signed.raw.length%2||integer(signed.feeAtomic)>integer(maxFeeAtomic)||!Number.isSafeInteger(signed.expiryHeight)||signed.expiryHeight<=b.pair!.zcash.height)throw Error('BRIDGE_SIGNED_BINDING');
    if(o.attempt.txid){if(digest(o.attempt)!==digest(signed))throw Error('BRIDGE_ORIGINAL_TRANSACTION_REQUIRED');return signed;}

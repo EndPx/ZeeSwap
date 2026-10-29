@@ -51,4 +51,10 @@ export class BridgeJournal {
   const old=await load();if(!old?.prepared||digest(old.prepared)!==digest(prepared))throw Error('BRIDGE_JOURNAL_ORIGINAL_REQUIRED');if(old.broadcastAttempted)throw Error('BRIDGE_JOURNAL_BROADCAST_RECONCILIATION_REQUIRED');
   await append({...old,broadcastAttempted:true});await broadcast(old.prepared!);
  });}
+ /** Explicit operator recovery of an interrupted signing seam. The callback
+  * may only recover original SDK bytes; it must never calculate/sign anew. */
+ async recoverPreparedOnce(id:string,binding:unknown,recoverOriginal:()=>Promise<PreparedDelivery>):Promise<PreparedDelivery>{return this.locked(id,async(load,append)=>{
+  const old=await load(),expected=digest(binding);if(!old||old.binding!==expected||old.broadcastAttempted)throw Error('BRIDGE_SIGNING_RECONCILIATION_REQUIRED');
+  if(old.prepared)return old.prepared;const prepared=await recoverOriginal();if(prepared.intentId!==id)throw Error('BRIDGE_JOURNAL_SIGNED_BINDING');await append({...old,prepared});return prepared;
+ });}
 }

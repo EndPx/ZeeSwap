@@ -90,12 +90,74 @@ class BridgeNativeTest(unittest.TestCase):
                 with patch.object(Adapter, 'verify', return_value=bad), self.assertRaises(ValueError):
                     a.verify({}, {}, 100)
 
+    def test_sdk_may_select_one_approved_fee_and_original_export_binds_recovery(self):
+        with tempfile.TemporaryDirectory() as directory:
+            a = self.adapter(directory)
+            extra = dict(pool='ironwood', txid='8' * 64, index=2, value='10000', role='fee')
+            a.profile['extraFeeNotes'] = [extra]
+            tx = prepared(a.profile)
+            tx['selectedNotes'][1] = {k: extra[k] for k in ('pool', 'txid', 'index', 'value')}
+            a.sdk = lambda payload: decoded(a.request) if payload['command'] == 'recover_outgoing' else dict(network='zcash-testnet', shielded=True, receiver=payload['address'])
+            with patch.object(Adapter, 'verify', return_value=tx):
+                self.assertEqual(a.verify({}, {}, 100)['selectedNotes'][1]['txid'], extra['txid'])
+                original = {**tx, 'selectedNotes': copy.deepcopy(tx['selectedNotes'])}
+                a.verify({}, {'prepared': original}, 100)
+                original['selectedNotes'][1]['txid'] = '9' * 64
+                with self.assertRaisesRegex(ValueError, 'BRIDGE_ORIGINAL_SIGNED_IDENTITY'):
+                    a.verify({}, {'prepared': original}, 100)
+            for change in ('both-fees', 'principal-omitted', 'unapproved-fee'):
+                bad = copy.deepcopy(tx)
+                if change == 'both-fees': bad['selectedNotes'].append(prepared(a.profile)['selectedNotes'][1])
+                if change == 'principal-omitted': bad['selectedNotes'].pop(0)
+                if change == 'unapproved-fee': bad['selectedNotes'][1]['txid'] = '9' * 64
+                with patch.object(Adapter, 'verify', return_value=bad), self.assertRaises(ValueError): a.verify({}, {}, 100)
+
+    def test_signer_full_inventory_validation_precedes_generic_preparation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            a = self.adapter(directory)
+            a.profile['extraFeeNotes'] = [dict(pool='ironwood', txid='8' * 64, index=2, value='10000', role='fee')]
+            notes = native_notes()
+            notes['ironwood_notes']['note_summaries'].append(dict(txid='8' * 64, output_index=2,
+                value=10000, spend_status='unspent', status='confirmed at block height 90', scope='external'))
+            def transport(command, payload=None, timeout=240, pass_fds=()):
+                if command[-2:] == ['notes', 'all']: return notes
+                if command[-2:] == ['sync', 'status']:
+                    return dict(scan_ranges=[dict(priority='Scanned', start_block='1', end_block='101')])
+                if command[-2:] == ['coins', 'all']: return {}
+                raise AssertionError(command)
+            command = a.base + ['--server', 'https://testnet.zec.rocks:443', '--waitsync', 'notes', 'all']
+            with patch('bridge_native_wallet.bounded_read_command', transport):
+                self.assertEqual(len(a.run(command)['ironwood_notes']['note_summaries']), 3)
+                for change in ('unknown', 'spent-reserve', 'unapproved'):
+                    old = copy.deepcopy(notes)
+                    if change == 'unknown': notes['ironwood_notes']['note_summaries'][0]['spend_status'] = 'NSPEND'
+                    if change == 'spent-reserve': notes['ironwood_notes']['note_summaries'][2]['spend_status'] = 'spent'
+                    if change == 'unapproved': notes['ironwood_notes']['note_summaries'][2]['txid'] = '9' * 64
+                    with self.subTest(change=change), self.assertRaises(ValueError): a.run(command)
+                    notes = old
+
     def test_disabled_profile_blocks_signing_and_broadcast_before_sdk(self):
         with tempfile.TemporaryDirectory() as directory:
             a = self.adapter(directory); a.profile['enabled'] = False
             a.sdk = lambda _: self.fail('Disabled profile reached SDK')
             for command in ('prepare', 'broadcast', 'quicksend', 'new-wallet'):
                 with self.assertRaises(ValueError): a.execute(command)
+
+    def test_sdk_validated_combined_ua_preserves_original_committed_address(self):
+        with tempfile.TemporaryDirectory() as directory:
+            a = self.adapter(directory)
+            original = a.request['recipient']
+            a.sdk = lambda _: dict(network='zcash-testnet', shielded=True, receiver='utest1canonical-orchard-component')
+            a.run = lambda *args, **kwargs: dict(kind='Loaded from mnemonic (seed or phrase)')
+            with patch.object(Adapter, 'execute', return_value={'original': True}) as parent:
+                self.assertEqual(a.execute('recover'), {'original': True})
+                parent.assert_called_once_with('recover')
+            self.assertEqual(a.request['recipient'], original)
+            for invalid in ({'network':'zcash-mainnet','shielded':True,'receiver':'utest1bad'},
+                            {'network':'zcash-testnet','shielded':False,'receiver':'utest1bad'},
+                            {'network':'zcash-testnet','shielded':True,'receiver':None}):
+                a.sdk = lambda _, result=invalid: result
+                with self.assertRaisesRegex(ValueError, 'BRIDGE_SDK_RECIPIENT'): a.execute('recover')
 
     def test_unknown_or_acknowledged_broadcast_never_reenters_generic_sender(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -120,7 +182,8 @@ class BridgeNativeTest(unittest.TestCase):
                 if command[-1] == 'wallet_kind': return dict(kind='Loaded from mnemonic (seed or phrase)')
                 if command[-1] == 'export_ufvk': return dict(ufvk='synthetic-key')
                 if command[-2:] == ['notes', 'all']: return native_notes()
-                if command[-2:] == ['sync', 'status']: return dict(scan_ranges=[dict(priority='Scanned', end_block=101)])
+                if command[-2:] == ['sync', 'status']: return dict(scan_ranges=[dict(priority='Scanned', start_block='1', end_block=101)])
+                if command[-2:] == ['coins', 'all']: return {}
                 if command[-2:] == ['calculate', '--recover']: return dict(transactions=[])
                 if 'calculate' in command:
                     persisted = json.loads(a.path.read_text())
@@ -169,7 +232,8 @@ class BridgeNativeTest(unittest.TestCase):
                         # while generic prepare still holds its initial approval.
                         synced = True
                         return native_notes()
-                    if command[-2:] == ['sync', 'status']: return dict(scan_ranges=[dict(priority='Scanned', end_block=101)])
+                    if command[-2:] == ['sync', 'status']: return dict(scan_ranges=[dict(priority='Scanned', start_block='1', end_block=101)])
+                    if command[-2:] == ['coins', 'all']: return {}
                     if command[-2:] == ['calculate', '--recover']: return dict(transactions=[])
                     if 'calculate' in command:
                         calls.append('external-calculate')
@@ -207,13 +271,21 @@ class BridgeNativeTest(unittest.TestCase):
             with self.assertRaises(ValueError): pinned_modules(p)
 
     def test_native_scan_counts_actual_notes_then_canonical_original_outgoing_as_d(self):
+        self._native_scan()
+
+    def test_native_scan_preserves_only_unselected_approved_fee_after_inclusion(self):
+        self._native_scan(extra=True)
+
+    def _native_scan(self, extra=False):
         with tempfile.TemporaryDirectory() as directory:
             a = self.adapter(directory)
-            mode = {'included': False, 'scanned': 100, 'wrongraw': False, 'wrongblock': False}
+            if extra:
+                a.profile['extraFeeNotes'] = [dict(pool='ironwood', txid='8' * 64, index=2, value='10000', role='fee')]
+            mode = {'included': False, 'scanned': 100, 'wrongraw': False, 'wrongblock': False, 'bad_remaining': False}
             class Service:
                 def GetLatestBlock(self, *args, **kwargs): return NS(height=mode['scanned'])
                 def GetBlock(self, value, **kwargs):
-                    ids = [TX] if value.height == 99 else ['d' * 64, 'e' * 64]
+                    ids = [TX] if value.height == 99 else ['d' * 64, 'e' * 64, '8' * 64]
                     return NS(hash=bytes.fromhex('a' * 64)[::-1], vtx=[NS(txid=bytes.fromhex(t)[::-1]) for t in ids])
                 def GetTransaction(self, value, **kwargs):
                     if value.hash == bytes.fromhex(TX)[::-1]:
@@ -224,32 +296,47 @@ class BridgeNativeTest(unittest.TestCase):
             def run(command, payload=None, timeout=240):
                 if command[-1] == 'wallet_kind': return dict(kind='Loaded from unified full viewing key')
                 if command[-1] == 'export_ufvk': return dict(ufvk='synthetic-key')
-                if command[-2:] == ['notes', 'all']: return {} if mode['included'] else native_notes()
-                if command[-2:] == ['sync', 'status']: return dict(scan_ranges=[dict(priority='Scanned', end_block=mode['scanned'] + 1)])
+                if command[-2:] == ['notes', 'all']:
+                    notes = native_notes()
+                    if extra:
+                        notes['ironwood_notes']['note_summaries'].append(dict(txid='8' * 64, output_index=2,
+                            value=10000, spend_status='unspent', status='confirmed at block height 90', scope='external'))
+                    if mode['included']:
+                        notes = {'ironwood_notes': {'note_summaries': [notes['ironwood_notes']['note_summaries'][1]]}} if extra else {}
+                    if mode['bad_remaining']:
+                        notes['ironwood_notes']['note_summaries'][0]['spend_status'] = 'NSPEND'
+                    return notes
+                if command[-2:] == ['sync', 'status']: return dict(scan_ranges=[dict(priority='Scanned', start_block='1', end_block=mode['scanned'] + 1)])
                 if command[-2:] == ['coins', 'all']: return {}
                 raise AssertionError(command)
             def sdk(payload):
-                index = 0 if payload['txid'] == 'd' * 64 else 1
+                index = 0 if payload['txid'] == 'd' * 64 else 2 if payload['txid'] == '8' * 64 else 1
                 return dict(notes=[dict(txid=payload['txid'], pool='ironwood', index=index,
                     amount='100000' if index == 0 else '10000', shieldedSource=True, ownChange=index == 1)])
             a.run, a.sdk = run, sdk
             first = a.native_capital()
-            self.assertEqual((first['controlledZatoshi'], first['feeCapitalZatoshi'], first['inTransitZatoshi']), ('100000', '10000', '0'))
-            self.assertEqual(len(first['notes']), 2)
+            self.assertEqual((first['controlledZatoshi'], first['feeCapitalZatoshi'], first['inTransitZatoshi']), ('100000', '20000' if extra else '10000', '0'))
+            self.assertEqual(len(first['notes']), 3 if extra else 2)
             intent = dict(request=a.request, approvedDigest=a.profile['approvedDigest'], state='PREPARED', prepared=prepared(a.profile))
+            if extra:
+                intent['prepared']['selectedNotes'][1] = {k: a.profile['extraFeeNotes'][0][k] for k in ('pool', 'txid', 'index', 'value')}
             durable(a.path, intent)
             mode['included'] = True
             fake_grpc = NS(RpcError=type('RpcError', (Exception,), {}), StatusCode=NS(NOT_FOUND='not-found'))
             with patch.dict(sys.modules, {'grpc': fake_grpc}), patch.object(a, 'verify', return_value=prepared(a.profile)) as verify:
                 included = a.native_capital()
-                self.assertEqual((included['controlledZatoshi'], included['feeCapitalZatoshi'], included['inTransitZatoshi']), ('0', '0', '100000'))
+                self.assertEqual((included['controlledZatoshi'], included['feeCapitalZatoshi'], included['inTransitZatoshi']), ('0', '10000' if extra else '0', '100000'))
                 self.assertEqual(included['included']['confirmations'], 2)
-                self.assertEqual(included['notes'], [])
+                self.assertEqual([n['txid'] for n in included['notes']], ['e' * 64] if extra else [])
                 verify.assert_called_once()
                 mode['scanned'] = 108
                 confirmed = a.native_capital()
                 self.assertEqual(confirmed['inTransitZatoshi'], '0')
                 self.assertEqual(confirmed['included']['confirmations'], 10)
+                if extra:
+                    mode['bad_remaining'] = True
+                    with self.assertRaises(ValueError): a.native_capital()
+                    mode['bad_remaining'] = False
                 mode['wrongraw'] = True
                 with self.assertRaises(ValueError): a.native_capital()
 

@@ -14,7 +14,7 @@ import {privateKeyToAccount,generatePrivateKey} from 'viem/accounts';
 import {baseSepolia} from 'viem/chains';
 import {CanonicalBridgeBase,bridgeAbi,bridgeDomain,mintTypes,redemptionTypes,mintNonce,redemptionNonce} from '../src/bridge/adapters/base.ts';
 import {validateBridgeBaseProfile,type BridgeBaseProfile} from '../src/bridge/adapters/profile.ts';
-import {makeOrder,emptyBooks,applyEvent,coverage} from '../src/bridge/model.ts';
+import {makeOrder,emptyBooks,applyEvent,coverage,digest} from '../src/bridge/model.ts';
 import {CastBridgeBaseSigner} from '../src/bridge/adapters/cast.ts';
 import {PrivateData} from '../src/private-data.ts';
 import type {BridgeCastProfile,FilePin} from '../src/bridge/adapters/profile.ts';
@@ -68,8 +68,17 @@ test('real local Anvil bridge canonical reader, mint/cancel exclusion, authentic
   const event=await base.verify({kind:'BURN',transactionHash:burnTx},r,b);applyEvent(b,event,Date.now());assert.equal(b.supply,'0');assert.equal(coverage(b).unpaidRedemptionsZatoshi,'100000');const snapshot=await base.readAt(b.pair!.base);assert.equal(snapshot.supply,'0');assert.equal(snapshot.unpaid,'100000');
   await assert.rejects(()=>base.verify({kind:'BURN',transactionHash:burnTx},{...r,payer:admin},b),/BINDING/);await base.assertCanonicalOrder(r,b);
  });
- const historicalPair=structuredClone(b.pair),syntheticDelivered={...r,status:'COMPLETED' as const,destination:{network:'zcash-testnet' as const,transactionHash:'dd'.repeat(32),blockHeight:50,blockHash:'bb'.repeat(32)}};
- const acknowledged=await signer.prepare('ACK',syntheticDelivered,b);await client.waitForTransactionReceipt({hash:await signer.broadcast(acknowledged,b)});await mine();b.pair.base=await base.finalized();await signer.reconcile(acknowledged,b.pair);
+ const historicalPair=structuredClone(b.pair),syntheticDelivered={...r,status:'NATIVE_DELIVERED_AWAITING_ACK' as const,destination:{network:'zcash-testnet' as const,transactionHash:'dd'.repeat(32),blockHeight:50,blockHash:'bb'.repeat(32)}};
+ const acknowledged=await signer.prepare('ACK',syntheticDelivered,b),ackTx=await signer.broadcast(acknowledged,b);await client.waitForTransactionReceipt({hash:ackTx});await mine();b.pair.base=await base.finalized();await signer.reconcile(acknowledged,b.pair);
+ await t.test('actual Base acknowledgment verifies its transaction, event, delivered record and opaque native-proof commitment',async()=>{
+  const event=await base.verify({kind:'ACK',transactionHash:ackTx},syntheticDelivered,b);assert.equal(event.kind,'ACK');if(event.kind!=='ACK')throw Error('expected ACK');
+  assert.equal(event.amount,'100000');assert.equal(event.evidenceCommitment,'0x'+digest([syntheticDelivered.salt,syntheticDelivered.destination]));assert.equal(event.receipt.network,'base-sepolia');assert.equal(event.receipt.transactionHash,ackTx);
+  for(const changed of [{...syntheticDelivered,salt:'ff'.repeat(32)},{...syntheticDelivered,destination:{...syntheticDelivered.destination,transactionHash:'ee'.repeat(32)}},{...syntheticDelivered,amountAtomic:'100001'},{...syntheticDelivered,payer:admin}])await assert.rejects(()=>base.verify({kind:'ACK',transactionHash:ackTx},changed,b),/ACK_BINDING|ACK_RECORD/);
+  await assert.rejects(()=>base.verify({kind:'ACK',transactionHash:burnTx},syntheticDelivered,b),/BINDING|EVENT/);
+  // This is an Anvil contract proof over a synthetic native receipt. Never
+  // apply it to b's genuinely unpaid synthetic model obligation.
+  assert.equal(b.orders[r.id].status,'REDEMPTION_PENDING');assert.equal(coverage(b).unpaidRedemptionsZatoshi,'100000');assert.equal(coverage(b).pendingAcknowledgmentsZatoshi,'0');
+ });
  await t.test('actual acknowledgment closes contract counter and permanently blocks a stale-book payout',async()=>{assert.equal((await base.readAt(b.pair!.base)).unpaid,'0');assert.equal(coverage(b).unpaidRedemptionsZatoshi,'100000','synthetic native leg remains unconfirmed; no local fictional close');
   await base.verify({kind:'BURN',transactionHash:burnTx},r,b);await assert.rejects(()=>base.assertCanonicalOrder(r,b),/ALREADY_ACKNOWLEDGED/);
   await assert.rejects(()=>base.assertCanonicalOrder(r,{...b,pair:historicalPair}),/ALREADY_ACKNOWLEDGED/);
@@ -81,4 +90,25 @@ test('real local Anvil bridge canonical reader, mint/cancel exclusion, authentic
   const terms={id:cancelled.commitment as Hex,recipient:payer,amount:100000n,nonce:mintNonce(cancelled.commitment as Hex),deadline:BigInt(Math.floor(Date.now()/1000)+3600)},signature=await authorizer.signTypedData({domain:bridgeDomain(profile),types:mintTypes,primaryType:'Mint',message:terms});
   await assert.rejects(()=>client.simulateContract({account:operator,address:contract,abi:bridgeAbi,functionName:'mint',args:[terms,signature]}));
  });
+ await t.test('actual Cast operator-keystore burn uses original signed authorization once and leaves native repayment unpaid',async()=>{
+  // Independent local book: native deposit metadata is synthetic. The EVM
+  // mint, authorizer signature, operator raw burn and receipts are real Anvil.
+  const mini={...emptyBooks(),paused:false,feeCapital:'10000',controlled:'100000',principalAccount:profile.principalAccount,feeAccount:profile.feeAccount,swapAccount:profile.swapAccount};
+  const deposited=makeOrder({direction:'TAZ_TO_ZEETAZ',amountAtomic:'100000',recipient:operator.address,refundRecipient:'synthetic:operator-refund'},'00'.repeat(32),'operator-mint-local',Date.now());
+  deposited.status='DEPOSIT_FINALIZED';deposited.source={network:'zcash-testnet',transactionHash:'ab'.repeat(32),blockHeight:12,blockHash:'bb'.repeat(32)};mini.orders[deposited.id]=deposited;
+  mini.pair={zcash:{height:100,hash:'bb'.repeat(32),observedAt:new Date().toISOString()},base:await base.finalized()};
+  const mint=await signer.prepare('MINT',deposited,mini),mintHash=await signer.broadcast(mint,mini);await client.waitForTransactionReceipt({hash:mintHash});await mine();mini.pair.base=await base.finalized();
+  applyEvent(mini,await base.verify({kind:'MINT',transactionHash:mintHash},deposited,mini),Date.now());await signer.reconcile(mint,mini.pair);assert.equal(mini.supply,'100000');
+  const redemption=makeOrder({direction:'ZEETAZ_TO_TAZ',amountAtomic:'100000',recipient:'synthetic:operator-native-recipient',payer:operator.address},'00'.repeat(32),'operator-burn-local',Date.now());mini.orders[redemption.id]=redemption;
+  const authorization=await signer.authorize('Redemption',redemption,mini),q=authorization.terms;
+  const terms={id:q.id as Hex,payer:q.payer as Hex,amount:BigInt(q.amount),payoutCommitment:q.payoutCommitment as Hex,nonce:BigInt(q.nonce),deadline:BigInt(q.deadline)};
+  assert.deepEqual(await signer.authorize('Redemption',redemption,mini),authorization);
+  redemption.status='AWAITING_BURN';redemption.funding={kind:'authenticated-burn',network:'base-sepolia',chainId:84532,contract,token:contract,signature:authorization.signature,calldata:encodeFunctionData({abi:bridgeAbi,functionName:'requestRedemption',args:[terms,authorization.signature]}),terms:{id:terms.id,payer:terms.payer,amount:'100000',payoutCommitment:terms.payoutCommitment,nonce:terms.nonce.toString(),deadline:terms.deadline.toString()}};
+  const original=await signer.prepare('BURN',redemption,mini);assert.equal(original.phase,'BURN');assert.equal(original.calldata,redemption.funding.calldata);assert.deepEqual(await signer.prepare('BURN',redemption,mini),original);
+  const burnHash=await signer.broadcast(original,mini);assert.equal(burnHash,original.hash);await client.waitForTransactionReceipt({hash:burnHash});await mine();mini.pair.base=await base.finalized();
+  const fact=await base.verify({kind:'BURN',transactionHash:burnHash},redemption,mini);applyEvent(mini,fact,Date.now());await signer.reconcile(original,mini.pair);
+  await assert.rejects(()=>signer.broadcast(original,mini),/ORIGINAL_REQUIRED|RECONCILIATION/);
+  assert.equal(redemption.status,'REDEMPTION_PENDING');assert.equal(redemption.destination,null);assert.equal(redemption.acknowledgment,undefined);assert.equal(mini.supply,'0');assert.equal(coverage(mini).unpaidRedemptionsZatoshi,'100000');assert.equal(coverage(mini).pendingAcknowledgmentsZatoshi,'0');assert.equal((await base.readAt(mini.pair.base)).unpaid,'100000');
+ });
+
 });

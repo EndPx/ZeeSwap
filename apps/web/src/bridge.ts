@@ -6,10 +6,11 @@ export type BridgeDirection='TAZ_TO_ZEETAZ'|'ZEETAZ_TO_TAZ';
 export interface BridgeCheckpoint {height:number;hash:string;observedAt:string;}
 export interface BridgeReserveReport {
   operatorAttested:true;controlledZatoshi:string;inTransitZatoshi:string;
-  circulatingZatoshi:string;unpaidRedemptionsZatoshi:string;acceptedUnmintedZatoshi:string;otherRefundsZatoshi:string;
+  circulatingZatoshi:string;unpaidRedemptionsZatoshi:string;pendingAcknowledgmentsZatoshi:string;acceptedUnmintedZatoshi:string;otherRefundsZatoshi:string;
   covered:boolean;zcash:BridgeCheckpoint;base:BridgeCheckpoint;
 }
 export interface BridgeStatus {
+  pilot?:{amountAtomic:'100000';maxAcceptedPerDirection:1;maxConcurrent:1};
   schemaVersion:1;network:'testnet';asset:{symbol:'zeeTAZ';decimals:8;baseChainId:84532;tokenAddress:string|null;bridgeContractAddress:string|null;runtimeCodeHash:string|null};
   state:'unavailable'|'paused'|'available';reason:string;forwardEnabled:boolean;reverseEnabled:boolean;reserveReport:BridgeReserveReport|null;maxObservationAgeSeconds:60;
 }
@@ -17,6 +18,7 @@ const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&
 const atomic=(v:unknown):v is string=>typeof v==='string'&&/^(0|[1-9][0-9]{0,77})$/.test(v);
 const checkpoint=(v:unknown)=>object(v)&&Number.isSafeInteger(v.height)&&Number(v.height)>0&&typeof v.hash==='string'&&/^(0x)?[a-fA-F0-9]{64}$/.test(v.hash)&&! /^(0x)?0{64}$/.test(v.hash)&&typeof v.observedAt==='string'&&Number.isFinite(Date.parse(v.observedAt));
 export function decodeBridgeStatus(value:unknown):BridgeStatus {
+  if(object(value)&&value.pilot!==undefined&&(!object(value.pilot)||value.pilot.amountAtomic!=='100000'||value.pilot.maxAcceptedPerDirection!==1||value.pilot.maxConcurrent!==1))throw Error('Unsupported bridge pilot limits.');
   if(!object(value)||value.schemaVersion!==1||value.maxObservationAgeSeconds!==60||value.network!=='testnet'||!object(value.asset)||value.asset.symbol!=='zeeTAZ'||value.asset.decimals!==8||value.asset.baseChainId!==84532
     ||!(value.asset.tokenAddress===null||(typeof value.asset.tokenAddress==='string'&&/^0x[a-fA-F0-9]{40}$/.test(value.asset.tokenAddress)&&!/^0x0{40}$/i.test(value.asset.tokenAddress)))
     ||!(value.asset.bridgeContractAddress===null||(typeof value.asset.bridgeContractAddress==='string'&&/^0x[a-fA-F0-9]{40}$/.test(value.asset.bridgeContractAddress)&&!/^0x0{40}$/i.test(value.asset.bridgeContractAddress)))
@@ -24,7 +26,7 @@ export function decodeBridgeStatus(value:unknown):BridgeStatus {
     ||!['unavailable','paused','available'].includes(String(value.state))||typeof value.reason!=='string'||typeof value.forwardEnabled!=='boolean'||typeof value.reverseEnabled!=='boolean')throw Error('Unsupported bridge status.');
   const r=value.reserveReport;
   if(r!==null){if(!object(r)||r.operatorAttested!==true||typeof r.covered!=='boolean'||!checkpoint(r.zcash)||!checkpoint(r.base)
-    ||!['controlledZatoshi','inTransitZatoshi','circulatingZatoshi','unpaidRedemptionsZatoshi','acceptedUnmintedZatoshi','otherRefundsZatoshi'].every(k=>atomic(r[k])))throw Error('Unsupported bridge reserve report.');}
+    ||!['controlledZatoshi','inTransitZatoshi','circulatingZatoshi','unpaidRedemptionsZatoshi','pendingAcknowledgmentsZatoshi','acceptedUnmintedZatoshi','otherRefundsZatoshi'].every(k=>atomic(r[k])))throw Error('Unsupported bridge reserve report.');}
   return value as unknown as BridgeStatus;
 }
 export function bridgeAmount(text:string):string {const amount=parseUnits(text,8);if(BigInt(amount)<10000n||BigInt(amount)>100000000n)throw Error('Testnet bridge range: 0.0001–1 TAZ or zeeTAZ.');return amount;}
@@ -39,11 +41,15 @@ export function bridgeCanQuote(status:BridgeStatus|undefined,direction:BridgeDir
 }
 export function bridgeStatusCopy(status:BridgeStatus|undefined,now=Date.now()):string {
   if(!status)return 'Bridge status unavailable. New bridge deposits and burns are disabled.';
+  if(status.reason==='BRIDGE_PUBLIC_ORDER_ACTIVE')return 'A bridge transfer is settling. Follow the original order while new transfers are paused.';
+  if(status.reason==='BRIDGE_PUBLIC_BUDGET_EXHAUSTED')return 'This testnet pilot has reached its transfer limit. Original orders and receipts remain available.';
+  if(status.reason==='BRIDGE_PUBLIC_PERMIT_EXPIRED')return 'This pilot admission window has ended. Existing transfers remain subject to their original settlement and recovery checks.';
+  if(status.state==='paused'&&status.asset.tokenAddress)return 'New bridge transfers are paused while the operator reconciles current observations. Follow your original order.';
   if(status.state!=='available')return 'Bridge not activated. Deployment, dedicated backing and settlement acceptance remain open.';
   const r=freshBridgeReport(status,now);if(!r)return 'Waiting for fresh paired chain observations. New deposits and burns are disabled.';
   if(!bridgeCoverage(r))return 'Backing coverage is insufficient. New deposits and burns are disabled while the operator reconciles.';
   if(!status.asset.tokenAddress)return 'Bridge token deployment is not configured.';
-  return 'Operator reports fresh bridge coverage. Each direction still requires an accepted server quote.';
+  return status.pilot?'Testnet pilot: exactly 0.001 TAZ or zeeTAZ per transfer, one accepted transfer per direction. Each transfer still requires an accepted quote.':'Operator reports fresh bridge coverage. Each direction still requires an accepted server quote.';
 }
 
 export interface BridgeQuoteBody {direction:BridgeDirection;amountAtomic:string;recipient:string;refundRecipient?:string;payer?:string;}
@@ -51,10 +57,15 @@ export interface BridgeQuote {id:string;direction:BridgeDirection;amountAtomic:s
 export interface BridgeBurn {kind:'authenticated-burn';network:'base-sepolia';chainId:84532;contract:Hex;token:Hex;calldata:Hex;signature:Hex;terms:{id:Hex;payer:Hex;amount:string;payoutCommitment:Hex;nonce:string;deadline:string};}
 export interface BridgeDeposit {kind:'shielded-deposit';network:'zcash-testnet';address:string;memo:string;cutoffHeight:number;cutoffTime:string;}
 export interface BridgeReceipt {network:'base-sepolia'|'zcash-testnet';transactionHash:string;blockHeight:number;blockHash:string;}
-export interface BridgeOrder {id:string;direction:BridgeDirection;amountAtomic:string;outputAmountAtomic:string;status:'AWAITING_DEPOSIT'|'AWAITING_BURN'|'DEPOSIT_FINALIZED'|'MINTED'|'CANCELLED'|'REFUND_PENDING'|'REDEMPTION_PENDING'|'PAYOUT_PENDING'|'IN_TRANSIT'|'COMPLETED'|'FROZEN';createdAt:string;recipient:string;refundRecipient?:string;payer?:string;funding:BridgeBurn|BridgeDeposit|null;source:BridgeReceipt|null;destination:BridgeReceipt|null;}
+export interface BridgeOrder {id:string;direction:BridgeDirection;amountAtomic:string;outputAmountAtomic:string;status:'AWAITING_DEPOSIT'|'AWAITING_BURN'|'DEPOSIT_FINALIZED'|'MINTED'|'CANCELLED'|'REFUND_PENDING'|'REDEMPTION_PENDING'|'PAYOUT_PENDING'|'IN_TRANSIT'|'NATIVE_DELIVERED_AWAITING_ACK'|'COMPLETED'|'FROZEN';createdAt:string;recipient:string;refundRecipient?:string;payer?:string;funding:BridgeBurn|BridgeDeposit|null;source:BridgeReceipt|null;destination:BridgeReceipt|null;acknowledgment?:BridgeReceipt|null;}
+const bridgeReceipt=(r:unknown):r is BridgeReceipt=>object(r)&&['zcash-testnet','base-sepolia'].includes(String(r.network))&&Number.isSafeInteger(r.blockHeight)&&Number(r.blockHeight)>0&&typeof r.blockHash==='string'&&/^(0x)?[a-fA-F0-9]{64}$/.test(r.blockHash)&&typeof r.transactionHash==='string'&&(r.network==='base-sepolia'?/^0x[a-fA-F0-9]{64}$/:/^[a-fA-F0-9]{64}$/).test(r.transactionHash);
 export function bridgeOutcome(order:BridgeOrder):{title:string;tone:'info'|'success'|'warning'} {
   if(order.status==='MINTED'&&order.direction==='TAZ_TO_ZEETAZ'&&order.source?.network==='zcash-testnet'&&order.destination?.network==='base-sepolia')return {title:'zeeTAZ mint confirmed on Base',tone:'success'};
-  if(order.status==='COMPLETED'&&order.destination?.network==='zcash-testnet'&&order.source)return {title:order.direction==='TAZ_TO_ZEETAZ'?'Shielded source-principal refund confirmed':'Shielded TAZ redemption confirmed',tone:'success'};
+  if(order.status==='NATIVE_DELIVERED_AWAITING_ACK'&&order.direction==='ZEETAZ_TO_TAZ')return {title:'Shielded TAZ delivered · Base acknowledgment pending',tone:'info'};
+  if(order.status==='COMPLETED'&&order.destination?.network==='zcash-testnet'&&order.source){
+    if(order.direction==='TAZ_TO_ZEETAZ')return {title:'Shielded source-principal refund confirmed',tone:'success'};
+    if(order.source.network==='base-sepolia'&&bridgeReceipt(order.acknowledgment)&&order.acknowledgment.network==='base-sepolia')return {title:'Shielded TAZ redemption confirmed',tone:'success'};
+  }
   if(order.status==='FROZEN')return {title:'Bridge order frozen for reconciliation',tone:'warning'};
   if(order.status==='CANCELLED'||order.status==='REFUND_PENDING')return {title:'Mint cancelled · source-principal refund pending',tone:'warning'};
   if(order.status==='IN_TRANSIT')return {title:order.direction==='TAZ_TO_ZEETAZ'?'Shielded refund in transit':'Shielded redemption in transit',tone:'info'};
@@ -73,8 +84,11 @@ export function validateBridgeBurn(value:unknown,amount:string,payer:string,toke
   if(f.calldata!==encodeFunctionData({abi:bridgeBurnAbi,functionName:'requestRedemption',args:[{...t,amount:BigInt(t.amount),nonce:BigInt(t.nonce),deadline:BigInt(t.deadline)},f.signature]}))throw Error('Bridge burn calldata does not match accepted terms.');
 }
 export function decodeBridgeOrder(value:unknown,body:BridgeQuoteBody,id:string,token:string):BridgeOrder {
-  if(!object(value)||value.id!==id||value.direction!==body.direction||value.amountAtomic!==body.amountAtomic||value.outputAmountAtomic!==body.amountAtomic||value.recipient!==body.recipient||value.refundRecipient!==body.refundRecipient||value.payer!==body.payer||!['AWAITING_DEPOSIT','AWAITING_BURN','DEPOSIT_FINALIZED','MINTED','CANCELLED','REFUND_PENDING','REDEMPTION_PENDING','PAYOUT_PENDING','IN_TRANSIT','COMPLETED','FROZEN'].includes(String(value.status))||typeof value.createdAt!=='string'||!Number.isFinite(Date.parse(value.createdAt)))throw Error('Invalid private bridge order.');
-  for(const key of ['source','destination']){const r=value[key];if(r!==null&&(!object(r)||!['zcash-testnet','base-sepolia'].includes(String(r.network))||!Number.isSafeInteger(r.blockHeight)||Number(r.blockHeight)<=0||typeof r.blockHash!=='string'||!/^(0x)?[a-fA-F0-9]{64}$/.test(r.blockHash)||typeof r.transactionHash!=='string'||!(r.network==='base-sepolia'?/^0x[a-fA-F0-9]{64}$/:/^[a-fA-F0-9]{64}$/).test(r.transactionHash)))throw Error('Invalid bridge receipt.');}
+  if(!object(value)||value.id!==id||value.direction!==body.direction||value.amountAtomic!==body.amountAtomic||value.outputAmountAtomic!==body.amountAtomic||value.recipient!==body.recipient||value.refundRecipient!==body.refundRecipient||value.payer!==body.payer||!['AWAITING_DEPOSIT','AWAITING_BURN','DEPOSIT_FINALIZED','MINTED','CANCELLED','REFUND_PENDING','REDEMPTION_PENDING','PAYOUT_PENDING','IN_TRANSIT','NATIVE_DELIVERED_AWAITING_ACK','COMPLETED','FROZEN'].includes(String(value.status))||typeof value.createdAt!=='string'||!Number.isFinite(Date.parse(value.createdAt)))throw Error('Invalid private bridge order.');
+  for(const key of ['source','destination','acknowledgment']){const r=value[key];if(key==='acknowledgment'&&r===undefined)continue;if(r!==null&&!bridgeReceipt(r))throw Error('Invalid bridge receipt.');}
+  if(object(value.acknowledgment)&&value.acknowledgment.network!=='base-sepolia')throw Error('Wrong bridge acknowledgment network.');
+  if(value.status==='NATIVE_DELIVERED_AWAITING_ACK'&&(body.direction!=='ZEETAZ_TO_TAZ'||!bridgeReceipt(value.source)||value.source.network!=='base-sepolia'||!bridgeReceipt(value.destination)||value.destination.network!=='zcash-testnet'||value.acknowledgment!=null))throw Error('Pending bridge acknowledgment lacks canonical native delivery.');
+  if(value.status==='COMPLETED'&&body.direction==='ZEETAZ_TO_TAZ'&&(!bridgeReceipt(value.acknowledgment)||value.acknowledgment.network!=='base-sepolia'))throw Error('Completed bridge redemption lacks a Base acknowledgment receipt.');
   if(object(value.source)&&value.source.network!==(body.direction==='TAZ_TO_ZEETAZ'?'zcash-testnet':'base-sepolia'))throw Error('Wrong bridge source network.');
   if(object(value.destination)&&body.direction==='ZEETAZ_TO_TAZ'&&value.destination.network!=='zcash-testnet')throw Error('Wrong shielded redemption network.');
   if(value.status==='MINTED'&&(!object(value.source)||!object(value.destination)||value.destination.network!=='base-sepolia'))throw Error('Minted bridge lacks canonical receipts.');

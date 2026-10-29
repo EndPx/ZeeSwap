@@ -5,7 +5,7 @@ import json
 import unittest
 
 from bridge_protocol import (digest, validate_request, validate_profile, validate_allocations,
-                             actual_notes, validate_authority)
+                             actual_notes, validate_authority, native_scan_height)
 
 H = 'a' * 64
 ROOT = '/opt/zeeswap-bridge-testnet'
@@ -83,6 +83,24 @@ class BridgeProtocolTest(unittest.TestCase):
         bad = copy.deepcopy(q); bad['intentId'] = '9' * 64
         with self.assertRaises(ValueError): validate_request(bad, digest(bad))
 
+    def test_committed_checksum_address_bytes_are_preserved_but_chain_addresses_stay_lowercase(self):
+        checksum = '0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed'
+        for purpose in ('bridge-redemption', 'bridge-refund'):
+            p, q = fixture(purpose)
+            i = q['commitmentInput'];i['payer' if purpose == 'bridge-redemption' else 'recipient'] = checksum
+            if purpose == 'bridge-redemption': q['base']['payer'] = checksum.lower()
+            q['bridgeId'] = q['payoutCommitment'] = '0x' + digest(['bridge-private-order-v1', q['salt'], q['orderId'],
+                i['direction'], i['amountAtomic'], i['recipient'], i.get('refundRecipient'), i.get('payer')])
+            q['intentId'] = digest(['bridge-delivery-v1', q['orderId'], q['bridgeId']])
+            self.assertEqual(validate_request(q, digest(q)), digest(q))
+            bad = copy.deepcopy(q);bad['commitmentInput']['payer' if purpose == 'bridge-redemption' else 'recipient'] = checksum.lower()
+            with self.assertRaisesRegex(ValueError, 'COMMITMENT'): validate_request(bad, digest(bad))
+            bad = copy.deepcopy(q);bad['base']['operator'] = checksum
+            with self.assertRaisesRegex(ValueError, 'HEX_IDENTITY'): validate_request(bad, digest(bad))
+            if purpose == 'bridge-redemption':
+                bad = copy.deepcopy(q);bad['base']['payer'] = checksum
+                with self.assertRaisesRegex(ValueError, 'HEX_IDENTITY'): validate_request(bad, digest(bad))
+
     def test_base_chain_identity_payer_amount_finality_and_role_binding(self):
         p, q = fixture()
         for field, value in [('chainId', 1), ('chainId', True), ('payer', '0x' + '6' * 40), ('amountAtomic', '100001'),
@@ -137,6 +155,48 @@ class BridgeProtocolTest(unittest.TestCase):
             if mutate == 'wrong-pool': n['orchard_notes'] = n.pop('ironwood_notes')
             if mutate == 'transparent': coins = {'transparent_coins': [{'spend_status': 'unspent'}]}
             with self.assertRaises(ValueError): actual_notes(n, coins, 100, p['capitalNotes'])
+
+    def test_protected_fee_candidate_inventory_is_bounded_exact_and_disjoint(self):
+        p, q = fixture()
+        extra = dict(pool='ironwood', txid='f' * 64, index=2, value='10000', role='fee')
+        p['extraFeeNotes'] = [extra]
+        self.assertIs(validate_profile(p, q), p)
+        maximum = copy.deepcopy(p)
+        maximum['extraFeeNotes'] = [{**extra, 'index': index + 2} for index in range(9)]
+        self.assertIs(validate_profile(maximum, q), maximum)
+        split = copy.deepcopy(p['capitalNotes'])
+        split[1]['value'] = '5000'
+        split.append({**split[1], 'index': 3})
+        with self.assertRaises(ValueError): validate_allocations(split, q['amountZatoshi'])
+        for change in ('principal', 'value', 'duplicate', 'selected', 'overflow', 'index', 'unknown'):
+            bad = copy.deepcopy(p)
+            if change == 'principal': bad['extraFeeNotes'][0]['role'] = 'principal'
+            if change == 'value': bad['extraFeeNotes'][0]['value'] = '9999'
+            if change == 'duplicate': bad['extraFeeNotes'] *= 2
+            if change == 'selected': bad['extraFeeNotes'][0] = copy.deepcopy(p['capitalNotes'][1])
+            if change == 'overflow': bad['extraFeeNotes'] *= 10
+            if change == 'index': bad['extraFeeNotes'][0]['index'] = True
+            if change == 'unknown': bad['extraFeeNotes'][0]['arbitrary'] = True
+            with self.subTest(change=change), self.assertRaises(ValueError): validate_profile(bad, q)
+        notes = native_notes()
+        notes['ironwood_notes']['note_summaries'].append(dict(txid=extra['txid'], output_index=2,
+            value=10000, spend_status='unspent', status='confirmed at block height 90', scope='external'))
+        allocations = p['capitalNotes'] + p['extraFeeNotes']
+        self.assertEqual(len(actual_notes(notes, {}, 100, allocations)), 3)
+        for status in ('spent', 'pending', 'unknown', 'NSPEND'):
+            bad = copy.deepcopy(notes); bad['ironwood_notes']['note_summaries'][-1]['spend_status'] = status
+            with self.subTest(status=status), self.assertRaises(ValueError): actual_notes(bad, {}, 100, allocations)
+        for status in ('pending', 'NSPEND', 'unknown'):
+            with self.assertRaises(ValueError): actual_notes(notes, {'transparent_coins': [{'spend_status': status}]}, 100, allocations)
+
+    def test_scan_endpoint_normalization_and_continuity_preserve_exclusive_end(self):
+        def row(start, end, priority='Scanned'):
+            return dict(start_block=start, end_block=end, priority=priority)
+        self.assertEqual(native_scan_height([row('90', '101'), row(1, 90)]), 100)
+        for ranges in ([], [row('01', '101')], [row(True, 101)], [row(1, '101.0')],
+                       [row(1, 2**32)], [row(1, 90), row(91, 101)],
+                       [row(1, 90), row(89, 101)], [row(1, 101, 'Scan')], [row(90, 90)]):
+            with self.subTest(ranges=ranges), self.assertRaises(ValueError): native_scan_height(ranges)
 
     def test_authority_is_bound_to_bridge_not_swap_and_base_timestamp_cannot_be_renewed(self):
         p, q = fixture()

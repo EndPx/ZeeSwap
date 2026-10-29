@@ -16,17 +16,28 @@ export interface BridgeRuntime {
  /** Durable idempotent provisioning keyed by commitment. Forward address is a
   * dedicated bridge principal receiver; reverse terms use contract-authorized
   * signatures whose nonce/commitment must remain stable after process recovery. */
- funding(order:Readonly<Order>):Promise<Funding>;
+ funding(order:Readonly<Order>,books?:Readonly<Books>):Promise<Funding>;
+ /** Optional narrower operator admission scope, checked under the same book lock. */
+ assertAcceptance?(order:Readonly<Order>,books:Readonly<Books>):Promise<void>|void;
+ bindQuote?(order:Order,books:Readonly<Books>):Promise<void>|void;
+ availability?(books:Readonly<Books>):{forwardEnabled:boolean;reverseEnabled:boolean;reason?:string};
+ publicPolicy?:{amountAtomic:'100000';maxAcceptedPerDirection:1;maxConcurrent:1};
 }
 export const unavailableBridgeStatus=()=>({schemaVersion:1 as const,network:'testnet' as const,asset:{symbol:'zeeTAZ',decimals:8,baseChainId:84532,tokenAddress:null as string|null,bridgeContractAddress:null as string|null,runtimeCodeHash:null as string|null},state:'unavailable' as const,reason:'BRIDGE_NOT_CONFIGURED',forwardEnabled:false,reverseEnabled:false,maxObservationAgeSeconds:60,reserveReport:null});
-export function orderView(o:Order){return {id:o.id,direction:o.direction,amountAtomic:o.amountAtomic,outputAmountAtomic:o.amountAtomic,recipient:o.recipient,refundRecipient:o.refundRecipient,payer:o.payer,status:o.status,createdAt:o.createdAt,expiresAt:o.expiresAt,funding:o.funding,source:o.source,destination:o.destination};}
+export function orderView(o:Order){return {id:o.id,direction:o.direction,amountAtomic:o.amountAtomic,outputAmountAtomic:o.amountAtomic,recipient:o.recipient,refundRecipient:o.refundRecipient,payer:o.payer,status:o.status,createdAt:o.createdAt,expiresAt:o.expiresAt,funding:o.funding,source:o.source,destination:o.destination,acknowledgment:o.acknowledgment??null};}
 function auth(o:Order,token:string){const got=accessHash(token),expected=Buffer.from(o.capabilityHash,'hex');if(got.length!==expected.length||!timingSafeEqual(got,expected))throw Error('BRIDGE_ORDER_NOT_FOUND');}
 function evm(s:unknown){if(typeof s!=='string'||!isAddress(s,{strict:true})||s.toLowerCase()===zeroAddress)throw Error('BRIDGE_INVALID_BASE_ADDRESS');return s;}
+/** Format only an independently reconciled book; keeps the proof's original
+ * clocks. Used by the supervised worker's already-verified aggregate cache. */
+export function reconciledBridgeStatus(b:Books,runtime:BridgeRuntime,proof:BridgeReconciliation,now=Date.now()){
+ requireReconciled(b,proof,runtime,now);const report=coverage(b);let reason='BRIDGE_READY';try{guard(b,now,true);}catch(e){reason=(e as Error).message;}
+ const availability=runtime.availability?.(structuredClone(b));if(['BRIDGE_READY','BRIDGE_ADMISSION_PAUSED'].includes(reason)&&availability?.reason)reason=availability.reason;
+ return {...unavailableBridgeStatus(),...(runtime.publicPolicy?{pilot:runtime.publicPolicy}:{}),asset:{symbol:'zeeTAZ',decimals:8,baseChainId:84532,tokenAddress:runtime.tokenAddress,bridgeContractAddress:runtime.contractAddress,runtimeCodeHash:runtime.runtimeCodeHash},state:reason==='BRIDGE_READY'?'available' as const:'paused' as const,reason,forwardEnabled:reason==='BRIDGE_READY'&&(availability?.forwardEnabled??true),reverseEnabled:reason==='BRIDGE_READY'&&(availability?.reverseEnabled??true),reserveReport:b.pair?{operatorAttested:true,...report,...b.pair}:null};
+}
 export class BridgeService {
  constructor(readonly store:BridgeStore,private runtime:BridgeRuntime) {evm(runtime.tokenAddress);evm(runtime.contractAddress);evm(runtime.authorizerAddress);if(runtime.tokenAddress.toLowerCase()!==runtime.contractAddress.toLowerCase())throw Error('BRIDGE_TOKEN_CONTRACT_IDENTITY');if(!/^0x[0-9a-f]{64}$/.test(runtime.runtimeCodeHash))throw Error('BRIDGE_INVALID_CODE_HASH');}
  async status(now=Date.now()){
-  try{const b=await this.store.read();requireReconciled(b,await this.runtime.recheck(structuredClone(b)),this.runtime,now);const report=coverage(b);let reason='BRIDGE_READY';try{guard(b,now,true);}catch(e){reason=(e as Error).message;}
-   return {...unavailableBridgeStatus(),asset:{symbol:'zeeTAZ',decimals:8,baseChainId:84532,tokenAddress:this.runtime.tokenAddress,bridgeContractAddress:this.runtime.contractAddress,runtimeCodeHash:this.runtime.runtimeCodeHash},state:reason==='BRIDGE_READY'?'available':'paused',reason,forwardEnabled:reason==='BRIDGE_READY',reverseEnabled:reason==='BRIDGE_READY',reserveReport:b.pair?{operatorAttested:true,...report,...b.pair}:null};
+  try{const b=await this.store.read();return reconciledBridgeStatus(b,this.runtime,await this.runtime.recheck(structuredClone(b)),now);
   }catch{return {...unavailableBridgeStatus(),reason:'BRIDGE_RECONCILIATION_UNAVAILABLE'};}
  }
  async quote(input:QuoteInput,token:string,key:string,now=Date.now()){
@@ -38,7 +49,7 @@ export class BridgeService {
   return this.store.update(async b=>{requireReconciled(b,await this.runtime.recheck(structuredClone(b)),this.runtime,current());guard(b,current(),true);const hash=accessHash(token).toString('hex');
    const old=Object.values(b.orders).find(o=>o.capabilityHash===hash&&o.idempotencyKey===key);
    if(old){if(old.requestHash!==bridgeRequestDigest(input))throw Error('BRIDGE_IDEMPOTENCY_CONFLICT');return orderView(old);}
-   const o=makeOrder(input,hash,key,current());b.orders[o.id]=o;return orderView(o);
+   const o=makeOrder(input,hash,key,current());await this.runtime.bindQuote?.(o,structuredClone(b));b.orders[o.id]=o;return orderView(o);
   });
  }
  async accept(id:string,token:string,key:string,now=Date.now()){
@@ -48,7 +59,7 @@ export class BridgeService {
    // Accepted-order retrieval must work during a pause without renewing authority.
    if(o.accepted)return orderView(o);
    requireReconciled(b,await this.runtime.recheck(structuredClone(b)),this.runtime,current());guard(b,current(),true);if(o.status!=='QUOTED'||current()>=Date.parse(o.expiresAt))throw Error('BRIDGE_QUOTE_EXPIRED');
-   const f=await this.runtime.funding(structuredClone(o));
+   await this.runtime.assertAcceptance?.(structuredClone(o),structuredClone(b));const f=await this.runtime.funding(structuredClone(o),structuredClone(b));
    if(o.direction==='TAZ_TO_ZEETAZ'){
     if(f.kind!=='shielded-deposit'||f.network!=='zcash-testnet'||!f.memo||Buffer.byteLength(f.memo)>512||!Number.isSafeInteger(f.cutoffHeight)||f.cutoffHeight<=b.pair!.zcash.height||!Number.isFinite(Date.parse(f.cutoffTime))||new Date(f.cutoffTime).toISOString()!==f.cutoffTime||Date.parse(f.cutoffTime)<=current()||Date.parse(f.cutoffTime)>Date.parse(o.expiresAt))throw Error('BRIDGE_FUNDING_BINDING');
     await this.runtime.validateShieldedRecipient(f.address);
@@ -61,10 +72,11 @@ export class BridgeService {
    // time and the independent paired books immediately before acceptance.
    requireReconciled(b,await this.runtime.recheck(structuredClone(b)),this.runtime,current());guard(b,current(),true);
    if(current()>=Date.parse(o.expiresAt)||(f.kind==='shielded-deposit'?Date.parse(f.cutoffTime)<=current():BigInt(f.terms.deadline)*1000n<=BigInt(current())))throw Error('BRIDGE_QUOTE_EXPIRED');
+   await this.runtime.assertAcceptance?.(structuredClone(o),structuredClone(b));
    // Reserve a full dedicated external shielded-delivery/refund fee before
    // returning instructions that can create an irrevocable principal obligation.
    b.feeCapital=(BigInt(b.feeCapital)-10000n).toString();o.feeReservation={maximum:'10000'};
-   o.funding=f;o.accepted=true;o.status=o.direction==='TAZ_TO_ZEETAZ'?'AWAITING_DEPOSIT':'AWAITING_BURN';return orderView(o);
+   o.funding=f;o.accepted=true;o.acceptedPair=structuredClone(b.pair!);o.status=o.direction==='TAZ_TO_ZEETAZ'?'AWAITING_DEPOSIT':'AWAITING_BURN';return orderView(o);
   });
  }
  async order(id:string,token:string){const b=await this.store.read(),o=b.orders[id];if(!o)throw Error('BRIDGE_ORDER_NOT_FOUND');auth(o,token);return orderView(o);}

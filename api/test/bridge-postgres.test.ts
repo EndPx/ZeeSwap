@@ -53,7 +53,7 @@ test('isolated PostgreSQL bridge transaction/encryption/concurrency/lifecycle fi
   await t.test('included principal moves C -> D, reorg and exact re-inclusion close once',async()=>{
    const included=receipt('zcash-testnet','dd'.repeat(32));await repo.update(b=>{applyEvent(b,{kind:'INCLUDE',id:redemptionId,receipt:included},now);});assert.equal((await repo.read()).inTransit,'100000');
    await repo.update(b=>{applyEvent(b,{kind:'REORG',target:'DELIVERY',id:redemptionId,receipt:included},now);});assert.equal((await repo.read()).controlled,'100000');
-   await repo.update(b=>{applyEvent(b,{kind:'INCLUDE',id:redemptionId,receipt:included},now);applyEvent(b,{kind:'CONFIRM',id:redemptionId,receipt:included},now);});const final=await repo.read();assert.equal(final.inTransit,'0');assert.equal(final.controlled,'0');assert.equal(coverage(final).unpaidRedemptionsZatoshi,'0');assert.equal(coverage(final).covered,true);
+   await repo.update(b=>{applyEvent(b,{kind:'INCLUDE',id:redemptionId,receipt:included},now);applyEvent(b,{kind:'CONFIRM',id:redemptionId,receipt:included},now);});const final=await repo.read();assert.equal(final.inTransit,'0');assert.equal(final.controlled,'0');assert.equal(coverage(final).unpaidRedemptionsZatoshi,'0');assert.equal(coverage(final).pendingAcknowledgmentsZatoshi,'100000');assert.equal(final.orders[redemptionId].status,'NATIVE_DELIVERED_AWAITING_ACK');assert.equal(coverage(final).covered,true);
   });
  }finally{
   // This exact invocation owns only the validated random schema; no CASCADE,

@@ -21,6 +21,13 @@ def hexa(value, width=64, prefix=True):
     return value
 
 
+def evm_address(value):
+    """Preserve committed address case; canonical chain identities use hexa."""
+    need(type(value) is str and re.fullmatch(r'0x[0-9a-fA-F]{40}', value)
+         and int(value[2:], 16) != 0, 'BRIDGE_EVM_ADDRESS')
+    return value
+
+
 def atomic(value, zero=False):
     need(type(value) is str and re.fullmatch('0|[1-9][0-9]{0,77}', value), 'BRIDGE_ATOMIC')
     need(zero or int(value) > 0, 'BRIDGE_POSITIVE')
@@ -78,10 +85,11 @@ def validate_request(request, approved_digest):
     need(base['admin'] not in (base['operator'], base['authorizer']), 'BRIDGE_ADMIN_SEPARATION')
     if reverse:
         hexa(base['payer'], 40)
-        need(base['payer'] == i['payer'], 'BRIDGE_BURN_PAYER')
+        evm_address(i['payer'])
+        need(base['payer'] == i['payer'].lower(), 'BRIDGE_BURN_PAYER')
     else:
         need(base['payer'] is None, 'BRIDGE_REFUND_PAYER')
-        hexa(i['recipient'], 40)
+        evm_address(i['recipient'])
     exact(request['paired'], 'base zcash')
     for value in request['paired'].values():
         anchor(value)
@@ -107,13 +115,56 @@ def validate_allocations(notes, amount):
         value = atomic(n['value'])
         if n['role'] == 'principal': principal += value
         else: fee += value
-    need(principal == atomic(amount) and fee == 10000, 'BRIDGE_EXACT_SEPARATE_ENTITLEMENTS')
+    need(principal == atomic(amount) and fee == 10000 and sum(n['role'] == 'fee' for n in notes) == 1, 'BRIDGE_EXACT_SEPARATE_ENTITLEMENTS')
+
+
+def extra_fee_notes(profile):
+    """Protected fee candidates: at most nine further single-fee notes."""
+    extras = profile.get('extraFeeNotes', [])
+    need(type(extras) is list and len(extras) <= 9, 'BRIDGE_EXTRA_FEE_BOUND')
+    seen = {(n['pool'], n['txid'], n['index']) for n in profile['capitalNotes']}
+    for n in extras:
+        exact(n, 'pool txid index value role')
+        need(n['pool'] == 'ironwood' and n['role'] == 'fee' and n['value'] == '10000'
+             and type(n['index']) is int and 0 <= n['index'] <= 0xffffffff, 'BRIDGE_EXTRA_FEE_NOTE')
+        hexa(n['txid'], prefix=False)
+        identity = n['pool'], n['txid'], n['index']
+        need(identity not in seen, 'BRIDGE_DUPLICATE_NOTE')
+        seen.add(identity)
+    return extras
+
+
+def native_scan_height(ranges):
+    """Require contiguous scanned ranges; endpoints use CLI canonical uint32s.
+
+    Per-order profiles have no birthday metadata, so this validates continuity
+    of all reported ranges, without claiming birthday coverage.
+    """
+    need(type(ranges) is list and 0 < len(ranges) <= 128, 'BRIDGE_COMPLETE_SCAN')
+    intervals = []
+    for row in ranges:
+        need(type(row) is dict and row.get('priority') == 'Scanned', 'BRIDGE_COMPLETE_SCAN')
+        endpoints = []
+        for key in ('start_block', 'end_block'):
+            value = row.get(key)
+            need((type(value) is int or type(value) is str and re.fullmatch(r'0|[1-9][0-9]{0,9}', value))
+                 and 0 <= int(value) <= 0xffffffff, 'BRIDGE_SCAN_UINT32')
+            endpoints.append(int(value))
+        start, end = endpoints
+        need(start < end, 'BRIDGE_SCAN_INTERVAL')
+        intervals.append((start, end))
+    intervals.sort()
+    end = intervals[0][1]
+    for start, next_end in intervals[1:]:
+        need(start == end, 'BRIDGE_SCAN_GAP_OR_OVERLAP')
+        end = next_end
+    return end - 1
 
 
 def actual_notes(notes, coins, scanned, allocations):
     """Count actual mature UNSPENT notes, including reserved principal, never receipt sums."""
     need(type(scanned) is int and scanned >= 10 and type(notes) is dict and type(coins) is dict, 'BRIDGE_NATIVE_SCAN')
-    need(not any(n.get('spend_status') == 'unspent' for n in coins.get('transparent_coins', [])), 'BRIDGE_TRANSPARENT_CAPITAL')
+    need(all(n.get('spend_status') == 'spent' for n in coins.get('transparent_coins', [])), 'BRIDGE_TRANSPARENT_CAPITAL')
     found = []
     for pool in ('sapling', 'orchard', 'ironwood'):
         for n in notes.get(pool + '_notes', {}).get('note_summaries', []):
@@ -141,7 +192,7 @@ def path_inside(path, root):
 
 
 def validate_profile(profile, request):
-    exact(profile, 'version mode enabled serviceUid root signingWallet viewingWallet ufvkFile walletUfvkSha256 principalAccount feeAccount swapAccount journalRoot approvedRequest approvedDigest capitalNotes cli reader verifier node tsxLoader preflight baseProfile protoDir modules')
+    exact(profile, ('version mode enabled serviceUid root signingWallet viewingWallet ufvkFile walletUfvkSha256 principalAccount feeAccount swapAccount journalRoot approvedRequest approvedDigest capitalNotes cli reader verifier node tsxLoader preflight baseProfile protoDir modules' + (' extraFeeNotes' if 'extraFeeNotes' in profile else '')))
     need(type(profile['version']) is int and profile['version'] == 1 and profile['mode'] == 'BRIDGE_NATIVE_TESTNET'
          and type(profile['enabled']) is bool and type(profile['serviceUid']) is int and profile['serviceUid'] > 0, 'BRIDGE_NATIVE_PROFILE')
     root = profile['root']
@@ -167,6 +218,7 @@ def validate_profile(profile, request):
     need(profile['approvedRequest']['path'] == root + '/orders/' + request['orderId'] + '/approved.private.json', 'BRIDGE_REQUEST_PATH')
     validate_request(request, profile['approvedDigest'])
     validate_allocations(profile['capitalNotes'], request['amountZatoshi'])
+    extra_fee_notes(profile)
     return profile
 
 

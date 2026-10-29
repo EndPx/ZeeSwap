@@ -104,18 +104,39 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__,allow_abbrev=False)
     parser.add_argument('--script', required=True, type=Path)
     parser.add_argument('--config', required=True, type=Path)
-    parser.add_argument('--kind', choices=('native', 'base-forward', 'base-reverse', 'base-refund'), default='native')
+    parser.add_argument('--kind', choices=('native', 'bridge', 'base-forward', 'base-reverse', 'base-refund'), default='native')
+    parser.add_argument('--profile-sha256')
     parser.add_argument('--approved-request', type=Path)
     parser.add_argument('--approved-digest')
     parser.add_argument('--command', choices=('prepare','recover','broadcast','receipt'))
     args = parser.parse_args()
     scripts = Path(__file__).resolve().parent
     allowed = {'native': {scripts/'prepared_raw.py', scripts/'live_refund_raw.py', scripts/'live_payer_send.py', scripts/'linux_native_wallet.py'},
+               'bridge': {scripts/'bridge_native_wallet.py'},
                'base-forward': {scripts.parent/'base-signer/signer.py'},
                'base-reverse': {scripts.parent/'base-signer/reverse_signer.py'},
                'base-refund': {scripts.parent/'base-signer/refund_signer.py'}}
     if args.script.resolve() not in allowed[args.kind] or not args.config.is_absolute():
         raise ValueError('New owned native boundary only')
+    if args.kind == 'bridge':
+        import re
+        if (args.approved_request or args.approved_digest or args.command
+                or not args.profile_sha256 or not re.fullmatch('[a-f0-9]{64}', args.profile_sha256)):
+            raise ValueError('Pinned dedicated bridge profile required')
+        data = sys.stdin.read(8193)
+        if len(data) > 8192:
+            raise ValueError('Bounded bridge command required')
+        payload = json.loads(data)
+        if set(payload) != {'command'} or payload['command'] not in ('prepare', 'recover', 'broadcast', 'receipt', 'capital'):
+            raise ValueError('Immutable bridge command required')
+        result = run_owned([sys.executable, str(args.script), '--profile', str(args.config),
+                            '--profile-sha256', args.profile_sha256], data, 1200)
+        print(json.dumps({'status': 'OWNED_PROCESS_CLEANED', 'groupReaped': True, 'kind': 'bridge'}), file=sys.stderr)
+        print(result.stderr, end='', file=sys.stderr)
+        print(result.stdout, end='')
+        return result.returncode
+    if args.profile_sha256:
+        raise ValueError('Bridge-only profile pin refused for another mode')
     payer=args.script.resolve()==scripts/'live_payer_send.py'
     extras=[]
     if args.approved_request or args.approved_digest or args.command:

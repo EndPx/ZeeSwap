@@ -22,7 +22,7 @@ test('versioned positional commitment matches independent Python vectors in eith
  assert.equal(bridgeCommitment({refundRecipient:'utest1fixture',recipient:address,direction:'TAZ_TO_ZEETAZ',...common}),'0x423b90158a6cb13c4bb171ee78fe88e801c3575790c3106d90157145e2715ed7');
 });
 test('deposit, mint and burn conserve principal coverage; replay is once only',()=>{
- const {b,o,r}=redeemed();assert.deepEqual(coverage(b),{controlledZatoshi:'100000',inTransitZatoshi:'0',circulatingZatoshi:'0',unpaidRedemptionsZatoshi:'100000',acceptedUnmintedZatoshi:'0',otherRefundsZatoshi:'0',covered:true});
+ const {b,o,r}=redeemed();assert.deepEqual(coverage(b),{controlledZatoshi:'100000',inTransitZatoshi:'0',circulatingZatoshi:'0',unpaidRedemptionsZatoshi:'100000',pendingAcknowledgmentsZatoshi:'0',acceptedUnmintedZatoshi:'0',otherRefundsZatoshi:'0',covered:true});
  const before=digest(b);applyEvent(b,{kind:'BURN',id:r.id,amount:r.amountAtomic,payer:address,commitment:r.commitment,identity:'test:burn:0',receipt:receipt('base-sepolia','cc'.repeat(32))},now);assert.equal(digest(b),before);assert.equal(o.status,'MINTED');
 });
 test('permanent cancellation excludes mint and keeps exact refund principal',()=>{
@@ -40,19 +40,62 @@ test('observed obligations still reconcile during admission pause and stale chec
  const b=fixtureBooks(),o=forward(b);b.paused=true;applyEvent(b,{kind:'DEPOSIT',id:o.id,amount:o.amountAtomic,identity:'paused-deposit',receipt:receipt()},now+120000);
  applyEvent(b,{kind:'MINT',id:o.id,amount:o.amountAtomic,recipient:o.recipient,receipt:receipt('base-sepolia')},now+120000);assert.equal(b.supply,'100000');assert.equal(coverage(b).acceptedUnmintedZatoshi,'0');assert.throws(()=>guard(b,now+120000,false),/STALE/);
 });
-test('inclusion -> reorg -> same inclusion -> confirmation restores C/D and closes liability',()=>{
+test('inclusion -> reorg -> same inclusion -> native confirmation restores C/D and awaits Base ACK',()=>{
  const {b,r}=redeemed();r.status='PAYOUT_PENDING';r.attempt={intentId:'fixture',txid:'dd'.repeat(32)};const included=receipt('zcash-testnet','dd'.repeat(32));
  applyEvent(b,{kind:'INCLUDE',id:r.id,receipt:included},now);assert.equal(b.controlled,'0');assert.equal(b.inTransit,'100000');assert.equal(coverage(b).unpaidRedemptionsZatoshi,'100000');
  applyEvent(b,{kind:'REORG',target:'DELIVERY',id:r.id,receipt:included},now);assert.equal(b.controlled,'100000');assert.equal(b.inTransit,'0');assert.equal(b.paused,true);
  applyEvent(b,{kind:'INCLUDE',id:r.id,receipt:included},now);applyEvent(b,{kind:'REORG',target:'DELIVERY',id:r.id,receipt:included},now);assert.equal(b.controlled,'100000');
  const reverted=digest(b);applyEvent(b,{kind:'REORG',target:'DELIVERY',id:r.id,receipt:included},now);assert.equal(digest(b),reverted);
- applyEvent(b,{kind:'INCLUDE',id:r.id,receipt:included},now);applyEvent(b,{kind:'CONFIRM',id:r.id,receipt:included},now);assert.equal(b.inTransit,'0');assert.equal(coverage(b).unpaidRedemptionsZatoshi,'0');assert.equal(coverage(b).covered,true);
+ applyEvent(b,{kind:'INCLUDE',id:r.id,receipt:included},now);applyEvent(b,{kind:'CONFIRM',id:r.id,receipt:included},now);assert.equal(b.inTransit,'0');assert.equal(coverage(b).unpaidRedemptionsZatoshi,'0');assert.equal(coverage(b).pendingAcknowledgmentsZatoshi,'100000');assert.equal(r.status,'NATIVE_DELIVERED_AWAITING_ACK');assert.equal(coverage(b).covered,true);
  applyEvent(b,{kind:'REORG',target:'DELIVERY',id:r.id,receipt:included},now);assert.equal(b.incident,true);assert.equal(coverage(b).unpaidRedemptionsZatoshi,'100000');
 });
-test('post-completion reorg is incident with unpaid liability retained, never automatic remint',()=>{
+test('post-native-delivery reorg is incident with unpaid liability retained, never automatic remint',()=>{
  const {b,r}=redeemed();r.status='PAYOUT_PENDING';r.attempt={intentId:'fixture',txid:'dd'.repeat(32)};const included=receipt('zcash-testnet','dd'.repeat(32));applyEvent(b,{kind:'INCLUDE',id:r.id,receipt:included},now);applyEvent(b,{kind:'CONFIRM',id:r.id,receipt:included},now);
  applyEvent(b,{kind:'REORG',target:'DELIVERY',id:r.id,receipt:included},now);assert.equal(b.incident,true);assert.equal(b.supply,'0');assert.equal(coverage(b).unpaidRedemptionsZatoshi,'100000');assert.equal(coverage(b).covered,false);
 });
+function nativeDelivered(){
+ const {b,r}=redeemed();r.status='PAYOUT_PENDING';r.attempt={intentId:'synthetic-native',txid:'dd'.repeat(32)};
+ const native=receipt('zcash-testnet','dd'.repeat(32));applyEvent(b,{kind:'INCLUDE',id:r.id,receipt:native},now);applyEvent(b,{kind:'CONFIRM',id:r.id,receipt:native},now);
+ const ack:VerifiedEvent={kind:'ACK',id:r.id,amount:r.amountAtomic,evidenceCommitment:'0x'+digest([r.salt,r.destination]),receipt:receipt('base-sepolia','0x'+'ee'.repeat(32))};
+ return {b,r,native,ack};
+}
+
+test('native confirmation records pending acknowledgment separately; opaque bound ACK alone completes exactly once',()=>{
+ const {b,r,ack}=nativeDelivered();
+ assert.equal(r.status,'NATIVE_DELIVERED_AWAITING_ACK');assert.equal(r.acknowledgment,undefined);
+ assert.deepEqual(coverage(b),{controlledZatoshi:'0',inTransitZatoshi:'0',circulatingZatoshi:'0',unpaidRedemptionsZatoshi:'0',pendingAcknowledgmentsZatoshi:'100000',acceptedUnmintedZatoshi:'0',otherRefundsZatoshi:'0',covered:true});
+ assert.match(ack.kind==='ACK'?ack.evidenceCommitment:'',/^0x[0-9a-f]{64}$/);
+ assert.ok(!JSON.stringify(ack).includes(r.recipient));assert.ok(!JSON.stringify(ack).includes(r.salt));
+ applyEvent(b,ack,now);assert.equal(r.status,'COMPLETED');assert.deepEqual(r.acknowledgment,ack.receipt);assert.equal(coverage(b).pendingAcknowledgmentsZatoshi,'0');
+ const completed=digest(b);applyEvent(b,ack,now);assert.equal(digest(b),completed);
+ assert.throws(()=>applyEvent(b,{...ack,amount:'100001'} as VerifiedEvent,now),/EVENT_CONFLICT/);
+});
+
+test('ACK rejects a missing native confirmation, changed amount, salt or destination commitment, and wrong chain',()=>{
+ const pending=nativeDelivered();
+ for(const change of ['amount','salt','destination','network','unconfirmed']){
+  const {b,r,ack}=nativeDelivered();if(ack.kind!=='ACK')throw Error('fixture');
+  if(change==='amount')ack.amount='100001';
+  if(change==='salt')ack.evidenceCommitment='0x'+digest(['different-salt',r.destination]);
+  if(change==='destination')ack.evidenceCommitment='0x'+digest([r.salt,{...r.destination,transactionHash:'ff'.repeat(32)}]);
+  if(change==='network')ack.receipt=receipt('zcash-testnet');
+  if(change==='unconfirmed')r.status='IN_TRANSIT';
+  const before=digest(b);assert.throws(()=>applyEvent(b,ack,now),/ACK_BINDING|RECEIPT_IDENTITY/);assert.equal(digest(b),before);
+ }
+ const {b,r}=redeemed();const before=digest(b);
+ assert.throws(()=>applyEvent(b,{...pending.ack,id:r.id} as VerifiedEvent,now),/ACK_BINDING/);assert.equal(digest(b),before);
+});
+
+test('delivery and ACK reorgs freeze completed orders without reminting or restoring reusable capital',()=>{
+ for(const target of ['DELIVERY','ACK'] as const){
+  const {b,r,native,ack}=nativeDelivered();applyEvent(b,ack,now);
+  const fact={kind:'REORG' as const,id:r.id,target,receipt:target==='ACK'?ack.receipt:native};
+  assert.throws(()=>applyEvent(b,{...fact,receipt:{...fact.receipt,transactionHash:'fa'.repeat(32)}},now),/REORG_BINDING/);
+  applyEvent(b,fact,now);assert.equal(r.status,'FROZEN');assert.equal(r.frozenFrom,'COMPLETED');assert.equal(b.incident,true);assert.equal(b.paused,true);assert.equal(b.supply,'0');assert.equal(b.controlled,'0');assert.equal(b.inTransit,'0');assert.equal(coverage(b).unpaidRedemptionsZatoshi,target==='ACK'?'0':'100000');assert.equal(coverage(b).pendingAcknowledgmentsZatoshi,target==='ACK'?'100000':'0');assert.equal(coverage(b).covered,target==='ACK');
+  const frozen=digest(b);applyEvent(b,fact,now);assert.equal(digest(b),frozen);assert.throws(()=>guard(b,now,false),/INCIDENT/);
+ }
+});
+
 test('Base burn source reorg is bound to the actual source and freezes repayment',()=>{const {b,r}=redeemed();applyEvent(b,{kind:'REORG',target:'SOURCE',id:r.id,receipt:r.source!},now);assert.equal(b.incident,true);assert.throws(()=>guard(b,now,false),/INCIDENT/);});
 test('admission rejects stale, deficit and shared inventories while safe paused repayment remains eligible',()=>{
  const {b}=redeemed();b.paused=true;assert.doesNotThrow(()=>guard(b,now,false));assert.throws(()=>guard(b,now,true),/PAUSED/);b.paused=false;b.controlled='99999';assert.throws(()=>guard(b,now,true),/PAUSED/);b.feeAccount=b.principalAccount;assert.throws(()=>guard(b,now,false),/ISOLATION/);

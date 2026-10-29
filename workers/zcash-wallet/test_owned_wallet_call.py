@@ -10,6 +10,23 @@ from owned_wallet_call import run_owned, OwnedWalletTimeout,OwnedProcessCleanErr
 
 
 class OwnedProcessTests(unittest.TestCase):
+    def test_bridge_mode_requires_exact_script_and_profile_pin_before_spawn(self):
+        script=Path(__file__).with_name('owned_wallet_call.py')
+        worker=script.with_name('bridge_native_wallet.py')
+        for args in (['--kind','bridge','--script',str(worker),'--config','/missing'],
+                     ['--kind','bridge','--script',str(worker),'--config','/missing','--profile-sha256','0'*63],
+                     ['--kind','bridge','--script',str(script.with_name('prepared_raw.py')),'--config','/missing','--profile-sha256','0'*64]):
+            result=subprocess.run([sys.executable,str(script),*args],input='{"command":"capital"}',capture_output=True,text=True,timeout=5)
+            self.assertNotEqual(result.returncode,0)
+            self.assertNotIn('OWNED_PROCESS_CLEANED',result.stderr)
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux subreaper required')
+    def test_bridge_invalid_child_profile_is_reaped_without_wallet_access(self):
+        script=Path(__file__).with_name('owned_wallet_call.py')
+        result=subprocess.run([sys.executable,str(script),'--kind','bridge','--script',str(script.with_name('bridge_native_wallet.py')),
+                               '--config','/missing-bridge-profile.private.json','--profile-sha256','0'*64],input='{"command":"capital"}',capture_output=True,text=True,timeout=8)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('OWNED_PROCESS_CLEANED',result.stderr)
+        self.assertIn('"groupReaped": true',result.stderr)
     def test_unknown_duplicate_or_abbreviated_options_refuse_before_spawn(self):
         script=Path(__file__).with_name('owned_wallet_call.py')
         for args in [['--config','one','--config','two'],['--conf','one'],['--unknown']]:

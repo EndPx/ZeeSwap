@@ -16,7 +16,7 @@ import sys
 import time
 
 from bridge_protocol import (need, validate_profile, validate_request, validate_authority,
-                             actual_notes, note_identity, atomic, path_inside)
+                             actual_notes, note_identity, atomic, path_inside, extra_fee_notes, native_scan_height)
 from prepared_raw import Adapter, durable
 from outgoing_recovery import validate_outgoing_recovery, MODE
 from testnet_policy_capital import bounded_read_command
@@ -86,7 +86,7 @@ class BridgeAdapter(Adapter):
                      '--profile', profile['baseProfile']['path'], '--profile-sha256', profile['baseProfile']['sha256'],
                      '--request', profile['approvedRequest']['path'], '--approved-digest', profile['approvedDigest']]
         self.config = {'approvedDigest': profile['approvedDigest'], 'capitalUfvkSha256': profile['walletUfvkSha256'],
-                       'approvedCapitalNotes': profile['capitalNotes'], 'operatorUfvkFile': profile['ufvkFile'],
+                       'approvedCapitalNotes': profile['capitalNotes'] + extra_fee_notes(profile), 'operatorUfvkFile': profile['ufvkFile'],
                        'recipientProofMode': MODE, 'readCommand': [profile['reader']['path']],
                        'verifyCommand': [profile['verifier']['path']], 'protoDir': profile['protoDir'],
                        'preflightCommand': preflight + ['--mode', 'authority'],
@@ -104,7 +104,15 @@ class BridgeAdapter(Adapter):
             need(intent.get('state') == 'SIGNING_INTENT' and intent.get('request') == self.request
                  and intent.get('approvedDigest') == self.profile['approvedDigest'], 'BRIDGE_CALCULATION_INTENT')
             self.commitment()
-        return bounded_read_command(command, payload, timeout, (self.lock_fd,) if hasattr(self, 'lock_fd') else ())
+        result = bounded_read_command(command, payload, timeout, (self.lock_fd,) if hasattr(self, 'lock_fd') else ())
+        if command == self.base + ['--server', 'https://testnet.zec.rocks:443', '--waitsync', 'notes', 'all']:
+            # Prove the complete candidate inventory before generic preparation.
+            # The SDK may choose one approved fee; verify enforces that bound.
+            status = self.run(self.base + ['--offline', '--nosync', 'sync', 'status'])
+            coins = self.run(self.base + ['--offline', '--nosync', 'coins', 'all'])
+            actual_notes(result, coins, native_scan_height(status.get('scan_ranges')),
+                         self.profile['capitalNotes'] + extra_fee_notes(self.profile))
+        return result
 
     def recheck_artifacts(self):
         for key in ('approvedRequest', 'cli', 'reader', 'verifier', 'node', 'tsxLoader', 'preflight', 'baseProfile'):
@@ -117,9 +125,17 @@ class BridgeAdapter(Adapter):
         # Generic signed-raw/ciphertext parsing is reused; no swap request guard is bypassed.
         prepared = super().verify(export, intent, tip, require_safe_expiry)
         selected = prepared['selectedNotes']
-        need(len(selected) == len(self.profile['capitalNotes'])
-             and {note_identity(n) for n in selected} == {note_identity(n) for n in self.profile['capitalNotes']},
-             'BRIDGE_EXACT_SELECTED_PRINCIPAL_AND_FEE')
+        principals = {note_identity(n) for n in self.profile['capitalNotes'] if n['role'] == 'principal'}
+        fees = {note_identity(n) for n in self.profile['capitalNotes'] + extra_fee_notes(self.profile) if n['role'] == 'fee'}
+        identities = {note_identity(n) for n in selected}
+        need(len(selected) == len(principals) + 1 and len(identities) == len(selected)
+             and principals <= identities and len(identities - principals) == 1
+             and identities - principals <= fees, 'BRIDGE_EXACT_SELECTED_PRINCIPAL_AND_FEE')
+        original = intent.get('prepared')
+        if original:
+            need(all(prepared.get(k) == original.get(k) for k in
+                     ('txid', 'rawTransaction', 'feeZatoshi', 'expiryHeight', 'selectedNotes')),
+                 'BRIDGE_ORIGINAL_SIGNED_IDENTITY')
         need(len(prepared['outputs']) == 1 and prepared['outputs'][0].get('ownChange') is False,
              'BRIDGE_NO_UNALLOCATED_CHANGE')
         # Actual encrypted memo must be empty, not an unchecked journal annotation.
@@ -143,8 +159,7 @@ class BridgeAdapter(Adapter):
         sync = self.run(view + ['--offline', '--nosync', 'sync', 'status'])
         coins = self.run(view + ['--offline', '--nosync', 'coins', 'all'])
         ranges = sync.get('scan_ranges', [])
-        need(ranges and all(r.get('priority') == 'Scanned' and type(r.get('end_block')) is int for r in ranges), 'BRIDGE_COMPLETE_SCAN')
-        scanned = max(r['end_block'] for r in ranges) - 1
+        scanned = native_scan_height(ranges)
         channel, service, messages = self.network()
         try:
             head = service.GetLatestBlock(messages.ChainSpec(), timeout=20)
@@ -170,15 +185,16 @@ class BridgeAdapter(Adapter):
                         delivery_block = service.GetBlock(messages.BlockID(height=delivery.height), timeout=20)
                         need(any(bytes(tx.txid)[::-1].hex() == prepared['txid'] for tx in delivery_block.vtx), 'BRIDGE_INCLUDED_CANONICAL_OUTPUT')
                         self.verify({'version': 'zeeswap_prepared_v1', 'transactions': [prepared]}, intent, delivery.height, False)
-                        need(not any(n.get('spend_status') == 'unspent' for pool in ('sapling', 'orchard', 'ironwood')
-                                     for n in notes.get(pool + '_notes', {}).get('note_summaries', []))
-                             and not any(n.get('spend_status') == 'unspent' for n in coins.get('transparent_coins', [])), 'BRIDGE_UNEXPECTED_POST_DELIVERY_CAPITAL')
                         need(service.GetBlock(messages.BlockID(height=delivery.height), timeout=20).hash == delivery_block.hash,
                              'BRIDGE_INCLUDED_OUTPUT_REORG')
                         included = {'txid': prepared['txid'], 'height': delivery.height,
                                     'blockHash': bytes(delivery_block.hash)[::-1].hex(),
                                     'principalZatoshi': self.request['amountZatoshi'], 'confirmations': scanned - delivery.height + 1}
-            capital = [] if included else actual_notes(notes, coins, scanned, self.profile['capitalNotes'])
+            allocations = self.profile['capitalNotes'] + extra_fee_notes(self.profile)
+            if included:
+                selected = {note_identity(n) for n in prepared['selectedNotes']}
+                allocations = [n for n in allocations if note_identity(n) not in selected]
+            capital = actual_notes(notes, coins, scanned, allocations)
             enriched = []
             for n in capital:
                 source = service.GetBlock(messages.BlockID(height=n['height']), timeout=20)
@@ -195,7 +211,7 @@ class BridgeAdapter(Adapter):
             need(service.GetBlock(messages.BlockID(height=scanned), timeout=20).hash == block.hash, 'BRIDGE_SCAN_REORG')
             need(0 <= time.time() - observed <= 60, 'BRIDGE_PHYSICAL_OBSERVATION_EXPIRED')
             return {'version': 1, 'status': 'BRIDGE_NATIVE_CAPITAL_VERIFIED', 'notes': enriched,
-                    'controlledZatoshi': '0' if included else self.request['amountZatoshi'], 'feeCapitalZatoshi': '0' if included else '10000',
+                    'controlledZatoshi': '0' if included else self.request['amountZatoshi'], 'feeCapitalZatoshi': str(sum(int(n['value']) for n in enriched if n['role'] == 'fee')),
                     'inTransitZatoshi': self.request['amountZatoshi'] if included and included['confirmations'] < 10 else '0',
                     'included': included, 'principalAccount': self.profile['principalAccount'], 'feeAccount': self.profile['feeAccount'],
                     'zcash': {'height': scanned, 'hash': bytes(block.hash)[::-1].hex(),
@@ -209,7 +225,7 @@ class BridgeAdapter(Adapter):
         # Separate viewing-only scanner observes chain-controlled notes even when the signer has Calculated reservations.
         capital = self.native_capital()
         need(capital['controlledZatoshi'] == self.request['amountZatoshi'] and capital['inTransitZatoshi'] == '0'
-             and capital['included'] is None and capital['feeCapitalZatoshi'] == '10000', 'BRIDGE_ALREADY_INCLUDED_OR_FEE_SPENT')
+             and capital['included'] is None and capital['feeCapitalZatoshi'] == str(10000 * (1 + len(extra_fee_notes(self.profile)))), 'BRIDGE_ALREADY_INCLUDED_OR_FEE_SPENT')
         proof = self.run(self.config['preflightCommand'])
         pair = validate_authority(proof, self.request, self.profile, time.time())
         from bridge_protocol import anchor
@@ -225,7 +241,11 @@ class BridgeAdapter(Adapter):
         need(self.profile['enabled'] or command in ('recover', 'receipt'), 'BRIDGE_NATIVE_DISABLED')
         self.recheck_artifacts()
         checked = self.sdk({'command': 'validate', 'address': self.request['recipient']})
-        need(checked == {'network': 'zcash-testnet', 'shielded': True, 'receiver': self.request['recipient']}, 'BRIDGE_SDK_RECIPIENT')
+        # Preserve the exact committed UA. The maintained SDK validates its
+        # Orchard receiver; outgoing recovery compares that same canonical
+        # receiver even when the user's UA contains additional receiver types.
+        need(checked.get('network') == 'zcash-testnet' and checked.get('shielded') is True
+             and type(checked.get('receiver')) is str and checked['receiver'].startswith('utest1'), 'BRIDGE_SDK_RECIPIENT')
         need(self.run(self.base + ['--offline', '--nosync', 'wallet_kind']).get('kind') == 'Loaded from mnemonic (seed or phrase)',
              'BRIDGE_SIGNING_WALLET')
         if self.path.exists():
