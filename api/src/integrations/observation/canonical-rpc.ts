@@ -1,6 +1,7 @@
 import { safeEndpoint, readJson, type CanonicalReader, type CanonicalSample } from "./chef.ts";
-import { height, hex, object, parseHeader, requireThat, type Header, type Policy } from "./types.ts";
+import { height, hex, object, parseHeader, requireThat, type Header, type Policy, ObservationError } from "./types.ts";
 import {setTimeout as delay}from'node:timers/promises';
+export type CanonicalHeaderRowDiagnostic={event:'canonical-header-row-failure';kind:1|2|3;height:number;rpcCode:number|null;id:number|null};
 export type CanonicalRpcDiagnostic={event:'canonical-rpc-failure';attempt:number;methodCount:number;httpStatus:number|null;retryAfterMs:number|null;willRetry:boolean};
 /** Only bounded numeric metadata is logged. Header text, URLs and bodies stay private. */
 export function canonicalRetryAfterMs(value:string|null,now=Date.now()):number|null{
@@ -12,7 +13,7 @@ export function canonicalRetryAfterMs(value:string|null,now=Date.now()):number|n
 }
 
 /** Deliberately exposes only allowlisted read RPC methods, never a generic RPC passthrough. */
-export function canonicalRpc(config: { url: string; authorization?: string; network: Policy["network"]; sourceId: string; consensusBranchId?: string; fetch?: typeof fetch; now?: () => number;headerBatchSize?:number;maxMethodsPerSecond?:number;diagnostic?:(value:CanonicalRpcDiagnostic)=>void }): CanonicalReader {
+export function canonicalRpc(config: { url: string; authorization?: string; network: Policy["network"]; sourceId: string; consensusBranchId?: string; fetch?: typeof fetch; now?: () => number;headerBatchSize?:number;maxMethodsPerSecond?:number;diagnostic?:(value:CanonicalRpcDiagnostic)=>void;headerDiagnostic?:(value:CanonicalHeaderRowDiagnostic)=>void }): CanonicalReader {
   const endpoint = safeEndpoint(config.url); const now = config.now ?? Date.now;
   const rate=config.maxMethodsPerSecond??0;requireThat(rate===0||Number.isSafeInteger(rate)&&rate>=1&&rate<=100,'CANONICAL_RATE_LIMIT');
   let nextMethodAt=0,permits=Promise.resolve();
@@ -50,16 +51,22 @@ export function canonicalRpc(config: { url: string; authorization?: string; netw
     headerBatchSize:batchSize,
     ...(config.network === 'eip155:84532' ? {finalizedHeader:(signal:AbortSignal)=>evmHeader('finalized',signal),async headers(heights: readonly number[], signal: AbortSignal): Promise<Header[]> {
       requireThat(heights.length > 0 && heights.length <= batchSize, 'CANONICAL_BATCH_LIMIT');
-      const requests = heights.map((h,index) => ({jsonrpc:'2.0',id:index+1,method:'eth_getBlockByNumber',params:[`0x${height(h).toString(16)}`,false]}));
-      const response = await request(requests,signal);
-      requireThat(response.ok,'CANONICAL_RPC_HTTP_ERROR');
-      const rows = await readJson(response,signal,8_000_000) as Array<{id:number;result?:unknown;error?:unknown}>;
-      requireThat(Array.isArray(rows)&&rows.length===heights.length&&new Set(rows.map(row=>row.id)).size===rows.length,'CANONICAL_BATCH_RESPONSE');
-      return heights.map((h,index) => {
-        const row=rows.find(row=>row.id===index+1);
-        requireThat(row&&row.error==null&&row.result!=null,'CANONICAL_RPC_ERROR');
-        const header=parseEvmHeader(row.result);requireThat(header.height===h,'CANONICAL_RPC_HEADER_MISMATCH');return header;
-      });
+      const values=new Map<number,Header>();
+      const batch=async(wanted:readonly{height:number;index:number}[])=>{
+       const requests=wanted.map((h,index)=>({jsonrpc:'2.0',id:index+1,method:'eth_getBlockByNumber',params:[`0x${height(h.height).toString(16)}`,false]}));
+       const response=await request(requests,signal);requireThat(response.ok,'CANONICAL_RPC_HTTP_ERROR');
+       const rows=await readJson(response,signal,8_000_000) as Array<{id:number;result?:unknown;error?:{code?:unknown}}>,missing:{height:number;index:number}[]=[];
+       const diagnostic=(kind:1|2|3,h:number,row?:{id?:unknown;error?:{code?:unknown}})=>{const value:CanonicalHeaderRowDiagnostic={event:'canonical-header-row-failure',kind,height:h,rpcCode:Number.isSafeInteger(row?.error?.code)?row!.error!.code as number:null,id:Number.isSafeInteger(row?.id)?row!.id as number:null};try{if(config.headerDiagnostic)config.headerDiagnostic(value);else console.error(JSON.stringify(value));}catch{}};
+       if(!Array.isArray(rows)||rows.length!==wanted.length||new Set(rows.map(row=>row?.id)).size!==rows.length){let emitted=false;for(let i=0;i<wanted.length;i++)if(!Array.isArray(rows)||!rows.some(row=>row?.id===i+1)){diagnostic(3,wanted[i]!.height);emitted=true;}if(!emitted)diagnostic(3,wanted[0]!.height);throw new ObservationError('CANONICAL_BATCH_RESPONSE');}
+       // Validate every non-null row before scheduling any additional read.
+       for(let i=0;i<wanted.length;i++){const h=wanted[i]!.height,row=rows.find(row=>row?.id===i+1);
+        if(!row||row.result===undefined||row.error!=null){diagnostic(row?.error!=null?2:3,h,row);throw new ObservationError('CANONICAL_RPC_ERROR');}
+        if(row.result===null){diagnostic(1,h,row);missing.push(wanted[i]!);continue;}
+        const header=parseEvmHeader(row.result);requireThat(header.height===h,'CANONICAL_RPC_HEADER_MISMATCH');values.set(wanted[i]!.index,header);
+       }return missing;
+      };
+      const missing=await batch(heights.map((height,index)=>({height,index})));if(missing.length){await delay(250,undefined,{signal});requireThat((await batch(missing)).length===0,'CANONICAL_RPC_ERROR');}
+      return heights.map((_,index)=>values.get(index)!);
     }} : {}),
     async sample(signal): Promise<CanonicalSample> {
       if (config.network === "eip155:84532") {
