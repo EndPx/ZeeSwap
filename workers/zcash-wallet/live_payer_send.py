@@ -127,6 +127,7 @@ class Payer:
             if command=='broadcast':
                 if intent['state']!='PREPARED':raise ValueError('Original payer broadcast outcome must reconcile before any retry')
                 if tip>=self.request['cutoffHeight'] or int(prepared['expiryHeight'])<tip+20:raise ValueError('Payer cutoff or expiry closed')
+                if hasattr(self,'_before_broadcast'):self._before_broadcast(prepared,tip)
                 durable(self.path,{**intent,'state':'BROADCAST_UNKNOWN'})
                 result=service.SendTransaction(messages.RawTransaction(data=bytes.fromhex(prepared['rawTransaction'])),timeout=30)
                 if result.errorCode!=0:raise ValueError('Payer submission ambiguous; retain original bytes')

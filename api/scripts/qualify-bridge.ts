@@ -1,7 +1,7 @@
 /** Root-permitted local qualification only. All instructions/capabilities remain
  * in a dedicated private artifact; no HTTP writer or implicit financial send. */
 import {parseArgs} from 'node:util';
-import {randomUUID} from 'node:crypto';
+import {randomUUID,createHash} from 'node:crypto';
 import {lstat,open,readFile,realpath,rename,unlink} from 'node:fs/promises';
 import {join} from 'node:path';
 import {connectBridgeDatabase} from '../src/bridge/database.ts';
@@ -20,7 +20,7 @@ import {BridgeJournal} from '../src/bridge/journal.ts';
 
 async function main(){
  const {values:v}=parseArgs({options:{config:{type:'string'},'config-sha256':{type:'string'},permit:{type:'string'},'permit-sha256':{type:'string'},action:{type:'string'},direction:{type:'string'}}});
- if(!v.config||!v['config-sha256']||!v.permit||!v['permit-sha256']||!['init-capability','open','quote','accept','close','refresh','mint-prepare','mint-broadcast','mint-observe','burn-prepare','burn-broadcast','burn-observe','native-approve','native-prepare','native-recover','native-broadcast','native-observe','ack-prepare','ack-broadcast','ack-observe'].includes(v.action??'')||process.platform!=='linux'||!process.getuid?.())throw Error('BRIDGE_OPERATOR_ARGUMENTS');
+ if(!v.config||!v['config-sha256']||!v.permit||!v['permit-sha256']||!['init-capability','open','quote','accept','close','refresh','payer-source-guard','mint-prepare','mint-broadcast','mint-observe','burn-prepare','burn-broadcast','burn-observe','native-approve','native-prepare','native-recover','native-broadcast','native-observe','ack-prepare','ack-broadcast','ack-observe'].includes(v.action??'')||process.platform!=='linux'||!process.getuid?.())throw Error('BRIDGE_OPERATOR_ARGUMENTS');
  const binding=await loadRootQualificationPermit(v.permit,v['permit-sha256']),config=JSON.parse((await pinnedFile({path:v.config,sha256:v['config-sha256']},true)).toString());
  if(config.version!==1||config.mode!=='BRIDGE_READ_PAUSED_API'||config.root!=='/opt/zeeswap-bridge-testnet'||config.serviceUid!==process.getuid()||!v.config.startsWith(config.root+'/'))throw Error('BRIDGE_OPERATOR_CONFIG');
  const base=new CanonicalBridgeBase(JSON.parse((await pinnedFile(config.baseProfile,true)).toString())),native=await PinnedBridgeReadAdapter.create(config.native),pool=await connectBridgeDatabase(config.databaseUrl,config.databaseTransport);
@@ -42,6 +42,11 @@ async function main(){
   if(v.action==='open'){await runtime.refreshPaused(store);await operator.openQualification(store);}
   else if(v.action==='close')await operator.closeQualification(store);
   else if(v.action==='refresh')await runtime.refreshPaused(store);
+  else if(v.action==='payer-source-guard'){
+   await runtime.refreshPaused(store);const b=await store.read();operator.assertOriginalBinding(b);const o=b.orders[artifact.directions.TAZ_TO_ZEETAZ.order?.id],f=o?.funding;
+   if(!b.paused||b.incident||!o?.accepted||o.direction!=='TAZ_TO_ZEETAZ'||o.status!=='AWAITING_DEPOSIT'||o.amountAtomic!=='100000'||f?.kind!=='shielded-deposit'||Date.now()>=Date.parse(f.cutoffTime)||b.pair!.zcash.height>=f.cutoffHeight||!o.feeReservation||o.feeReservation.maximum!=='10000')throw Error('BRIDGE_PAYER_SOURCE_NOT_AUTHORIZED');
+   console.log(JSON.stringify({status:'BRIDGE_PAYER_SOURCE_GUARD_VERIFIED',orderId:o.id,recipient:f.address,amountZatoshi:o.amountAtomic,memoSha256:createHash('sha256').update(f.memo).digest('hex'),cutoffHeight:f.cutoffHeight,cutoffTime:f.cutoffTime}));return;
+  }
   else if(v.action==='quote'||v.action==='accept'){
    if(!['TAZ_TO_ZEETAZ','ZEETAZ_TO_TAZ'].includes(v.direction??''))throw Error('BRIDGE_OPERATOR_DIRECTION');const direction=v.direction as 'TAZ_TO_ZEETAZ'|'ZEETAZ_TO_TAZ',entry=artifact.directions[direction];
    await operator.refreshOpen(store);

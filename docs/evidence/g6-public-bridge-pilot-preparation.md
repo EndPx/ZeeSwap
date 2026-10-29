@@ -101,3 +101,19 @@ Actual Root execution must still provision and qualify the fee notes, finish the
 operator-funded circle with independent recipient confirmation, install the
 pinned primary configuration and permit, and verify public frontend admission
 against the live backend. Code or green local checks do not complete those gates.
+
+## Dedicated qualification payer preparation (29 October 2026)
+
+The isolated bridge payer reuses the existing durable payer kernel and its raw
+transaction, selected-note, outgoing-viewing-key, own-change and canonical
+receipt verification. A separate concrete book guard checks the original
+accepted bridge instruction at entry, immediately before calculation and again
+before the durable broadcast intent. Original time/height cutoffs remain hard
+limits; an expired instruction cannot be retimed or paid.
+
+The coding verification reported 18 passing Linux tests across the dedicated
+payer, existing payer and owned-process supervisor, plus API type checking and
+scoped whitespace checks. These are local tests. The first accepted live
+qualification instruction expired without a source payment while the payer
+integration was being completed; its original scope and persisted counters
+remain intact. No funded bridge-circle completion follows from this change.

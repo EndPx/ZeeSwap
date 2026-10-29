@@ -111,7 +111,7 @@ def main():
     parser.add_argument('--command', choices=('prepare','recover','broadcast','receipt'))
     args = parser.parse_args()
     scripts = Path(__file__).resolve().parent
-    allowed = {'native': {scripts/'prepared_raw.py', scripts/'live_refund_raw.py', scripts/'live_payer_send.py', scripts/'linux_native_wallet.py'},
+    allowed = {'native': {scripts/'prepared_raw.py', scripts/'live_refund_raw.py', scripts/'live_payer_send.py', scripts/'bridge_payer_send.py', scripts/'linux_native_wallet.py'},
                'bridge': {scripts/'bridge_native_wallet.py'},
                'base-forward': {scripts.parent/'base-signer/signer.py'},
                'base-reverse': {scripts.parent/'base-signer/reverse_signer.py'},
@@ -137,7 +137,7 @@ def main():
         return result.returncode
     if args.profile_sha256:
         raise ValueError('Bridge-only profile pin refused for another mode')
-    payer=args.script.resolve()==scripts/'live_payer_send.py'
+    payer=args.script.resolve() in (scripts/'live_payer_send.py',scripts/'bridge_payer_send.py')
     extras=[]
     if args.approved_request or args.approved_digest or args.command:
         if not payer or not args.approved_request or not args.approved_digest or not args.command:
