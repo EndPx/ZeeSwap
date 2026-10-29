@@ -107,3 +107,15 @@ four Linux process-group cases were skipped on Windows. The focused assertions
 reject missing or substituted extra-CA paths, disabled PostgreSQL TLS and a
 source-host fallback. Scoped `git diff --check` passed. These checks verify the
 wrapper contract; they do not establish live source readiness or admission.
+
+The actual first primary-engine launch then exposed the legacy launcher's
+literal Neon-host check: the child exited before starting the SDK engine.
+The primary branch now requires the exact destination endpoint, port, database,
+schema, owner, TLS mode, paired relocation proof hash and both pinned CA paths.
+The wrapper still verifies the actual connected cluster before spawning it.
+The original source branch retains its exact legacy identity.
+
+Validation: two actual Bash test groups passed in WSL, covering both allowed
+primary endpoints and rejecting altered proof bytes, wrong credentials scope,
+ports, TLS/CA settings and a fallback to the old host. The failed first launch
+and its fatal latch remain preserved; a distinct run state is required.
