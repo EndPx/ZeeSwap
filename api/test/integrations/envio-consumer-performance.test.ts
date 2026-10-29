@@ -28,3 +28,38 @@ test('raw fetch has8MB fixed loopback/range/identity bounds and is not an indepe
 test('all concurrent RPC batches/sample share weighted24 queue/max10; abort stops queued requests with no retry',async()=>{const starts:{at:number;count:number}[]=[];const r=closedV2Rpc('0x'+'11'.repeat(20),async(_input,init)=>{const body=JSON.parse(String(init?.body)),calls=Array.isArray(body)?body:[body];starts.push({at:Date.now(),count:calls.length});assert.ok(calls.length<=10);const rows=calls.map((c:any)=>({jsonrpc:'2.0',id:c.id,result:{number:c.params[0]==='latest'?'0x64':c.params[0]==='finalized'?'0x5a':c.params[0],hash:'0x'+'a'.repeat(64),parentHash:'0x'+'b'.repeat(64),timestamp:'0x1'}}));return new Response(JSON.stringify(Array.isArray(body)?rows:rows[0]));},true);await Promise.all([r.headers!([1,2,3,4,5,6,7,8,9,10],AbortSignal.timeout(3000)),r.headers!([11,12,13,14,15,16,17,18,19,20],AbortSignal.timeout(3000))]);assert.equal(starts.length,2);assert.ok(starts[1]!.at-starts[0]!.at>=400);
  const controller=new AbortController();let calls=0;const failing=closedV2Rpc('0x'+'11'.repeat(20),async(_i,init)=>{calls++;await new Promise((_,reject)=>init!.signal!.addEventListener('abort',()=>reject(init!.signal!.reason),{once:true}));return new Response('never');});const a=failing.headers!([1,2,3,4,5,6,7,8,9,10],controller.signal),b=failing.headers!([11],controller.signal);setTimeout(()=>controller.abort(),10);await Promise.allSettled([a,b]);assert.equal(calls,1);});
 test('opt-in sample drains both ancillary requests on first error and never dispatches an aborted queued finality read',async()=>{let calls=0;const reader=closedV2Rpc('0x'+'11'.repeat(20),async(_input,init)=>{calls++;const c=JSON.parse(String(init?.body));if(c.method==='eth_chainId')return new Response(JSON.stringify({jsonrpc:'2.0',id:1,result:'0x14a34'}));return new Response('unavailable',{status:503});},true);await assert.rejects(reader.sample(AbortSignal.timeout(1000)),/ENVIO_CLOSED_V2_RPC_HTTP/);assert.equal(calls,2);});
+
+
+test('ordinary fence batches retain every comparison and dispatch a fresh end fence after logs',async()=>{
+ const x=await fixture(),p=await x.packet(x.m.last.height+1),calls:{kind:string;heights?:readonly number[]}[]=[];
+ const r={...x.reader,header:async()=>{throw Error('SINGLETON_FENCE_UNEXPECTED');},headers:async(hs:readonly number[])=>{assert.ok(hs.length<=10);calls.push({kind:'headers',heights:[...hs]});return hs.map(x.header);},logs:async()=>{calls.push({kind:'logs'});return[];}};
+ assert.deepEqual(await verifyEventFirstExportParallel(p,x.a.identity.policy,r,AbortSignal.timeout(1000),{batchFences:true}),p);
+ assert.deepEqual(calls[0]!.heights,[p.producer.through.height,p.producer.sourceHead.height,p.verification.finalized.height]);
+ const last=calls.at(-1)!;assert.deepEqual(last.heights,[p.producer.through.height,p.range.through.height,(await x.reader.sample(AbortSignal.timeout(1000))).head.height,(await x.reader.sample(AbortSignal.timeout(1000))).finalized!.height]);
+ assert.equal(calls.at(-2)!.kind,'logs');assert.equal(calls.filter(c=>c.kind==='headers').length,9);
+});
+test('ordinary batched fences reject each initial/end mismatch, shortened result and post-log reorg',async()=>{
+ for(const stage of ['initial','end'] as const)for(let bad=0;bad<(stage==='initial'?3:4);bad++){
+  const x=await fixture(),p=await x.packet(x.m.last.height+1);let logged=false;
+  const r={...x.reader,logs:async()=>{logged=true;return[];},headers:async(hs:readonly number[])=>hs.map((h,i)=>({...x.header(h),...((stage==='end'?logged:hs.length===3)&&i===bad?{hash:x.header(1).hash}:{})}))};
+  await assert.rejects(verifyEventFirstExportParallel(p,x.a.identity.policy,r,AbortSignal.timeout(1000),{batchFences:true}));
+  assert.equal(logged,stage==='end');
+ }
+ const x=await fixture(),p=await x.packet(x.m.last.height+1);
+ await assert.rejects(verifyEventFirstExportParallel(p,x.a.identity.policy,{...x.reader,headers:async()=>[]},AbortSignal.timeout(1000),{batchFences:true}),/EVENT_FIRST_FENCE_RESPONSE/);
+});
+
+test('ordinary fences compare full ordered headers, including duplicate-height conflicting claims',async()=>{
+ for(const field of ['height','parentHash','time','order','duplicate-claim']){
+  const x=await fixture(),p=await x.packet(x.m.last.height+1);let logged=false;
+  if(field==='duplicate-claim'){p.range.through={...p.range.through};}
+  const r={...x.reader,logs:async()=>{logged=true;if(field==='duplicate-claim')p.range.through.hash=x.header(1).hash;return[];},headers:async(hs:readonly number[])=>{
+   const values=hs.map(x.header);if(!logged)return values;
+   if(field==='height')values[0]={...values[0]!,height:values[0]!.height+1};
+   if(field==='parentHash')values[0]={...values[0]!,parentHash:x.header(1).hash};
+   if(field==='time')values[0]={...values[0]!,time:new Date(0).toISOString()};
+   if(field==='order')values.reverse();return values;
+  }};
+  await assert.rejects(verifyEventFirstExportParallel(p,x.a.identity.policy,r,AbortSignal.timeout(1000),{batchFences:true}));assert.equal(logged,true);
+ }
+});
