@@ -1,4 +1,15 @@
 -- Explicit reconciliation successor only; never run a migration sweep.
+-- FK creation needs REFERENCES separately from the existing owner key-share UPDATE.
+-- Require an empty REFERENCES ACL so its immediate revoke cannot remove an old grant.
+DO $$
+BEGIN
+ IF current_user<>'zee_app_admin_20261023'
+ OR (SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='zee.root_testnet_service_policies'::regclass)<>current_user
+ OR has_table_privilege(current_user,'zee.root_testnet_service_policies','REFERENCES')
+ OR has_any_column_privilege(current_user,'zee.root_testnet_service_policies','REFERENCES')
+ THEN RAISE EXCEPTION 'SERVICE_SUCCESSOR_REFERENCES_BASELINE';END IF;
+END $$;
+GRANT REFERENCES(policy_sha256) ON zee.root_testnet_service_policies TO CURRENT_USER;
 CREATE TABLE zee.testnet_policy_predecessors(
  policy_sha256 zee.digest PRIMARY KEY REFERENCES zee.root_testnet_service_policies(policy_sha256),
  predecessor_sha256 zee.digest NOT NULL UNIQUE REFERENCES zee.root_testnet_service_policies(policy_sha256),
@@ -7,6 +18,13 @@ CREATE TABLE zee.testnet_policy_predecessors(
  created_xid xid8 NOT NULL DEFAULT pg_current_xact_id(),created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
  CHECK(policy_sha256<>predecessor_sha256)
 );
+REVOKE REFERENCES(policy_sha256) ON zee.root_testnet_service_policies FROM CURRENT_USER;
+DO $$
+BEGIN
+ IF has_table_privilege(current_user,'zee.root_testnet_service_policies','REFERENCES')
+ OR has_any_column_privilege(current_user,'zee.root_testnet_service_policies','REFERENCES')
+ THEN RAISE EXCEPTION 'SERVICE_SUCCESSOR_REFERENCES_NOT_RESTORED';END IF;
+END $$;
 CREATE TRIGGER policy_predecessor_immutable BEFORE UPDATE OR DELETE ON zee.testnet_policy_predecessors FOR EACH ROW EXECUTE FUNCTION zee.immutable();
 REVOKE ALL ON zee.testnet_policy_predecessors FROM PUBLIC,zeeswap_api,zeeswap_worker,zeeswap_reader;
 REVOKE ALL ON zee.testnet_policy_predecessors FROM CURRENT_USER;
