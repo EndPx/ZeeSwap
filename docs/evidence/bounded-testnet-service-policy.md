@@ -94,3 +94,38 @@ It requires all three existing harness roles and verifies current-user membershi
 with pg_has_role before installing its unique schema. The final actual restricted
 PG rerun after this cleanup passed2/2,0 skipped: launch7.67s and admission14.78s,
 28.05s total. No global role membership is changed by the fixture.
+# Explicit current-source activation
+
+The user's subsequent direct-browser-transaction instruction authorizes a
+separate `CURRENT_SOURCE_PILOT_ACTIVATION` purpose. It replaces only the
+300-second/16-sample historical stability prerequisite. The default window
+validator and its progress, duration and sample-count requirements remain
+unchanged. The current-source artifact contains one actual coherent sample and
+explicitly states `noStabilityClaim: true`; it is not encoded as a window.
+
+Current activation requires a Root-pinned, five-minute permit binding the
+policy, original financial release, separate activator release, exact paused
+235/xmin43503 control and active236, canonical audit, actual allocation receipt,
+current source proof, capital and neutral-capture artifacts, and Root's latest
+human-instruction attestation. It preserves the existing canonical/identity/
+cursor/finality checks, requires both SQL observations within30 seconds, checks
+the actual Main database identity, and uses the same original-XID, capital,
+treasury, policy-limit, locking, CAS and reconciliation kernel. The original
+100000 input amount, two-per-direction caps, one global active order and fee and
+principal budgets remain unchanged. The financial worker stays on6ebb.
+
+For this direct purpose, the audit is explicitly
+`CURRENT_SOURCE_FINANCIAL_AUDIT`: it verifies the closed72-row books and actual
+allocation, every financial receipt anchor, current checkpoints/finality and
+source identities. It sets `allHistoricalHeadersAudited: false` and
+`nativeHistoricalReadinessClaimed: false`. Native reads request each sparse
+financial/current endpoint separately and use only latest-height metadata for
+the volatile head. They do not walk the intervening historical range or claim a
+verified future head body. Legacy full-history audit requirements are unchanged.
+
+Seven focused financial-boundary and legacy regression tests and API TypeScript
+passed. The tests cover rejection of stale or changed sources, missing human
+authority, changed proof pins/control/database, failed capital and intervened
+state, while confirming the original SQL limits and three capital guards.
+These are local tests. No qualified current-source artifact, actual activation
+or browser transaction is claimed by this implementation evidence.
