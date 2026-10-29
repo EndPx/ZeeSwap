@@ -310,3 +310,39 @@ incarnation, stale approval, incomplete canonical proof, possible publication,
 cursor movement, changed books/headers/checkpoint/control and authorizations.
 These tests are synthetic; the Root no-repair observation is separate live
 read-only evidence. No new opening or financial activation is claimed here.
+
+## Original R8 filesystem completion after paused control235
+
+Root's short read-only boundary proof confirmed original transaction43498 and
+control transaction43503 committed on the destination cluster. The Base
+checkpoint/xmin and269 retained rows exactly matched the original R8 intent;
+the70 financial rows and digest were unchanged, with zero authorizations. The
+admission file still contained the original R7 bytes. Native SQL/private cursor
+4553427 and finalized anchor4553418 matched fresh independent headers. The
+archived failure occurred before Native publication at an unpersisted head;
+this short proof makes no claim of Native readiness or complete historical
+canonical verification.
+
+The optional Root filesystem acknowledgement binds only this234→235 paused
+control change and the original43498 candidate. Under the existing observer
+locks, the finisher checks both original committed transactions and unchanged
+Base checkpoint, retained rows, closed financial books and authorization count
+before and after filesystem work. It installs only the original encrypted
+candidate with atomic rename and fsync; it issues no checkpoint/control or
+financial DML. Completion retains the existing receipt fields and records the
+extra current235 acknowledgement. No Source clock or financial admission is
+renewed, and the original intent remains immutable.
+
+Ten focused tests passed, including strict refusal without acknowledgement,
+changed data/status/authorization/Native-publication rejection, post-filesystem
+intervention, idempotent candidate completion and legacy receipt compatibility.
+API TypeScript and whitespace checks passed. These tests do not establish an
+executed filesystem completion or enabled admission; Root executes that step
+separately from the short proof.
+
+A subsequent same235 collection may explicitly pin this completed receipt's
+acknowledgement. It must archive the exact certificate, Native boundary proof
+and fatal diagnostic, and independently verify current-cluster control
+transaction43503 is committed. Historical certificate validation uses its
+original issuance time; it does not renew that certificate or waive current
+Native readiness. A missing or substituted acknowledgement archive is refused.

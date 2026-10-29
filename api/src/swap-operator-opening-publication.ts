@@ -46,6 +46,39 @@ export type PriorControlTransition={version:1;purpose:'ROOT_PRIOR_OPERATOR_OPENI
  noRepair:PriorPin;fatalDiagnostic:PriorPin;reconciliationOutcome:'ACKNOWLEDGED';verifiedAt:string;expiresAt:string};
 export type PriorControlTransitionEvidence={certificate:PriorControlTransition;noRepair:any;fatalDiagnostic:any;controlTransactionStatus:string;
  priorOpening:{approval:PriorPin;intent:PriorPin;completed:PriorPin;evidence:PriorPin}};
+export type OriginalOpeningFinishAcknowledgement={version:1;purpose:'ROOT_ORIGINAL_OPERATOR_OPENING_FINISH_CONTROL_ACK';status:'ROOT_ORIGINAL_OPERATOR_OPENING_FINISH_APPROVED';
+ databaseSystemIdentifier:string;originalTransactionId:string;originalIntent:PriorPin;originalApproval:PriorPin;originalEvidence:PriorPin;originalConfig:PriorPin;
+ fromControl:CampaignControl;toControl:CampaignControl;controlTransactionId:string;financialDigest:string;retainedRowsSha256:string;
+ originalAdmissionSha256:string;candidateAdmissionSha256:string;nativeBoundary:PriorPin;fatalDiagnostic:PriorPin;reconciliationOutcome:'ACKNOWLEDGED';
+ financialAction:false;admissionEnabled:false;nativeReadinessClaimed:false;verifiedAt:string;expiresAt:string};
+export type OriginalOpeningFinishAckEvidence={certificate:OriginalOpeningFinishAcknowledgement;certificatePin:PriorPin;nativeBoundary:any;fatalDiagnostic:any};
+/** Filesystem completion only: the original committed SQL operation is never
+ * replayed. Native readiness remains a separate unresolved gate. */
+export function validateOriginalOpeningFinishAcknowledgement(v:OriginalOpeningFinishAckEvidence,i:OperatorOpeningIntent,s:ClosedSnapshot,status:string,controlStatus:string,now=Date.now()){
+ const a=v.certificate,n=v.nativeBoundary,d=v.fatalDiagnostic;
+ need(a?.version===1&&a.purpose==='ROOT_ORIGINAL_OPERATOR_OPENING_FINISH_CONTROL_ACK'&&a.status==='ROOT_ORIGINAL_OPERATOR_OPENING_FINISH_APPROVED'
+  &&a.databaseSystemIdentifier==='7701863382450487342'&&i.databaseSystemIdentifier===a.databaseSystemIdentifier&&a.originalTransactionId==='43498'&&i.transactionId===a.originalTransactionId
+  &&status==='committed'&&controlStatus==='committed'&&a.controlTransactionId==='43503','FINISH_ACK_COMMITTED_TRANSACTIONS');
+ need(a.financialAction===false&&a.admissionEnabled===false&&a.nativeReadinessClaimed===false&&a.reconciliationOutcome==='ACKNOWLEDGED','FINISH_ACK_SCOPE');
+ const at=Date.parse(a.verifiedAt),expires=Date.parse(a.expiresAt);need(Number.isFinite(at)&&at<=now+5000&&now<expires&&expires>at&&expires-at<=300000,'FINISH_ACK_CLOCK');
+ need([a.originalIntent,a.originalApproval,a.originalEvidence,a.originalConfig,a.nativeBoundary,a.fatalDiagnostic,v.certificatePin].every(p=>p&&hash(p.sha256)&&p.path.startsWith('/opt/zeeswap-testnet/')&&!p.path.includes('..'))
+  &&a.originalApproval.sha256===i.approvalSha256&&a.originalEvidence.sha256===i.approval.evidenceSha256,'FINISH_ACK_PINS');
+ need(stable(a.fromControl)===stable(i.before.control)&&a.fromControl.epoch==='234'&&a.fromControl.xmin==='27890'
+  &&stable(a.toControl)===stable(s.control)&&a.toControl.epoch==='235'&&a.toControl.xmin==='43503'
+  &&!s.control.accepting_orders&&!s.control.dispatch_enabled&&s.control.reconciliation_required===true,'FINISH_ACK_PAUSED_CONTROL');
+ need(a.financialDigest===i.approval.financialDigest&&a.retainedRowsSha256===continuationDigest(i.afterRows)&&s.rows.length===269
+  &&Object.values(s.books).reduce((total,rows)=>total+rows.length,0)===70&&s.authorizationRows===0
+  &&classifyOperatorOpening(status,{...s,control:i.before.control},i)==='COMMITTED_EXACT'
+  &&a.originalAdmissionSha256===i.approval.originalAdmissionSha256&&a.candidateAdmissionSha256===i.candidateAdmissionSha256,'FINISH_ACK_ORIGINAL_DATA');
+ need(n?.version===1&&n.status==='ROOT_NATIVE_FS_BOUNDARY_READ_ONLY_VERIFIED'&&stable(n.control)===stable(a.toControl)
+  &&n.cursor?.processedThrough===4553427&&n.nativeSql?.height===4553427&&n.nativeSql.finalizedHeight===4553418
+  &&n.cursor.tipHash===n.nativeSql.hash&&n.canonicalTip?.height===4553427&&n.canonicalTip.hash===n.nativeSql.hash
+  &&n.canonicalFinalized?.height===4553418&&n.canonicalFinalized.hash===n.nativeSql.finalizedHash&&hash(n.cursorSha256)
+  &&n.sqlMutation===false&&n.cursorMutation===false&&n.nativeReadinessClaimed===false,'FINISH_ACK_NATIVE_BOUNDARY');
+ need(d?.code==='CANONICAL_HEAD_CHANGED'&&d.phase==='VERIFY_ANCHORS'&&d.publicationAttempted===false
+  &&d.headChange?.expected?.height===4553429&&d.headChange.actual?.height===4553429&&d.headChange.phase==='anchor-recheck'
+  &&d.headChange.recheckFailure?.message==='CHEF_CANONICAL_HEADER_FAILED','FINISH_ACK_FATAL_BEFORE_PUBLICATION');
+}
 /** One explicit Root acknowledgement may account for this known paused-control
  * change. It cannot replace a checkpoint, retained row, financial row or XID. */
 export function validatePriorControlTransition(t:PriorControlTransitionEvidence,i:OperatorOpeningIntent,a:OperatorOpeningApproval,current:ClosedSnapshot,now=Date.now()){
@@ -111,12 +144,13 @@ export function validateOperatorOpeningReceipt(r:any,i:OperatorOpeningIntent,a:O
 /** An already committed scoped opening may supply its own archived finalized
  * anchor when that metadata-only operation intentionally inserted no SQL header.
  * It cannot justify changed control, books, checkpoint, rows or a nonterminal XID. */
-export function validatePriorOperatorOpening(r:any,i:OperatorOpeningIntent,a:OperatorOpeningApproval,approvalSha256:string,e:any,status:string,current:ClosedSnapshot,archivedOrigin?:{scope:string;originClassificationSha256?:string;destinationSystemIdentifier?:string|null},relocation:MainDatabaseRelocationReceipt|undefined=currentMainDatabaseProvenance()?.receipt,restoredBaseline:MainRestoredBaseline|undefined=currentMainDatabaseProvenance()?.restoredBaseline,transition?:PriorControlTransitionEvidence):Header{
+export function validatePriorOperatorOpening(r:any,i:OperatorOpeningIntent,a:OperatorOpeningApproval,approvalSha256:string,e:any,status:string,current:ClosedSnapshot,archivedOrigin?:{scope:string;originClassificationSha256?:string;destinationSystemIdentifier?:string|null},relocation:MainDatabaseRelocationReceipt|undefined=currentMainDatabaseProvenance()?.receipt,restoredBaseline:MainRestoredBaseline|undefined=currentMainDatabaseProvenance()?.restoredBaseline,transition?:PriorControlTransitionEvidence,finishAcknowledgement?:OriginalOpeningFinishAckEvidence&{controlTransactionStatus:string}):Header{
  validateOperatorOpeningReceipt(r,i,a,approvalSha256);
  if(archivedOrigin?.scope==='ARCHIVED_ORIGIN_CLUSTER'){
   const withoutXmin=(v:Record<string,unknown>)=>Object.fromEntries(Object.entries(v).filter(([key])=>key!=='xmin'));
   need(relocation&&restoredBaseline&&archivedOrigin.originClassificationSha256===relocation.origin.originClassificationSha256&&archivedOrigin.destinationSystemIdentifier===relocation.destination.systemIdentifier&&status==='committed'&&current.database==='zee_app_20261023'&&current.authorizationRows===0&&continuationDigest(current.books)===a.financialDigest&&a.financialDigest===restoredBaseline.financialDigest&&continuationDigest(current.rows)===restoredBaseline.retainedBaseRowsSha256&&stable(current.rows)===stable(i.afterRows)&&stable(current.control)===stable(restoredBaseline.control)&&stable(current.checkpoint)===stable(restoredBaseline.baseCheckpoint)&&stable(withoutXmin(current.checkpoint))===stable(withoutXmin(i.after)),'PRIOR_RELOCATED_ORIGIN_STATE');
- }else if(transition){need(status==='committed','PRIOR_EXACT_COMMITTED_STATE');validatePriorControlTransition(transition,i,a,current);}
+ }else if(finishAcknowledgement){need(!transition&&r.controlAcknowledgement?.certificate?.sha256===finishAcknowledgement.certificatePin.sha256&&stable(r.controlAcknowledgement.control)===stable(finishAcknowledgement.certificate.toControl),'PRIOR_FINISH_ACK_RECEIPT');validateOriginalOpeningFinishAcknowledgement(finishAcknowledgement,i,current,status,finishAcknowledgement.controlTransactionStatus,Date.parse(finishAcknowledgement.certificate.verifiedAt));}
+ else if(transition){need(status==='committed','PRIOR_EXACT_COMMITTED_STATE');validatePriorControlTransition(transition,i,a,current);}
  else need(status==='committed'&&classifyOperatorOpening(status,current,i)==='COMMITTED_EXACT','PRIOR_EXACT_COMMITTED_STATE');
  need(e?.version===1&&e.status==='ROOT_BASE_OPERATOR_SCOPE_OPENING_COLLECTED'&&e.profileSha256===a.profileSha256&&e.registrySha256===a.registrySha256&&e.operator===a.operator&&e.financialDigest===a.financialDigest&&e.retainedRowsSha256===a.retainedRowsSha256&&e.archiveManifestSha256===a.archiveManifestSha256&&stable(e.before)===stable(i.before)&&stable(e.after)===stable(a.after),'PRIOR_EVIDENCE_BINDING');
  const F=parseHeader(e.selection?.independentSample?.finalized??e.selection?.selection?.verification?.finalized,'eip155:84532');
@@ -127,7 +161,9 @@ export function validatePriorOperatorOpening(r:any,i:OperatorOpeningIntent,a:Ope
 }
 /** Complete only the original transaction's durable file boundary. This kernel
  * contains no checkpoint UPDATE and cannot replay a new metadata transaction. */
-export async function finishOperatorOpeningUnderObserverLock(c:Pick<pg.PoolClient,'query'>,read:()=>Promise<ClosedSnapshot>,i:OperatorOpeningIntent,finish:()=>Promise<void>){
+export async function finishOperatorOpeningUnderObserverLock(c:Pick<pg.PoolClient,'query'>,read:()=>Promise<ClosedSnapshot>,i:OperatorOpeningIntent,finish:()=>Promise<void>,acknowledgement?:OriginalOpeningFinishAckEvidence){
  const relocation=currentMainDatabaseProvenance();if(relocation)need(i.databaseSystemIdentifier===relocation.receipt.destination.systemIdentifier,'ORIGIN_FINISH_ARCHIVE_ONLY');
- await c.query('BEGIN');try{await c.query("SET LOCAL statement_timeout='30000ms'");await c.query("SET LOCAL idle_in_transaction_session_timeout='30000ms'");await c.query('SELECT zee.lock_observer_cycle()');need((await c.query('SELECT pg_try_advisory_xact_lock(84532,20261024) ok')).rows[0]?.ok===true,'OBSERVER_MUST_BE_STOPPED');const status=(await c.query('SELECT pg_xact_status($1::xid8) status',[i.transactionId])).rows[0]?.status;need(classifyOperatorOpening(status,await read(),i)==='COMMITTED_EXACT','ORIGINAL_XID_FINISH');await finish();need(classifyOperatorOpening(status,await read(),i)==='COMMITTED_EXACT','FINISH_INTERVENTION');await c.query('COMMIT');}catch(e){await c.query('ROLLBACK').catch(()=>{});throw e;}
+ await c.query('BEGIN');try{await c.query("SET LOCAL statement_timeout='30000ms'");await c.query("SET LOCAL idle_in_transaction_session_timeout='30000ms'");await c.query('SELECT zee.lock_observer_cycle()');need((await c.query('SELECT pg_try_advisory_xact_lock(84532,20261024) ok')).rows[0]?.ok===true,'OBSERVER_MUST_BE_STOPPED');const status=(await c.query('SELECT pg_xact_status($1::xid8) status',[i.transactionId])).rows[0]?.status;
+  const exact=async(code:string)=>{const current=await read();if(acknowledgement){const controlStatus=(await c.query('SELECT pg_xact_status($1::xid8) status',[acknowledgement.certificate.controlTransactionId])).rows[0]?.status;validateOriginalOpeningFinishAcknowledgement(acknowledgement,i,current,status,controlStatus);}else need(classifyOperatorOpening(status,current,i)==='COMMITTED_EXACT',code);};
+  await exact('ORIGINAL_XID_FINISH');await finish();await exact('FINISH_INTERVENTION');await c.query('COMMIT');}catch(e){await c.query('ROLLBACK').catch(()=>{});throw e;}
 }
