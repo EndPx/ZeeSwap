@@ -28,7 +28,7 @@ export function FundingQr({ order }: { order: OrderView }) {
     if (!uri) return;
     let current = true;
     // Keep the QR encoder outside the initial landing-page bundle.
-    void import('qrcode').then(module => module.toString(uri, { type: 'svg', errorCorrectionLevel: 'M', margin: 4 }))
+    void import('qrcode').then(module => module.default.toString(uri, { type: 'svg', errorCorrectionLevel: 'M', margin: 4 }))
       .then(svg => {
         if (current) setQr({ uri, image: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}` });
       }).catch(() => { if (current) setFailedUri(uri); });

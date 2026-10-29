@@ -57,7 +57,7 @@ export interface OrderView {
   id:string; direction:Direction; status:OrderStatus; inputAmount:string; outputAmount:string;
   executionMode:string; priceMode:'fixture'|'market-reference'|'fixed-rate';pricing?:LockedPricing|FixedPricing|null; integrationOnly:boolean; expiresAt:string;
   sourceAsset?:'TAZ'|'USDC';destinationAsset?:'TAZ'|'USDC';testnet?:true;
-  source:{received:boolean;confirmed:boolean;confirmations:number;policy:'zcash-10-confirmations'|'base-finalized';requiredConfirmations:number|null};
+  source:{received:boolean;confirmed:boolean;confirmations:number;policy:'zcash-10-confirmations'|'base-finalized';requiredConfirmations:number|null;scannedHeight?:number;scannedAt?:string;checkedAt?:string};
   escrowFunding?:EscrowFunding;
   destination?:{network:'base-sepolia'|'zcash-testnet';status:'FINALIZED'|'PAYOUT_PENDING'|'RESERVING'|'NOT_SUBMITTED';transactionHash?:string;blockNumber?:number};
   funding?:{network:'zcash-testnet';receiver:string;memo:string;cutoffHeight:number|null;cutoffTime:string|null;cancellationAvailableAt:string|null};
@@ -73,6 +73,9 @@ export function decodeOrder(value:unknown):OrderView {
     ||!atomic(row.inputAmount)||!atomic(row.outputAmount)||typeof row.executionMode!=='string'||!['fixture','market-reference','fixed-rate'].includes(String(row.priceMode))||typeof row.integrationOnly!=='boolean'
     ||typeof row.expiresAt!=='string'||!Number.isFinite(Date.parse(row.expiresAt))||typeof source.received!=='boolean'||typeof source.confirmed!=='boolean'
     ||!nonnegative(source.confirmations)||!['zcash-10-confirmations','base-finalized'].includes(String(source.policy))||!(source.requiredConfirmations===null||nonnegative(source.requiredConfirmations)))throw Error('The service returned an unsupported order.');
+  if(['scannedHeight','scannedAt','checkedAt'].some(key=>source[key]!==undefined)){
+    if(!nonnegative(source.scannedHeight)||typeof source.scannedAt!=='string'||!Number.isFinite(Date.parse(source.scannedAt))||typeof source.checkedAt!=='string'||!Number.isFinite(Date.parse(source.checkedAt)))throw Error('The service returned an unsupported source-height check.');
+  }
   if(row.destination!==undefined){const d=object(row.destination);if(!['base-sepolia','zcash-testnet'].includes(String(d.network))||(d.network==='base-sepolia'&&row.direction!=='ZCASH_TO_BASE')||(d.network==='zcash-testnet'&&row.direction!=='BASE_TO_ZCASH')||!['FINALIZED','PAYOUT_PENDING','RESERVING','NOT_SUBMITTED'].includes(String(d.status))
     ||(d.transactionHash!==undefined&&(typeof d.transactionHash!=='string'||!(d.network==='base-sepolia'?/^0x[0-9a-fA-F]{64}$/:/^[0-9a-f]{64}$/).test(d.transactionHash)))||(d.blockNumber!==undefined&&!nonnegative(d.blockNumber))
     ||(d.status==='FINALIZED'&&(typeof d.transactionHash!=='string'||!nonnegative(d.blockNumber))))throw Error('The service returned an unsupported destination.');}

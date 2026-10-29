@@ -44,13 +44,17 @@ export function readNoirAttempt(storage:Pick<Storage,'getItem'>,id:string):NoirA
   catch {return {state:'unknown'};}
 }
 function saveAttempt(storage:Pick<Storage,'setItem'|'getItem'>,id:string,value:NoirAttempt){const raw=JSON.stringify(value);storage.setItem(attemptKey(id),raw);if(storage.getItem(attemptKey(id))!==raw)throw Error('Private send protection is unavailable. Do not send through Noir from this browser.');}
-export function noirPayment(order:OrderView){
+export function noirPayment(order:OrderView,now=Date.now()){
   if(order.executionMode==='observe-only')throw Error('Noir payments are disabled for observation-only orders.');
-  const request=fundingPaymentRequest(order);
+  const request=fundingPaymentRequest(order,now);
   if(!request)throw Error('The original order is no longer awaiting a deposit. Refresh its status.');
-  // A browser has no independent Zcash tip. Do not pretend a height-only cutoff
-  // is current; leave those orders on the existing manual payment instructions.
-  if(request.cutoffTime===null)throw Error('This order has a height-only cutoff. Verify its original funding instructions in your wallet.');
+  if(request.cutoffTime===null){
+    // Only the authenticated service's freshly observed height can qualify a
+    // height-only order. Never fabricate a time deadline or ask an unknown RPC.
+    const h=order.source.scannedHeight,scanned=Date.parse(order.source.scannedAt??''),checked=Date.parse(order.source.checkedAt??'');
+    if(!Number.isSafeInteger(now)||typeof h!=='number'||!Number.isSafeInteger(h)||h<=0||!Number.isFinite(scanned)||!Number.isFinite(checked)||now-scanned< -5000||now-scanned>30000||now-checked< -5000||now-checked>30000||scanned-checked>5000)throw Error('A fresh service-observed Zcash height is required. Refresh this original order before paying.');
+    if(request.cutoffHeight===null||h>=request.cutoffHeight)throw Error('The funding height cutoff has been reached. Do not send to this order.');
+  }
   return {to:request.receiver,amount:request.amount,memo:request.memo,fundingSource:'shielded' as const};
 }
 export interface NoirLocks {request(name:string,options:{mode:'exclusive';ifAvailable:true},callback:(lock:object|null)=>Promise<string>):Promise<string>;}

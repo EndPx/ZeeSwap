@@ -1,0 +1,17 @@
+import test from'node:test';import assert from'node:assert/strict';import{randomBytes}from'node:crypto';
+import{createApi,serializeNativeSourceCheckpoint}from'../src/http-api.ts';import{PrivateData}from'../src/private-data.ts';
+test('Native checkpoint DTO preserves the real observer timestamp and separate database checked clock',()=>{
+ assert.deepEqual(serializeNativeSourceCheckpoint({height:'4554470',observed_at:new Date('2026-10-29T12:00:00Z'),checked_at:new Date('2026-10-29T12:00:17Z')}),{scannedHeight:4554470,scannedAt:'2026-10-29T12:00:00.000Z',checkedAt:'2026-10-29T12:00:17.000Z'});assert.equal(serializeNativeSourceCheckpoint(undefined),undefined);
+ for(const height of[null,-1,1.5,'01','9007199254740992',NaN])assert.throws(()=>serializeNativeSourceCheckpoint({height,observed_at:new Date(),checked_at:new Date()}));
+ for(const value of[null,42,'invalid',new Date(NaN)])assert.throws(()=>serializeNativeSourceCheckpoint({height:'1',observed_at:value,checked_at:new Date()}));
+});
+test('existing private GET order and quote expose one readonly Native checkpoint without fabricating a time cutoff',async()=>{
+ const id='11111111-2222-4333-8444-555555555555',token=randomBytes(32).toString('base64url'),keys=new PrivateData(randomBytes(32),randomBytes(32)),reads:string[]=[],apiReads:string[]=[];
+ const quote={depositReceiver:'synthetic-owned-receiver',reference:'synthetic-private-reference',recipient:'0x0000000000000000000000000000000000000001',executionMode:'observe-only'};
+ let direction='ZCASH_TO_BASE';const pool:any={query:async(sql:string)=>{apiReads.push(sql);if(sql.includes('private_payload'))return{rowCount:1,rows:[{private_payload:keys.seal(quote,`quote:${id}:v1`)}]};if(sql.includes('order_status'))return{rows:[{id,direction,state:'AWAITING_FUNDS',input_amount:'100000',output_amount:'100000',funding_cutoff_height:'4554480',funding_cutoff_time:null}]};throw Error('unexpected API query');}};
+ const worker:any={query:async(sql:string)=>{reads.push(sql);if(sql.includes('scanner_checkpoints'))return{rows:[{height:'4554470',observed_at:'2026-10-29T12:00:00Z',checked_at:'2026-10-29T12:00:17Z'}]};if(sql.includes('reverse_payouts'))return{rows:[]};throw Error('unexpected worker query');}};
+ const server=createApi({pool,keys,wallet:{}as any,escrow:{pool:worker,authorize:async()=>{throw Error('must not authorize');}}});await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));
+ try{for(const route of['orders','quotes']){const r=await fetch(`http://127.0.0.1:${(server.address()as any).port}/v1/${route}/${id}`,{headers:{authorization:'Bearer '+token}});assert.equal(r.status,200);const v=await r.json()as any;assert.equal(v.source.scannedHeight,4554470);assert.equal(v.source.scannedAt,'2026-10-29T12:00:00.000Z');assert.equal(v.source.checkedAt,'2026-10-29T12:00:17.000Z');if(route==='orders'){assert.equal(v.funding.cutoffTime,null);assert.equal(v.funding.cutoffHeight,4554480);}}
+  assert.equal(reads.filter(q=>q.includes('scanner_checkpoints')).length,2);assert.ok(apiReads.every(q=>!q.includes('scanner_checkpoints')));assert.ok(reads.every(q=>q.startsWith('SELECT ')));direction='BASE_TO_ZCASH';const r=await fetch(`http://127.0.0.1:${(server.address()as any).port}/v1/quotes/${id}`,{headers:{authorization:'Bearer '+token}});assert.equal((await r.json()as any).source.scannedHeight,undefined);assert.equal(reads.filter(q=>q.includes('scanner_checkpoints')).length,2);
+ }finally{await new Promise<void>(r=>server.close(()=>r()));}
+});

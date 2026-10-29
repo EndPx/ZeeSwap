@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { bech32m } from 'bech32';
 import { noirAccount, noirPayment, payWithNoir, readNoirAttempt, type NoirProvider, type NoirLocks } from '../src/noir.ts';
-import type { OrderView } from '../src/protocol.ts';
+import {decodeOrder,type OrderView } from '../src/protocol.ts';
 const address=bech32m.encode('utest',bech32m.toWords(new Uint8Array(64).fill(7)),512);
 const txid='a'.repeat(64),id='22222222-2222-4222-8222-222222222222';
 const testLocks:NoirLocks={request:async(_name,_options,callback)=>callback({})};
@@ -41,4 +41,18 @@ test('Noir payment fails closed without origin-wide Web Locks before any provide
  // This injected missing manager has the same absence behavior as an unsupported browser.
  await assert.rejects(payWithNoir(provider,address,async()=>order(),storage(),id,null as unknown as NoirLocks),/protection is unavailable/);
  assert.equal(calls,0);
+});
+
+function heightOrder(now=Date.now()):OrderView{const o=order();o.inputAmount='100000';o.outputAmount='100000';o.funding!.cutoffTime=null;o.source={...o.source,scannedHeight:4999990,scannedAt:new Date(now).toISOString(),checkedAt:new Date(now).toISOString()};return o;}
+test('height-only accepted order uses fresh authenticated height and preserves exact terms and send protection',async()=>{
+ const o=decodeOrder(heightOrder()),store=storage(),calls:{method:string;params?:unknown[]}[]=[];let reads=0;
+ const provider:NoirProvider={request:async args=>{calls.push(args);if(args.method==='zcash_getAccounts')return{shielded:address};assert.equal(args.method,'zcash_sendTransaction');assert.equal(readNoirAttempt(store,id)?.state,'unknown');return txid;}};
+ assert.equal(await payWithNoir(provider,address,async()=>{reads++;return o;},store,id,testLocks),txid);assert.equal(reads,1);assert.deepEqual(calls.at(-1),{method:'zcash_sendTransaction',params:[{to:address,amount:'0.00100000',memo:o.funding!.memo,fundingSource:'shielded'}]});assert.equal(o.funding!.cutoffTime,null);assert.equal(o.funding!.cutoffHeight,5000000);assert.deepEqual(readNoirAttempt(store,id),{state:'submitted',txid});await assert.rejects(payWithNoir(provider,address,async()=>o,store,id,testLocks),/already requested/);assert.equal(calls.filter(c=>c.method==='zcash_sendTransaction').length,1);
+});
+test('height-only terms refuse missing, malformed, stale/future source checks and reached cutoff without inventing time',()=>{
+ const now=Date.now();for(const kind of ['missing','partial','numeric-string','stale-scan','stale-check','future','at-cutoff','after-cutoff']){const o=heightOrder(now);if(kind==='missing'){delete o.source.scannedHeight;delete o.source.scannedAt;delete o.source.checkedAt;}if(kind==='partial')delete o.source.checkedAt;if(kind==='numeric-string')o.source.scannedHeight='4999990' as unknown as number;if(kind==='stale-scan')o.source.scannedAt=new Date(now-30001).toISOString();if(kind==='stale-check')o.source.checkedAt=new Date(now-30001).toISOString();if(kind==='future')o.source.checkedAt=new Date(now+5001).toISOString();if(kind==='at-cutoff')o.source.scannedHeight=5000000;if(kind==='after-cutoff')o.source.scannedHeight=5000001;assert.throws(()=>noirPayment(decodeOrder(o),now));assert.equal(o.funding!.cutoffTime,null);}
+});
+test('actual pay rechecks height freshness after the final account read before invoking wallet or storing an attempt',async()=>{
+ const original=Date.now,now=original(),o=heightOrder(now),store=storage();let accounts=0,sends=0;const provider:NoirProvider={request:async({method})=>{if(method==='zcash_getAccounts'){if(++accounts===2)Date.now=()=>now+30001;return{shielded:address};}sends++;return txid;}};
+ try{await assert.rejects(payWithNoir(provider,address,async()=>o,store,id,testLocks),/fresh service-observed/);assert.equal(sends,0);assert.equal(readNoirAttempt(store,id),null);}finally{Date.now=original;}
 });

@@ -40,6 +40,14 @@ export function serializeFundingCutoffHeight(value:unknown):number|null{
  if(typeof value==='number'&&Number.isSafeInteger(value)&&value>=0)return value;
  throw new Error('INVALID_FUNDING_CUTOFF_HEIGHT');
 }
+/** Actual observer stamp and database read clock; never renew the observer stamp. */
+export function serializeNativeSourceCheckpoint(row:{height:unknown;observed_at:unknown;checked_at:unknown}|undefined){
+ if(!row)return undefined;
+ const scannedHeight=serializeFundingCutoffHeight(row.height);
+ const time=(value:unknown)=>{if(!(value instanceof Date)&&typeof value!=='string')throw new HttpError(503,'SOURCE_CHECKPOINT_UNAVAILABLE');const n=value instanceof Date?value.getTime():Date.parse(value);if(!Number.isFinite(n))throw new HttpError(503,'SOURCE_CHECKPOINT_UNAVAILABLE');return new Date(n).toISOString();};
+ if(scannedHeight===null)throw new HttpError(503,'SOURCE_CHECKPOINT_UNAVAILABLE');
+ return{scannedHeight,scannedAt:time(row.observed_at),checkedAt:time(row.checked_at)};
+}
 
 export function createApi(options:Options){
  const {pool,keys,wallet}=options;if(options.fixedRate&&options.marketPolicy)throw Error('FIXED_MARKET_MODE_CONFLICT');const repo=new Repository(pool,keys);
@@ -77,6 +85,7 @@ export function createApi(options:Options){
   }
   let marketPricing:MarketQuotePricing|undefined;const fixedPricing:FixedQuotePricing|undefined=privateQuote.priceMode==='fixed-rate'?validateFixedQuoteTerms(privateQuote,row):undefined;
   if(privateQuote.priceMode==='market-reference'){const stamp=(await pool.query('SELECT q.created_at,o.accepted_at FROM zee.quotes q LEFT JOIN zee.orders o USING(id) WHERE q.id=$1',[id])).rows[0];const acceptedAt=stamp.accepted_at?new Date(stamp.accepted_at).toISOString():null;const priced=marketOutput(row.input_amount,row.direction,privateQuote.pricing,new Date(acceptedAt??stamp.created_at).getTime());if(priced.outputAmount!==row.output_amount)throw new HttpError(503,'MARKET_PRICE_BINDING');marketPricing={...priced.pricing,acceptedAt,locked:acceptedAt!==null};}
+  const nativeCheckpoint=row.direction==='ZCASH_TO_BASE'&&options.escrow?serializeNativeSourceCheckpoint((await options.escrow.pool.query("SELECT scanned_height::text AS height,observed_at,clock_timestamp() AS checked_at FROM zee.scanner_checkpoints WHERE network='zcash-testnet'")).rows[0]):undefined;
   return {id,direction:row.direction,status:row.state||'QUOTED',inputAmount:row.input_amount,outputAmount:row.output_amount,
    executionMode:privateQuote.executionMode||'observe-only',
    escrowFunding,
@@ -84,7 +93,7 @@ export function createApi(options:Options){
     transactionHash:receipt?.hash,blockNumber:receipt?.blockNumber}:reverseDestination,
    priceMode:marketPricing?'market-reference':fixedPricing?'fixed-rate':'fixture',pricing:marketPricing??fixedPricing??null,sourceAsset:row.direction==='ZCASH_TO_BASE'?'TAZ':'USDC',destinationAsset:row.direction==='ZCASH_TO_BASE'?'USDC':'TAZ',testnet:true,integrationOnly:!!options.integrationOnly,expiresAt:row.expires_at,
    source:{received:!!row.deposit_id,confirmed:!!row.confirmed_at,confirmations:row.confirmations||0,
-    policy:row.direction==='ZCASH_TO_BASE'?'zcash-10-confirmations':'base-finalized',requiredConfirmations:row.direction==='ZCASH_TO_BASE'?10:null},
+    policy:row.direction==='ZCASH_TO_BASE'?'zcash-10-confirmations':'base-finalized',requiredConfirmations:row.direction==='ZCASH_TO_BASE'?10:null,...nativeCheckpoint},
    funding:funding&&row.state==='AWAITING_FUNDS'&&(!options.base||privateQuote.executionMode==='base-settlement-v1')?{network:'zcash-testnet',receiver:privateQuote.depositReceiver,
     memo:JSON.stringify({v:1,ref:privateQuote.reference}),cutoffHeight:serializeFundingCutoffHeight(row.funding_cutoff_height),
     cutoffTime:row.funding_cutoff_time,cancellationAvailableAt:row.cancellation_available_at}:undefined};
