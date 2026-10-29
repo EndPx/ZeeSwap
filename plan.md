@@ -1347,3 +1347,17 @@ all SDK/RPC log sets were empty and equal, all 269 Base and two Native financial
 anchors were checked, with no SQL, cursor or admission mutation. It is a
 read-only diagnostic. The existing full-header gate remains unchanged pending
 the user's decision on docs/proposals/base-closed-event-recovery.md.
+
+VPS primary restore checkpoint (29 October): Root verified PostgreSQL18.6/TLS
+and destination system7701863382450487342 for Main, Envio, Chef and Bridge,
+with exact frozen semantic/schema/ACL restore comparisons. This implements the
+user's NO_NEON runtime hosting decision; retained source stores and isolated
+Neon development tests are archives/test infrastructure, not the selected
+primary runtime. Envio R2 was healthy at51,593,555. Chef retained its logical
+generation and revision baseline; after an owner-only UFVK permission correction
+it resumed bounded source recovery. Root then qualified Chef/Prep4553163,
+lag0/caught_up/readGateReady at epoch274 and completed the normal primary
+follower handoff without the source-recovery overlay. Main policy activation,
+Base observer opening and the funded two-way Bridge circle remain open. No
+source, capacity or financial acceptance gate changes. See
+[dated primary cutover evidence](docs/evidence/vps-primary-database-cutover.md).

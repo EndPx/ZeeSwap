@@ -105,8 +105,11 @@ offline arithmetic is labelled a preview and creates no quote or order.
 [Web configuration](apps/web/README.md) documents `VITE_API_BASE_URL` and CORS.
 Backend execution needs private operator configuration and remote PostgreSQL;
 a source checkout does not include wallets, credentials or service admission.
-The web preview requires neither Docker nor local PostgreSQL. Existing deployment
-guides describe the remote Neon database and VPS runtime.
+The web preview requires neither Docker nor local PostgreSQL. The deployed
+primary datastores for Main, Envio, Chef and Bridge use PostgreSQL in Docker on
+the VPS. The [database cutover record](docs/evidence/vps-primary-database-cutover.md)
+separates verified restores from the remaining source and activation gates;
+older Neon deployment records describe the original hosting configuration.
 
 ## Verify the source
 
@@ -139,9 +142,11 @@ forge build --sizes
 forge test -vv
 ```
 
-Database/HTTP/settlement integration suites require isolated remote Neon
-configuration. See the [API guide](api/README.md); never point fixture tests at
-an active application database. The [evidence index](docs/evidence-index.md)
+Database/HTTP/settlement integration suites require isolated test database
+configuration. Existing isolated Neon test databases remain a development option;
+they are separate from the VPS-hosted primary application databases. See the
+[API guide](api/README.md); never point fixture tests at an active application
+database. The [evidence index](docs/evidence-index.md)
 records performed checks separately from these reproducible commands.
 
 ## Repository map
