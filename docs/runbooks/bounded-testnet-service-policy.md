@@ -13,6 +13,16 @@ wei Base fee. Its admission lifetime is at most24 hours. Accepted memberships
 can settle or refund after expiry under current source/control/supervisor guards.
 The UI reads `/availability`; `/health` retains its connectivity meaning.
 
+The current browser pilot has a separately reviewed reconciliation successor.
+At 30 October 2026, 03:10:10 WIB, Root observed the d699 successor's public API
+as `ready` in both directions, backed by actual idle-capital worker records.
+Its carried counters left one forward attempt, two reverse attempts and 31
+quotes, with zero active orders. The original expiry remains 30 October 2026,
+15:13:20.732 WIB; no quota or time extension was granted. See the
+[successor execution evidence](../evidence/testnet-policy-reconciliation-successor.md).
+This timestamped observation does not replace a fresh availability read before
+funding and does not establish a customer payment or settlement.
+
 All commands below are explicit operator actions. Root supplies actual absolute
 paths and SHA256 values. Configuration files and every downloaded proof remain
 outside Git. Refusal or a lost response requires inspecting the original intent
