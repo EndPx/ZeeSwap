@@ -17,13 +17,14 @@ export function incomingOrder(o:Readonly<Order>):IncomingOrder{
  return {id:o.id,salt:o.salt,direction:o.direction,amountAtomic:o.amountAtomic,recipient:o.recipient,refundRecipient:o.refundRecipient,commitment:o.commitment,expiresAt:o.expiresAt};
 }
 type NativeNote={pool:'ironwood';txid:string;index:number;value:string;height:number;ownChange:boolean;unspent:true;role:'principal'|'fee';blockHash:string};
-export type NativeReadSnapshot={version:1;status:'BRIDGE_NATIVE_READ_VERIFIED';principalAccount:string;feeAccount:string;swapAccount:string;notes:NativeNote[];deposits:Extract<VerifiedEvent,{kind:'DEPOSIT'}>[];controlledZatoshi:string;feeCapitalZatoshi:string;zcash:Anchor;verifiedCheckpoint?:Pick<Anchor,'height'|'hash'>};
+export type NativeReadSnapshot={version:1;status:'BRIDGE_NATIVE_READ_VERIFIED';principalAccount:string;feeAccount:string;swapAccount:string;notes:NativeNote[];deposits:Extract<VerifiedEvent,{kind:'DEPOSIT'}>[];quarantines?:Extract<VerifiedEvent,{kind:'QUARANTINE'}>[];controlledZatoshi:string;feeCapitalZatoshi:string;zcash:Anchor;verifiedCheckpoint?:Pick<Anchor,'height'|'hash'>};
 export interface BridgeNativeRead {
  principalAccount:string;feeAccount:string;swapAccount:string;
  readonly openingFeeNotes?:ReadonlyArray<Pick<NativeNote,'pool'|'txid'|'index'|'value'>>;
  assertNoOutgoing():Promise<void>;
  assertOutgoingScope?(orderId:string):Promise<void>;
  assertOutgoingAllowlist?(orderIds:string[]):Promise<void>;
+ observeQuarantines?(store:BridgeStore):Promise<unknown>;
  validate(address:string):Promise<void>;
  funding(order:Readonly<Order>):Promise<Funding>;
  snapshot(orders:Readonly<Order>[],checkpoint?:Anchor):Promise<NativeReadSnapshot>;
@@ -87,6 +88,7 @@ export function validateNativeSnapshot(s:NativeReadSnapshot,native:Pick<BridgeNa
   if(e.kind!=='DEPOSIT'||!o||!o.accepted||e.amount!==o.amountAtomic||e.receipt.network!=='zcash-testnet'||!/^zcash-testnet:[a-f0-9]{64}:ironwood:[0-9]+$/.test(e.identity)||e.receipt.transactionHash!==e.identity.split(':')[1]||!Number.isSafeInteger(e.receipt.blockHeight)||e.receipt.blockHeight<1||s.zcash.height-e.receipt.blockHeight+1<10||!/^[a-f0-9]{64}$/.test(e.receipt.blockHash)||ids.has(e.id))throw Error('BRIDGE_NATIVE_DEPOSIT_BINDING');
   ids.add(e.id);
  }
+ if(s.quarantines){if(!Array.isArray(s.quarantines)||s.quarantines.length>128)throw Error('BRIDGE_NATIVE_QUARANTINE_BOUND');for(const q of s.quarantines){const o=orders.find(o=>o.id===q.id);if(q.kind!=='QUARANTINE'||!o||o.status!=='EXPIRED_UNFUNDED'||!o.accepted||!o.unfundedRetirement||typeof q.controlled!=='boolean'||integer(q.amount)===0n||q.receipt.network!=='zcash-testnet'||!/^zcash-testnet:[a-f0-9]{64}:ironwood:[0-9]+$/.test(q.identity)||q.identity.split(':')[1]!==q.receipt.transactionHash||!Number.isSafeInteger(q.receipt.blockHeight)||q.receipt.blockHeight<1||s.zcash.height-q.receipt.blockHeight+1<10||!/^[a-f0-9]{64}$/.test(q.receipt.blockHash))throw Error('BRIDGE_NATIVE_QUARANTINE_BINDING');const note=s.notes.find(n=>n.pool==='ironwood'&&n.txid===q.receipt.transactionHash&&String(n.index)===q.identity.split(':')[3]&&n.value===q.amount&&n.height===q.receipt.blockHeight&&n.blockHash===q.receipt.blockHash);if(q.controlled!==!!note)throw Error('BRIDGE_NATIVE_QUARANTINE_PHYSICAL_CONTROL');}}
  return s;
 }
 /** Paused, read-only qualification runtime. It never supplies reverse funding,
@@ -111,6 +113,7 @@ export class PausedBridgeRuntime implements BridgeRuntime,BridgeEvidenceVerifier
   if(!b.pair)throw Error('BRIDGE_RECONCILIATION_REQUIRED');
   validateAnchor(b.pair.base,Date.now(),true);validateAnchor(b.pair.zcash,Date.now(),true);
   const {s,c}=await this.observe(b);this.assertBooks(b,s,c);
+  if(s.quarantines?.some(q=>!b.quarantines?.[q.identity]))throw Error('BRIDGE_LATE_SOURCE_QUARANTINE_REQUIRED');
   // Independently re-read the admitted pair: a fresh higher head alone cannot
   // establish that the exact stored checkpoint survived.
   await this.base.readAt(b.pair.base);
@@ -132,9 +135,10 @@ export class PausedBridgeRuntime implements BridgeRuntime,BridgeEvidenceVerifier
   if(e.kind!=='DEPOSIT'||digest(e.receipt)!==digest(o.source)||e.identity!==o.sourceIdentity)throw Error('BRIDGE_MINT_SOURCE_REORG');
  }
  async refreshPaused(store:BridgeStore){return store.update(async b=>{
-  if(!b.paused||b.incident)throw Error('BRIDGE_RUNTIME_PAUSED_QUALIFICATION_ONLY');const {s,c}=await this.observe(b);
+  if(!b.paused)throw Error('BRIDGE_RUNTIME_PAUSED_QUALIFICATION_ONLY');const {s,c}=await this.observe(b);
   if(!b.principalAccount&&!b.feeAccount&&!b.swapAccount){if(Object.keys(b.orders).length||b.controlled!=='0'||b.feeCapital!=='0'||b.supply!=='0'||s.controlledZatoshi!=='0'||s.feeCapitalZatoshi!=='0'||c.supply!=='0'||c.unpaid!=='0')throw Error('BRIDGE_EMPTY_INITIALIZATION_REQUIRED');for(const k of ['principalAccount','feeAccount','swapAccount'] as const)b[k]=this.native[k];}
   b.pair={zcash:s.zcash,base:c.anchor};
+  for(const q of s.quarantines??[])applyEvent(b,q,Date.now());
   for(const e of s.deposits){const o=b.orders[e.id];if(o.status==='AWAITING_DEPOSIT')applyEvent(b,e,Date.now());else if(o.sourceIdentity!==e.identity||digest(o.source)!==digest(e.receipt))throw Error('BRIDGE_NATIVE_ACCEPTED_SOURCE_CONFLICT');}
   this.assertBooks(b,s,c);validateAnchor(s.zcash,Date.now(),true);validateAnchor(c.anchor,Date.now(),true);return {paused:true,controlledZatoshi:b.controlled,circulatingZatoshi:b.supply,pair:b.pair};
  });}

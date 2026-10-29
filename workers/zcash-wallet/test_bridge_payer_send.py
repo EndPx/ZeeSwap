@@ -35,5 +35,11 @@ class BridgePayerTests(unittest.TestCase):
         actual=a.base+['--nosync','--server','https://testnet.zec.rocks:443','calculate',a.request['recipient'],'100000',a.request['memo']]
         with patch.object(Payer,'run',return_value={'signed':'synthetic'}) as parent:self.assertEqual(a.run(actual),{'signed':'synthetic'});parent.assert_called_once()
         self.assertEqual(checks,['fresh']);a._before_broadcast({},0);self.assertEqual(checks,['fresh','fresh'])
+    def test_replacement_is_an_explicit_extra_binding_not_a_changed_original_permit(self):
+        a=self.adapter();a.request['replacementCertificateSha256']='c'*64
+        validate_bridge_payer_request(a.request,approval_digest(a.request))
+        proof={**self.proof(a.request),'replacementCertificateSha256':'c'*64};a.run=lambda *x,**k:proof;a.fresh_instruction()
+        a.run=lambda *x,**k:self.proof(a.request)
+        with self.assertRaisesRegex(ValueError,'CURRENT_INSTRUCTION_BINDING'):a.fresh_instruction()
 
 if __name__=='__main__':unittest.main()

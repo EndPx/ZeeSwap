@@ -20,11 +20,12 @@ export interface BridgeRuntime {
  /** Optional narrower operator admission scope, checked under the same book lock. */
  assertAcceptance?(order:Readonly<Order>,books:Readonly<Books>):Promise<void>|void;
  bindQuote?(order:Order,books:Readonly<Books>):Promise<void>|void;
+ afterAcceptance?(order:Order,books:Books):Promise<void>|void;
  availability?(books:Readonly<Books>):{forwardEnabled:boolean;reverseEnabled:boolean;reason?:string};
  publicPolicy?:{amountAtomic:'100000';maxAcceptedPerDirection:1;maxConcurrent:1};
 }
 export const unavailableBridgeStatus=()=>({schemaVersion:1 as const,network:'testnet' as const,asset:{symbol:'zeeTAZ',decimals:8,baseChainId:84532,tokenAddress:null as string|null,bridgeContractAddress:null as string|null,runtimeCodeHash:null as string|null},state:'unavailable' as const,reason:'BRIDGE_NOT_CONFIGURED',forwardEnabled:false,reverseEnabled:false,maxObservationAgeSeconds:60,reserveReport:null});
-export function orderView(o:Order){return {id:o.id,direction:o.direction,amountAtomic:o.amountAtomic,outputAmountAtomic:o.amountAtomic,recipient:o.recipient,refundRecipient:o.refundRecipient,payer:o.payer,status:o.status,createdAt:o.createdAt,expiresAt:o.expiresAt,funding:o.funding,source:o.source,destination:o.destination,acknowledgment:o.acknowledgment??null};}
+export function orderView(o:Order){return {id:o.id,direction:o.direction,amountAtomic:o.amountAtomic,outputAmountAtomic:o.amountAtomic,recipient:o.recipient,refundRecipient:o.refundRecipient,payer:o.payer,status:o.status,createdAt:o.createdAt,expiresAt:o.expiresAt,funding:o.funding,source:o.source,destination:o.destination,acknowledgment:o.acknowledgment??null,...(o.lateFundsQuarantined?{lateFundsQuarantined:true}:{})};}
 function auth(o:Order,token:string){const got=accessHash(token),expected=Buffer.from(o.capabilityHash,'hex');if(got.length!==expected.length||!timingSafeEqual(got,expected))throw Error('BRIDGE_ORDER_NOT_FOUND');}
 function evm(s:unknown){if(typeof s!=='string'||!isAddress(s,{strict:true})||s.toLowerCase()===zeroAddress)throw Error('BRIDGE_INVALID_BASE_ADDRESS');return s;}
 /** Format only an independently reconciled book; keeps the proof's original
@@ -76,7 +77,7 @@ export class BridgeService {
    // Reserve a full dedicated external shielded-delivery/refund fee before
    // returning instructions that can create an irrevocable principal obligation.
    b.feeCapital=(BigInt(b.feeCapital)-10000n).toString();o.feeReservation={maximum:'10000'};
-   o.funding=f;o.accepted=true;o.acceptedPair=structuredClone(b.pair!);o.status=o.direction==='TAZ_TO_ZEETAZ'?'AWAITING_DEPOSIT':'AWAITING_BURN';return orderView(o);
+   o.funding=f;o.accepted=true;o.acceptedPair=structuredClone(b.pair!);o.status=o.direction==='TAZ_TO_ZEETAZ'?'AWAITING_DEPOSIT':'AWAITING_BURN';await this.runtime.afterAcceptance?.(o,b);return orderView(o);
   });
  }
  async order(id:string,token:string){const b=await this.store.read(),o=b.orders[id];if(!o)throw Error('BRIDGE_ORDER_NOT_FOUND');auth(o,token);return orderView(o);}

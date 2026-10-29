@@ -55,6 +55,7 @@ export class PublicBridgeWorker {
  }
  async recoverNative(id:string){const o=(await this.store.read()).orders[id];this.pilot.assertOrder(o,await this.store.read());await this.pause(id);await this.bindNative(o);await this.reverse.refreshPayout(this.store,id);const signer=this.reverse.signerAdapter(new BridgeJournal(this.journalRoot,this.keys),'recover');return new BridgeWorker(this.store,this.pilot,signer).prepare(id,'10000');}
  async tick(){
+  await this.pilot.native.observeQuarantines?.(this.store);
   const b=await this.store.read();this.pilot.assertBinding(b);const o=publicOrders(b,this.pilot.binding).find(o=>o.accepted&&!['MINTED','COMPLETED'].includes(o.status));
   if(!o)return this.pilot.refresh(this.store,true);
   await this.pause(o.id);

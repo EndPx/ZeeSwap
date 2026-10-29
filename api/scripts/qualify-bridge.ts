@@ -17,35 +17,40 @@ import {BridgeReverseCoordinator} from '../src/bridge/reverse.ts';
 import {approveNativeProfile} from '../src/bridge/native-profile.ts';
 import {BridgeWorker} from '../src/bridge/worker.ts';
 import {BridgeJournal} from '../src/bridge/journal.ts';
+import {loadRootReplacementCertificate,UnfundedNativeProbe,ZeroExposureVerifier,UnfundedReplacementAuthority,RetirementAwareNativeRead,OperatorReplacementRuntime,ReplacementMintCoordinator} from '../src/bridge/unfunded-retirement.ts';
 
 async function main(){
- const {values:v}=parseArgs({options:{config:{type:'string'},'config-sha256':{type:'string'},permit:{type:'string'},'permit-sha256':{type:'string'},action:{type:'string'},direction:{type:'string'}}});
+ const {values:v}=parseArgs({options:{config:{type:'string'},'config-sha256':{type:'string'},permit:{type:'string'},'permit-sha256':{type:'string'},action:{type:'string'},direction:{type:'string'},'replacement-certificate':{type:'string'},'replacement-sha256':{type:'string'}}});
+ if(!!v['replacement-certificate']!==!!v['replacement-sha256'])throw Error('BRIDGE_REPLACEMENT_PIN_PAIR_REQUIRED');
  if(!v.config||!v['config-sha256']||!v.permit||!v['permit-sha256']||!['init-capability','open','quote','accept','close','refresh','payer-source-guard','mint-prepare','mint-broadcast','mint-observe','burn-prepare','burn-broadcast','burn-observe','native-approve','native-prepare','native-recover','native-broadcast','native-observe','ack-prepare','ack-broadcast','ack-observe'].includes(v.action??'')||process.platform!=='linux'||!process.getuid?.())throw Error('BRIDGE_OPERATOR_ARGUMENTS');
  const binding=await loadRootQualificationPermit(v.permit,v['permit-sha256']),config=JSON.parse((await pinnedFile({path:v.config,sha256:v['config-sha256']},true)).toString());
  if(config.version!==1||config.mode!=='BRIDGE_READ_PAUSED_API'||config.root!=='/opt/zeeswap-bridge-testnet'||config.serviceUid!==process.getuid()||!v.config.startsWith(config.root+'/'))throw Error('BRIDGE_OPERATOR_CONFIG');
- const base=new CanonicalBridgeBase(JSON.parse((await pinnedFile(config.baseProfile,true)).toString())),native=await PinnedBridgeReadAdapter.create(config.native),pool=await connectBridgeDatabase(config.databaseUrl,config.databaseTransport);
+ const base=new CanonicalBridgeBase(JSON.parse((await pinnedFile(config.baseProfile,true)).toString())),underlying=await PinnedBridgeReadAdapter.create(config.native),pool=await connectBridgeDatabase(config.databaseUrl,config.databaseTransport);
  try{
   const identity=(await pool.query('SELECT current_database() AS database, current_user AS role')).rows[0];
   const context={databaseName:identity.database,databaseRole:identity.role,nativeReadProfileSha256:config.native.profile.sha256};
-  const keys=new PrivateData(Buffer.from(config.payloadKeyHex,'hex'),Buffer.from(config.lookupKeyHex,'hex')),{store,runtime}=createPausedBridge(pool,keys,base,native),reverse=new BridgeReverseCoordinator(runtime,binding),operator=new OperatorQualificationRuntime(base,native,binding,context,reverse),service=new BridgeService(store,operator);
-  const signer=config.castProfile?new CastBridgeBaseSigner(base,JSON.parse((await pinnedFile(config.castProfile,true)).toString()),keys,new BridgeMintCoordinator(runtime,{permitId:binding.permit.permitId,permitSha256:binding.sha256,forwardRecipient:binding.permit.forward.recipient,forwardRefundRecipient:binding.permit.forward.refundRecipient}),reverse):undefined;if(signer)reverse.bindSigner(signer);
+  const keys=new PrivateData(Buffer.from(config.payloadKeyHex,'hex'),Buffer.from(config.lookupKeyHex,'hex')),cast=config.castProfile?JSON.parse((await pinnedFile(config.castProfile,true)).toString()):undefined,plain=createPausedBridge(pool,keys,base,underlying);
+  let authority:UnfundedReplacementAuthority|undefined;if(v['replacement-certificate']){if(!config.unfundedProbe||!cast)throw Error('BRIDGE_REPLACEMENT_PROBE_REQUIRED');const rb=await loadRootReplacementCertificate(v['replacement-certificate'],v['replacement-sha256']!);authority=await UnfundedReplacementAuthority.create(rb,binding,new ZeroExposureVerifier(plain.runtime,new UnfundedNativeProbe(config.unfundedProbe),cast.journalRoot));authority.assertBound(await plain.store.read());}
+  const native=authority?new RetirementAwareNativeRead(underlying,authority):underlying,{store,runtime}=authority?createPausedBridge(pool,keys,base,native):plain,reverse=new BridgeReverseCoordinator(runtime,binding),operator=authority?new OperatorReplacementRuntime(base,native,binding,context,authority,reverse):new OperatorQualificationRuntime(base,native,binding,context,reverse),service=new BridgeService(store,operator);
+  const mint=authority?new ReplacementMintCoordinator(runtime,authority):new BridgeMintCoordinator(runtime,{permitId:binding.permit.permitId,permitSha256:binding.sha256,forwardRecipient:binding.permit.forward.recipient,forwardRefundRecipient:binding.permit.forward.refundRecipient});
+  const signer=cast?new CastBridgeBaseSigner(base,cast,keys,mint,reverse):undefined;if(signer)reverse.bindSigner(signer);
   const root=join(config.root,'operator'),dir=await lstat(root);
   if(!dir.isDirectory()||dir.isSymbolicLink()||(dir.mode&0o077)!==0||dir.uid!==process.getuid()||await realpath(root)!==root)throw Error('BRIDGE_OPERATOR_PRIVATE_DIRECTORY');
-  const path=join(root,binding.permit.permitId+'.private.json');
+  const path=join(root,binding.permit.permitId+(authority?'.replacement.'+authority.binding.certificate.certificateId:'')+'.private.json');
   const save=async(value:unknown,exclusive=false)=>{const tmp=exclusive?path:join(root,randomUUID()+'.tmp.private.json'),file=await open(tmp,'wx',0o600);try{await file.writeFile(JSON.stringify(value));await file.sync();}finally{await file.close();}try{if(!exclusive)await rename(tmp,path);const d=await open(root,'r');try{await d.sync();}finally{await d.close();}}catch(e){if(!exclusive)await unlink(tmp).catch(()=>{});throw e;}};
   if(v.action==='init-capability'){
-   operator.assertAdmission();await save({version:1,permitId:binding.permit.permitId,permitSha256:binding.sha256,directions:{TAZ_TO_ZEETAZ:{capability:newAccessToken(),idempotencyKey:randomUUID()},ZEETAZ_TO_TAZ:{capability:newAccessToken(),idempotencyKey:randomUUID()}}},true);
+   operator.assertAdmission();await save({version:1,permitId:binding.permit.permitId,permitSha256:binding.sha256,...(authority?{replacementCertificateSha256:authority.binding.sha256}:{}),directions:{TAZ_TO_ZEETAZ:{capability:newAccessToken(),idempotencyKey:randomUUID()},ZEETAZ_TO_TAZ:{capability:newAccessToken(),idempotencyKey:randomUUID()}}},true);
    console.log(JSON.stringify({status:'BRIDGE_OPERATOR_PRIVATE_CAPABILITY_CREATED'}));return;
   }
   const s=await lstat(path);if(!s.isFile()||s.isSymbolicLink()||(s.mode&0o077)!==0||s.uid!==process.getuid()||s.size>2*1024*1024||await realpath(path)!==path)throw Error('BRIDGE_OPERATOR_PRIVATE_ARTIFACT');
-  const artifact=JSON.parse(await readFile(path,'utf8'));if(artifact.version!==1||artifact.permitId!==binding.permit.permitId||artifact.permitSha256!==binding.sha256)throw Error('BRIDGE_OPERATOR_ARTIFACT_BINDING');
+  const artifact=JSON.parse(await readFile(path,'utf8'));if(artifact.version!==1||artifact.permitId!==binding.permit.permitId||artifact.permitSha256!==binding.sha256||(authority&&artifact.replacementCertificateSha256!==authority.binding.sha256))throw Error('BRIDGE_OPERATOR_ARTIFACT_BINDING');
   if(v.action==='open'){await runtime.refreshPaused(store);await operator.openQualification(store);}
   else if(v.action==='close')await operator.closeQualification(store);
   else if(v.action==='refresh')await runtime.refreshPaused(store);
   else if(v.action==='payer-source-guard'){
    await runtime.refreshPaused(store);const b=await store.read();operator.assertOriginalBinding(b);const o=b.orders[artifact.directions.TAZ_TO_ZEETAZ.order?.id],f=o?.funding;
    if(!b.paused||b.incident||!o?.accepted||o.direction!=='TAZ_TO_ZEETAZ'||o.status!=='AWAITING_DEPOSIT'||o.amountAtomic!=='100000'||f?.kind!=='shielded-deposit'||Date.now()>=Date.parse(f.cutoffTime)||b.pair!.zcash.height>=f.cutoffHeight||!o.feeReservation||o.feeReservation.maximum!=='10000')throw Error('BRIDGE_PAYER_SOURCE_NOT_AUTHORIZED');
-   console.log(JSON.stringify({status:'BRIDGE_PAYER_SOURCE_GUARD_VERIFIED',orderId:o.id,recipient:f.address,amountZatoshi:o.amountAtomic,memoSha256:createHash('sha256').update(f.memo).digest('hex'),cutoffHeight:f.cutoffHeight,cutoffTime:f.cutoffTime}));return;
+   console.log(JSON.stringify({status:'BRIDGE_PAYER_SOURCE_GUARD_VERIFIED',orderId:o.id,recipient:f.address,amountZatoshi:o.amountAtomic,memoSha256:createHash('sha256').update(f.memo).digest('hex'),cutoffHeight:f.cutoffHeight,cutoffTime:f.cutoffTime,...(authority?{replacementCertificateSha256:authority.binding.sha256}:{})}));return;
   }
   else if(v.action==='quote'||v.action==='accept'){
    if(!['TAZ_TO_ZEETAZ','ZEETAZ_TO_TAZ'].includes(v.direction??''))throw Error('BRIDGE_OPERATOR_DIRECTION');const direction=v.direction as 'TAZ_TO_ZEETAZ'|'ZEETAZ_TO_TAZ',entry=artifact.directions[direction];

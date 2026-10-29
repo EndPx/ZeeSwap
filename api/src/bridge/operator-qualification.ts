@@ -40,12 +40,12 @@ export class OperatorQualificationRuntime extends PausedBridgeRuntime {
   super(base,native);const p=validateQualificationPermit(binding.permit);
   if(!/^[a-f0-9]{64}$/.test(binding.sha256)||p.databaseName!==context.databaseName||p.databaseRole!==context.databaseRole||p.nativeReadProfileSha256!==context.nativeReadProfileSha256||p.contractAddress.toLowerCase()!==base.profile.contractAddress.toLowerCase()||p.runtimeCodeHash!==base.profile.runtimeCodeHash||(['principalAccount','feeAccount','swapAccount'] as const).some(k=>p[k]!==native[k]))throw Error('BRIDGE_OPERATOR_PERMIT_BINDING');
  }
- private assertBinding(b:Readonly<Books>){const p=this.binding.permit;if(b.qualification?.permitId!==p.permitId||b.qualification.permitSha256!==this.binding.sha256||b.qualification.createdAt!==p.createdAt||b.qualification.expiresAt!==p.expiresAt)throw Error('BRIDGE_OPERATOR_ORIGINAL_PERMIT_REQUIRED');}
+ protected assertBinding(b:Readonly<Books>){const p=this.binding.permit;if(b.qualification?.permitId!==p.permitId||b.qualification.permitSha256!==this.binding.sha256||b.qualification.createdAt!==p.createdAt||b.qualification.expiresAt!==p.expiresAt)throw Error('BRIDGE_OPERATOR_ORIGINAL_PERMIT_REQUIRED');}
  assertOriginalBinding(b:Readonly<Books>){this.assertBinding(b);}
  assertAdmission(){if(Date.now()>=Date.parse(this.binding.permit.expiresAt))throw Error('BRIDGE_OPERATOR_PERMIT_EXPIRED');}
  input(direction:'TAZ_TO_ZEETAZ'|'ZEETAZ_TO_TAZ'):QuoteInput {const p=this.binding.permit;if(direction==='TAZ_TO_ZEETAZ')return {direction,amountAtomic:'100000',...p.forward};if(direction==='ZEETAZ_TO_TAZ')return {direction,amountAtomic:'100000',...p.reverse};throw Error('BRIDGE_INVALID_DIRECTION');}
- private assertOrder(o:Readonly<Order>){const q=this.input(o.direction);if(o.amountAtomic!==q.amountAtomic||o.recipient!==q.recipient||o.refundRecipient!==q.refundRecipient||o.payer!==q.payer)throw Error('BRIDGE_OPERATOR_ORDER_SCOPE');}
- private assertLimits(b:Readonly<Books>){
+ protected assertOrder(o:Readonly<Order>){const q=this.input(o.direction);if(o.amountAtomic!==q.amountAtomic||o.recipient!==q.recipient||o.refundRecipient!==q.refundRecipient||o.payer!==q.payer)throw Error('BRIDGE_OPERATOR_ORDER_SCOPE');}
+ protected assertLimits(b:Readonly<Books>){
   for(const o of Object.values(b.orders))this.assertOrder(o);
   for(const d of ['TAZ_TO_ZEETAZ','ZEETAZ_TO_TAZ'])if(Object.values(b.orders).filter(o=>o.accepted&&o.direction===d).length>1)throw Error('BRIDGE_OPERATOR_DIRECTION_LIMIT');
   if(Object.values(b.orders).filter(o=>o.accepted&&!['MINTED','COMPLETED'].includes(o.status)).length>1)throw Error('BRIDGE_OPERATOR_CONCURRENCY_LIMIT');

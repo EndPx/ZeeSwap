@@ -7,15 +7,18 @@ export type Receipt = {network:'zcash-testnet'|'base-sepolia';transactionHash:st
 export type Funding = {kind:'shielded-deposit';network:'zcash-testnet';address:string;memo:string;cutoffHeight:number;cutoffTime:string} |
  {kind:'authenticated-burn';network:'base-sepolia';chainId:84532;contract:string;token:string;calldata:string;
  terms:{id:string;payer:string;amount:string;payoutCommitment:string;nonce:string;deadline:string};signature:string};
-export type State = 'QUOTED'|'AWAITING_DEPOSIT'|'AWAITING_BURN'|'DEPOSIT_FINALIZED'|'MINTED'|'CANCELLED'|'REFUND_PENDING'|'REDEMPTION_PENDING'|'PAYOUT_PENDING'|'IN_TRANSIT'|'NATIVE_DELIVERED_AWAITING_ACK'|'COMPLETED'|'FROZEN';
+export type State = 'QUOTED'|'AWAITING_DEPOSIT'|'AWAITING_BURN'|'EXPIRED_UNFUNDED'|'DEPOSIT_FINALIZED'|'MINTED'|'CANCELLED'|'REFUND_PENDING'|'REDEMPTION_PENDING'|'PAYOUT_PENDING'|'IN_TRANSIT'|'NATIVE_DELIVERED_AWAITING_ACK'|'COMPLETED'|'FROZEN';
 export type Order = {id:string;capabilityHash:string;idempotencyKey:string;requestHash:string;direction:Direction;amountAtomic:string;
  pilotPermitSha256?:string;acceptedPair?:Pair;baseScanCursor?:Anchor;nativeProfile?:import('./adapters/native.ts').NativeCommandProfile;baseEffects?:Partial<Record<'MINT'|'ACK',import('./adapters/cast.ts').SignedBridgeBase>>;baseBroadcastAttempted?:Partial<Record<'MINT'|'ACK',true>>;
+ replacementCertificateSha256?:string;lateFundsQuarantined?:true;unfundedRetirement?:{certificateSha256:string;proofSha256:string;originalOrderSha256:string;originalFundingSha256:string;originalExpiresAt:string;retiredAt:string};
  recipient:string;refundRecipient?:string;payer?:string;commitment:string;salt:string;createdAt:string;expiresAt:string;status:State;funding:Funding|null;
  source:Receipt|null;destination:Receipt|null;acknowledgment?:Receipt;sourceIdentity?:string;burnPayer?:string;attempt?:{intentId:string;txid?:string;raw?:string;feeAtomic?:string;expiryHeight?:number};
  deliveryKind?:'REDEMPTION'|'REFUND';included?:Receipt;accepted?:boolean;frozenFrom?:State;reorgTarget?:'SOURCE'|'DELIVERY'|'ACK';feeReservation?:{maximum:string;charged?:string};broadcastAttempted?:boolean};
 export type Books = {version:1;paused:boolean;incident:boolean;controlled:string;inTransit:string;supply:string;feeCapital:string;
  qualification?:{permitId:string;permitSha256:string;createdAt:string;expiresAt:string};
  publicPilot?:{permitId:string;permitSha256:string;createdAt:string;expiresAt:string;qualificationPermitId:string;qualificationPermitSha256:string};
+ unfundedReplacement?:{certificateId:string;certificateSha256:string;proofSha256:string;originalOrderId:string;originalPermitId:string;originalPermitSha256:string;originalAcceptedAttemptCount:1;releasedUnusedFeeAtomic:'10000';replacementAcceptedAttemptCount:0|1;replacementOrderId?:string;closedNativeAnchor:Anchor};
+ quarantines?:Record<string,{orderId:string;amount:string;controlled:boolean;receipt:Receipt}>;
  principalAccount:string;feeAccount:string;swapAccount:string;pair:Pair|null;orders:Record<string,Order>;seen:Record<string,string>};
 export function integer(value:unknown):bigint {
  if(typeof value!=='string'||!/^(0|[1-9][0-9]*)$/.test(value)||value.length>78)throw Error('BRIDGE_INVALID_AMOUNT');return BigInt(value);
@@ -37,6 +40,7 @@ export function coverage(b:Books){
    else if(o.status!=='COMPLETED')redemptions+=integer(o.amountAtomic);
   }
  }
+ for(const q of Object.values(b.quarantines??{}))refunds+=integer(q.amount);
  const liabilities=integer(b.supply)+redemptions+unminted+refunds;
  return {controlledZatoshi:b.controlled,inTransitZatoshi:b.inTransit,circulatingZatoshi:b.supply,unpaidRedemptionsZatoshi:redemptions.toString(),pendingAcknowledgmentsZatoshi:pendingAcknowledgments.toString(),acceptedUnmintedZatoshi:unminted.toString(),otherRefundsZatoshi:refunds.toString(),covered:integer(b.controlled)+integer(b.inTransit)>=liabilities};
 }
@@ -67,6 +71,7 @@ export type VerifiedEvent =
  | {kind:'INCLUDE';id:string;receipt:Receipt}
  | {kind:'CONFIRM';id:string;receipt:Receipt}
  | {kind:'ACK';id:string;amount:string;evidenceCommitment:string;receipt:Receipt}
+ | {kind:'QUARANTINE';id:string;amount:string;identity:string;controlled:boolean;receipt:Receipt}
  | {kind:'REORG';id:string;target:'SOURCE'|'DELIVERY'|'ACK';receipt:Receipt};
 export function validateReceipt(r:Receipt,b:Books,chain:Receipt['network']){
  if(r.network!==chain||! /^(0x)?[0-9a-f]{64}$/.test(r.transactionHash)||!b.pair)throw Error('BRIDGE_RECEIPT_IDENTITY');
@@ -75,7 +80,7 @@ export function validateReceipt(r:Receipt,b:Books,chain:Receipt['network']){
 }
 /** Called only with independently verified canonical evidence, never public HTTP input. */
 export function applyEvent(b:Books,e:VerifiedEvent,now:number):void{
- const o=b.orders[e.id];if(!o)throw Error('BRIDGE_ORDER_NOT_FOUND');const fingerprint=digest(e),eventKey=`${e.kind}:${e.id}:${e.receipt.transactionHash}:${e.receipt.blockHash}`;
+ const o=b.orders[e.id];if(!o)throw Error('BRIDGE_ORDER_NOT_FOUND');const fingerprint=digest(e),eventKey=`${e.kind}:${e.id}:${e.receipt.transactionHash}:${e.receipt.blockHash}${e.kind==='QUARANTINE'?':'+e.identity:''}`;
  if(b.seen[eventKey]){if(b.seen[eventKey]!==fingerprint)throw Error('BRIDGE_EVENT_CONFLICT');
   if(!(e.kind==='REORG'&&e.target==='DELIVERY'&&['IN_TRANSIT','NATIVE_DELIVERED_AWAITING_ACK','COMPLETED'].includes(o.status)))return;
  }
@@ -90,6 +95,10 @@ export function applyEvent(b:Books,e:VerifiedEvent,now:number):void{
  case 'DEPOSIT':
   if(o.status!=='AWAITING_DEPOSIT'||e.amount!==o.amountAtomic||!e.identity||b.seen[`source:${e.identity}`])throw Error('BRIDGE_DEPOSIT_BINDING');
   o.source=e.receipt;o.sourceIdentity=e.identity;o.status='DEPOSIT_FINALIZED';b.controlled=(integer(b.controlled)+n).toString();b.seen[`source:${e.identity}`]=o.id;break;
+ case 'QUARANTINE':
+  if(o.status!=='EXPIRED_UNFUNDED'||!o.unfundedRetirement||!o.accepted||!e.identity||typeof e.controlled!=='boolean'||integer(e.amount)===0n)throw Error('BRIDGE_RETIRED_SOURCE_QUARANTINE_BINDING');
+  if(b.quarantines?.[e.identity]){if(digest(b.quarantines[e.identity])!==digest({orderId:o.id,amount:e.amount,controlled:e.controlled,receipt:e.receipt}))throw Error('BRIDGE_RETIRED_SOURCE_QUARANTINE_CONFLICT');break;}
+  (b.quarantines??={})[e.identity]={orderId:o.id,amount:e.amount,controlled:e.controlled,receipt:e.receipt};if(e.controlled)b.controlled=(integer(b.controlled)+integer(e.amount)).toString();o.lateFundsQuarantined=true;b.paused=true;b.incident=true;break;
  case 'MINT':
   if(o.status!=='DEPOSIT_FINALIZED'||o.direction!=='TAZ_TO_ZEETAZ'||e.amount!==o.amountAtomic||e.recipient.toLowerCase()!==o.recipient.toLowerCase())throw Error('BRIDGE_MINT_BINDING');
   o.destination=e.receipt;o.status='MINTED';b.supply=(integer(b.supply)+n).toString();

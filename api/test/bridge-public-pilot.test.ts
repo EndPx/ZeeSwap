@@ -32,6 +32,9 @@ test('literal public scope and real funded-circle gate cannot be replaced by dep
  await assert.rejects(()=>real.verify(f.b),/ENOENT|FILE/);assert.throws(()=>validatePublicPilotPermit({...f.binding.permit,amountAtomic:'100001'} as any),/SCOPE/);
  f.state.circle=false;await assert.rejects(()=>f.pilot.open(f.store),/FUNDED_CIRCLE_REQUIRED/);assert.equal(f.store.books.paused,true);assert.equal(f.store.books.publicPilot,undefined);
 });
+test('a funded-circle forward labelled replacement cannot omit the preserved original retirement lineage',async()=>{
+ const f=fixture();f.b.orders[f.f.id].replacementCertificateSha256='9'.repeat(64);const real=new FundedBridgeCircle(f.base,f.native,f.binding,f.pins);await assert.rejects(()=>real.verify(f.b),/REPLACEMENT_ORIGINAL_LINEAGE_REQUIRED/);
+});
 test('public counters are separate, arbitrary valid recipient is preserved, and prospective second accept fails',async()=>{
  const f=fixture();await f.pilot.open(f.store);const status=await f.service.status();assert.equal(status.state,'available');assert.equal(status.forwardEnabled,true);assert.equal(status.reverseEnabled,false,'zero supply is not advertised as reverse inventory');
  const body={direction:'TAZ_TO_ZEETAZ' as const,amountAtomic:'100000',recipient:'0x'+'3'.repeat(40),refundRecipient:'utest1arbitraryvalidated'},t1=newAccessToken(),t2=newAccessToken(),q1=await f.service.quote(body,t1,'public-first'),q2=await f.service.quote(body,t2,'public-second');

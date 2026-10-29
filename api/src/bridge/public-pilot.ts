@@ -9,6 +9,7 @@ import type {BridgeStore} from './repository.ts';
 import type {BridgeReconciliation} from './reconciliation.ts';
 import {BridgeReverseCoordinator} from './reverse.ts';
 import {reconciledBridgeStatus} from './service.ts';
+import {requireRetiredLineage} from './unfunded-retirement.ts';
 
 export type PublicPilotPermit={version:1;purpose:'ROOT_PUBLIC_BRIDGE_PILOT';permitId:string;createdAt:string;expiresAt:string;databaseName:string;databaseRole:string;nativeReadProfileSha256:string;contractAddress:string;runtimeCodeHash:string;principalAccount:string;feeAccount:string;swapAccount:string;amountAtomic:'100000';maxAcceptedPerDirection:1;maxConcurrent:1;qualificationPermitId:string;qualificationPermitSha256:string;qualificationForwardOrderId:string;qualificationReverseOrderId:string;qualificationNativeProfileSha256:string;qualificationRecipientUfvkSha256:string};
 export type PublicPilotBinding={permit:PublicPilotPermit;sha256:string};
@@ -48,6 +49,7 @@ export class FundedBridgeCircle {
  async verify(b:Readonly<Books>){const p=this.binding.permit,f=b.orders[p.qualificationForwardOrderId],r=b.orders[p.qualificationReverseOrderId];
   const started=Date.now();
   if(b.incident||b.qualification?.permitId!==p.qualificationPermitId||b.qualification.permitSha256!==p.qualificationPermitSha256||!f?.accepted||f.status!=='MINTED'||f.direction!=='TAZ_TO_ZEETAZ'||f.amountAtomic!=='100000'||!f.source||!f.destination||!r?.accepted||r.status!=='COMPLETED'||r.direction!=='ZEETAZ_TO_TAZ'||r.amountAtomic!=='100000'||!r.source||!r.destination||!r.acknowledgment)throw Error('BRIDGE_FUNDED_CIRCLE_REQUIRED');
+  if(b.unfundedReplacement||f.replacementCertificateSha256)requireRetiredLineage(b,f);
   const completed=publicOrders(b,this.binding).filter(o=>o.direction==='ZEETAZ_TO_TAZ'&&o.status==='COMPLETED'),knownProfiles=publicOrders(b,this.binding).filter(o=>o.nativeProfile).map(o=>[o.id,o.nativeProfile]),key=digest([this.binding.sha256,b.qualification,f,r,completed,knownProfiles]);
   // Actual completed proof only, with a short observation lifetime. Live order
   // source/capital reads below are never replaced by this historical proof cache.
