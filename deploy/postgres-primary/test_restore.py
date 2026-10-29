@@ -36,6 +36,7 @@ class RestoreBoundaryTests(unittest.TestCase):
             connection_files('postgresql://neondb_owner:fixture@ep-test.neon.tech/sdk_db?sslmode=require',
                              'sdk_db', 'neondb_owner', 'sdk', 'ep-test.neon.tech')
         for database, role in [('zee_envio_20261023', 'zee_envio_export_20261023'),
+                               ('zee_envio_20261023', 'zee_envio_owner_20261023'),
                                ('zee_chef_20261023', 'zee_chef_owner_20261023')]:
             host = 'ep-exact-fixture.neon.tech'
             service, _ = connection_files(f'postgresql://{role}:fixture@{host}/{database}?sslmode=require',

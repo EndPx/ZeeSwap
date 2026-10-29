@@ -36,7 +36,7 @@ def connection_files(url, database, user, scope='main', expected_host=None):
              re.fullmatch(r'zee_bridge_(worker|reader|read|readonly|runtime)_20261029', user),
              'EXISTING_BRIDGE_WORKER_OR_READER_ONLY')
     else:
-        known_sdk_roles = {'zee_envio_20261023': {'zee_envio_export_20261023'},
+        known_sdk_roles = {'zee_envio_20261023': {'zee_envio_export_20261023', 'zee_envio_owner_20261023'},
                            'zee_chef_20261023': {'zee_chef_owner_20261023'}}
         need(scope == 'sdk' and expected_host and p.hostname == expected_host and
              user in known_sdk_roles.get(database, set()), 'EXPLICIT_EXISTING_SDK_SOURCE_REQUIRED')

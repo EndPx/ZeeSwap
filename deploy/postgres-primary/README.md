@@ -114,7 +114,7 @@ do not copy the local administrator password or run ad hoc grants.
 Main/Bridge scopes require direct Neon TLS endpoints and their worker/reader
 identities. Pooled hosts and Main owner/admin URLs are refused. SDK scope requires the
 explicit exact source host and the actual known pairs: `zee_envio_20261023` /
-`zee_envio_export_20261023`, or `zee_chef_20261023` /
+`zee_envio_export_20261023` or `zee_envio_owner_20261023`, or `zee_chef_20261023` /
 `zee_chef_owner_20261023`. Those SDK sources may themselves be Neon; Neon still
 requires TLS. The actual Bridge read-only preflight may use
 `zee_bridge_runtime_20261029`. No role is granted new permissions by this change. The [Neon backup guide](https://neon.com/docs/import/migrate-from-postgres)
