@@ -43,3 +43,15 @@ reported its hash matched the stopped cursor, with latest-height metadata
 service recovery. At preparation time control remained 237/reconciling and the
 financial worker remained stopped. A subsequent Source-only restart/catchup must
 be recorded separately; this document makes no live recovery or swap claim.
+
+Root subsequently installed the published `08c828d81cff0b71d36b87a03e4786d2251ebc35`
+packet and protected reader proof with SHA-256
+`ed2ad54cc45c846caa47aba03b1e6d607c053a35911fba9153e72f952164d920`.
+Root started only the ordinary Native service and reported it active with PID
+3562909. Root then recorded `CHEF_TESTNET_OBSERVED` at height 4555305 with 760
+verified range headers and six published anchors, followed by an ordinary
+same-height observation with ten verified headers and four published anchors.
+Both reported zero observed outputs, eligible operations and quarantined outputs;
+the process remained active without a nonzero exit. These are actual Source-only
+observations. Control remained 237/reconciling, with no control repair or financial
+worker restart. They do not establish admission readiness or a completed swap.
