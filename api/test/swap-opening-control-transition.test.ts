@@ -26,7 +26,8 @@ function fixture(){
   financialDigest:a.financialDigest,financialRows:70,retainedRowsSha256:digest(rows),noRepair:pin('no-repair'),fatalDiagnostic:pin('diagnostic'),reconciliationOutcome:'ACKNOWLEDGED',
   verifiedAt:at(),expiresAt:new Date(Date.now()+120000).toISOString()},priorOpening:prior,controlTransactionStatus:'committed',
   noRepair:{version:1,status:'ROOT_NATIVE_NO_REPAIR_RESTART_VERIFIED',control:{epoch:'234',xmin:'27890'},financialDigest:a.financialDigest,allPersistedCanonical:true,
-   verifiedPersistedHeaders:271,cursorSha256:h,persistedStateDigest:b,cursor:{processedThrough:4553218,tipHash:h},sqlMutation:false,cursorMutation:false,restartPerformed:false},
+   verifiedPersistedHeaders:271,cursorSha256:h,persistedStateDigest:b,cursor:{processedThrough:4553218,tipHash:h},sqlMutation:false,cursorMutation:false,restartPerformed:false,
+   currentSource:{generation:'13d3e6eb-ecfe-4159-8cde-b5d9ed00151e',checkpoint:{height:4553253,hash:h}},independentCore:{height:4553253,hash:h},displacedCandidateCanonical:canonical},
   fatalDiagnostic:{code:'CANONICAL_CHECKPOINT_MISMATCH',phase:'TRAVERSE',publicationAttempted:false,checkpointMismatch:{expectedCore:{height:4553220},actualHeader:canonical,
    freshCanonicalHeader:canonical,freshCanonicalFailure:null,recheckFailure:{message:'CHEF_CANONICAL_HEADER_FAILED'}}}};
  const r={version:1,status:'BASE_OPERATOR_SCOPE_OPENING_COMMITTED_EXACT',financialAction:false,completeContractHistory:false,approvalSha256:h,intentDigest:digest(i),transactionId:i.transactionId,
@@ -50,6 +51,7 @@ test('transition refuses terminal-status uncertainty, origin identity, missing c
   x=>{x.t.certificate.priorOpening.evidence.sha256=h;},x=>{x.t.certificate.reconciliationOutcome='UNKNOWN' as any;},
   x=>{x.t.noRepair.allPersistedCanonical=false;},x=>{x.t.noRepair.sqlMutation=true;},x=>{x.t.noRepair.cursorMutation=true;},
   x=>{x.t.noRepair.cursor.processedThrough++;},x=>{x.t.fatalDiagnostic.publicationAttempted=true;},
+  x=>{x.t.noRepair.independentCore.hash=b;},x=>{x.t.noRepair.currentSource.generation='other';},
   x=>{x.t.fatalDiagnostic.phase='AFTER_PUBLICATION';},x=>{x.t.fatalDiagnostic.checkpointMismatch.freshCanonicalFailure={};},
   x=>{x.t.fatalDiagnostic.checkpointMismatch.freshCanonicalHeader={height:4553220,hash:h};},
   x=>{x.t.certificate.expiresAt=new Date(Date.now()-1000).toISOString();},

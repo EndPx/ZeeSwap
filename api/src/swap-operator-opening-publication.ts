@@ -72,6 +72,9 @@ export function validatePriorControlTransition(t:PriorControlTransitionEvidence,
   &&d.checkpointMismatch.freshCanonicalHeader?.height===4553220&&!d.checkpointMismatch.freshCanonicalFailure
   &&stable(d.checkpointMismatch.actualHeader)===stable(d.checkpointMismatch.freshCanonicalHeader)
   &&d.checkpointMismatch.recheckFailure?.message==='CHEF_CANONICAL_HEADER_FAILED','PRIOR_CONTROL_FATAL_BEFORE_PUBLICATION');
+ need(n.currentSource?.generation==='13d3e6eb-ecfe-4159-8cde-b5d9ed00151e'
+  &&n.independentCore?.height===n.currentSource.checkpoint?.height&&n.independentCore.hash===n.currentSource.checkpoint.hash
+  &&n.independentCore.height>4553220&&stable(n.displacedCandidateCanonical)===stable(d.checkpointMismatch.freshCanonicalHeader),'PRIOR_CONTROL_SOURCE_RESOLVED');
 }
 export function classifyOperatorOpening(status:string,s:ClosedSnapshot,i:OperatorOpeningIntent){
  need(i?.version===1&&i.purpose==='BASE_OPERATOR_SCOPE_OPENING_METADATA'&&hash(i.approvalSha256),'INTENT_PURPOSE');
