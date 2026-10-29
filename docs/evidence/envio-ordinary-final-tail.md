@@ -93,14 +93,18 @@ Source clocks and baselineSource-claimed-head lag40 remain. A Source target
 regression and a selection above128 have distinct error codes; diagnostics expose
 only initial/selected target, tail start and tail width as integers.
 
-The extra3f final independent-peer-head-to-published-through40 check is removed.
+The extra3f final independent-peer-head-to-published-through40 upper bound is
+removed. The lower bound remains: the final fresh peer head must reach the
+published through-height, or the cycle refuses before hints or SQL writes.
 It was a new strengthening, rather than a pre3f acceptance gate. Original
 per-packet independent Source sampling, head/finality checks, fresh end fences,
 Source-claimed-head lag40 and receipt guards are unchanged. The correction does
 not promise a successful live first cycle; Root must qualify its next actual run.
 
-Current checks:35 focused TypeScript cases pass with zero skips; APItypecheck
+Current checks:36 focused TypeScript cases pass with zero skips; APItypecheck
 and scoped whitespace checks pass. Tests include one fixed two-page tail, >128
 refusal, distinct regressed target, original claimedSource lag40 refusal,
 clock/deadline bounds, cancellation/draining on either tail page and strict
-numeric-only diagnostics. No new live Source/RPC probe was performed.
+numeric-only diagnostics. The boundary follow-up proves that a final head one
+block below through refuses without writes, while a head41 blocks above does
+not introduce the removed upper bound. No new live Source/RPC probe was performed.
