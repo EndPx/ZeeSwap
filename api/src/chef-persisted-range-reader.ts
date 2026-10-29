@@ -19,10 +19,10 @@ export async function verifyChefPersistedRanges(heights:number[],read:ChefPersis
 }
 export function localChefPersistedRange(command:string,args:string[]):ChefPersistedRangeReader{return(from,through,signal)=>new Promise((done,reject)=>{
  requireThat(Number.isSafeInteger(from)&&Number.isSafeInteger(through)&&from>=0&&through>=from&&through-from<1000,'CHEF_PERSISTED_RANGE_BOUND');
- const child=spawn(command,args,{stdio:['pipe','pipe','pipe'],windowsHide:true,signal});let out='',failed=false;
- const fail=()=>{if(!failed){failed=true;child.kill();}};child.on('error',fail);child.stdin.on('error',fail);child.stderr.resume();
+ const child=spawn(command,args,{stdio:['pipe','pipe','pipe'],windowsHide:true,signal});let out='',stderr='',failed=false;
+ const fail=()=>{if(!failed){failed=true;child.kill();}};child.on('error',fail);child.stdin.on('error',fail);child.stderr.on('data',b=>{if(stderr.length<=2048)stderr+=b;});
  child.stdout.on('data',b=>{out+=b;if(out.length>300000){child.kill();fail();}});
- child.on('close',code=>{if(failed||code!==0){reject(Error('CHEF_PERSISTED_RANGE_FAILED'));return;}try{done(JSON.parse(out));}catch{reject(Error('CHEF_PERSISTED_RANGE_FAILED'));}});
+ child.on('close',code=>{const failure=()=>{const error=Error('CHEF_PERSISTED_RANGE_FAILED') as Error&{persistedRange:unknown};let reason:string|null=null,grpcStatus:number|null=null;try{const d=JSON.parse(stderr);if(d.event==='CHEF_PERSISTED_RANGE_FAILED'){if(['PERSISTED_RANGE_BOUND','PERSISTED_NETWORK_OR_BRANCH','PERSISTED_SOURCE_BEHIND','PERSISTED_RANGE_HEADER','PERSISTED_RANGE_PARENT','PERSISTED_RANGE_INCOMPLETE','PERSISTED_REQUEST','PERSISTED_ENDPOINT'].includes(d.reason))reason=d.reason;if(Number.isInteger(d.grpcStatus)&&d.grpcStatus>=0&&d.grpcStatus<=16)grpcStatus=d.grpcStatus;}}catch{}error.persistedRange={fromHeight:from,throughHeight:through,exitCode:Number.isInteger(code)?code:null,aborted:signal.aborted,reason,grpcStatus};return error;};if(failed||code!==0){reject(failure());return;}try{done(JSON.parse(out));}catch{reject(failure());}});
  child.stdin.end(JSON.stringify({command:'persisted-range',fromHeight:from,throughHeight:through}));
 });}
 /** Explicit Root overlay; immutable original profile and decoder are retained. */

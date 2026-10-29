@@ -1,9 +1,13 @@
 import unittest
 from types import SimpleNamespace as NS
-from chef_persisted_headers import read_persisted
+from chef_persisted_headers import read_persisted, failure_metadata
 
 
 class PersistedHeaderTests(unittest.TestCase):
+    def test_failure_metadata_never_exposes_provider_or_exception_text(self):
+        self.assertEqual(failure_metadata(ValueError('PERSISTED_RANGE_INCOMPLETE')), {'event': 'CHEF_PERSISTED_RANGE_FAILED', 'reason': 'PERSISTED_RANGE_INCOMPLETE', 'grpcStatus': None})
+        self.assertEqual(failure_metadata(RuntimeError('PRIVATE_KEY provider response')), {'event': 'CHEF_PERSISTED_RANGE_FAILED', 'reason': None, 'grpcStatus': None})
+
     def setup_reader(self, mode=None):
         calls = []
         class Service:

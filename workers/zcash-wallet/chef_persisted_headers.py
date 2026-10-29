@@ -47,9 +47,24 @@ def main():
         print(json.dumps(read_persisted(service, messages, config['canonicalSourceId'], request['fromHeight'], request['throughHeight'])))
 
 
+def failure_metadata(error):
+    allowed = {'PERSISTED_RANGE_BOUND', 'PERSISTED_NETWORK_OR_BRANCH', 'PERSISTED_SOURCE_BEHIND', 'PERSISTED_RANGE_HEADER', 'PERSISTED_RANGE_PARENT', 'PERSISTED_RANGE_INCOMPLETE', 'PERSISTED_REQUEST', 'PERSISTED_ENDPOINT'}
+    reason = error.args[0] if isinstance(error, ValueError) and len(error.args) == 1 and error.args[0] in allowed else None
+    status = None
+    try:
+        import grpc
+        if isinstance(error, grpc.RpcError):
+            candidate = error.code().value[0]
+            if type(candidate) is int and 0 <= candidate <= 16:
+                status = candidate
+    except Exception:
+        pass
+    return {'event': 'CHEF_PERSISTED_RANGE_FAILED', 'reason': reason, 'grpcStatus': status}
+
+
 if __name__ == '__main__':
     try:
         main()
-    except Exception:
-        print('CHEF_PERSISTED_RANGE_FAILED', file=sys.stderr)
+    except Exception as error:
+        print(json.dumps(failure_metadata(error)), file=sys.stderr)
         sys.exit(1)

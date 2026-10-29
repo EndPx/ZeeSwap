@@ -3,7 +3,13 @@ import type { PrivateData } from "../../private-data.ts";
 import { ingestSnapshot, observerCheckHeights,validateSnapshot,type Snapshot } from "../../observer.ts";
 import { ChefAdapter, ChefCanonicalHeadChanged, SourceCheckpointMismatch, requireChefCanonicalHead, type ChefConfig } from "./chef.ts";
 import { ChefWalletBridge } from "./chef-wallet-bridge.ts";
-import { height, requireThat,parseHeader,stable,type ReplaceRange } from "./types.ts";
+import { height, requireThat,parseHeader,stable,type ReplaceRange,type Header } from "./types.ts";
+
+// Only the completed anchor-verification phase can issue this witness. A
+// constructed error or a failed persisted-range read cannot manufacture it.
+const siblingFrames=new WeakMap<ChefCanonicalHeadChanged,{error:string;anchors:Map<number,string>;parents:Header[]}>();
+const siblingWaitProofs=new WeakMap<ChefCanonicalHeadChanged,{kind:'verified-unpublished-sibling-ancestry';headHeight:number;persistedTipHeight:number;unpublishedParentCount:number}>();
+export function chefSiblingWaitProof(error:unknown){return error instanceof ChefCanonicalHeadChanged?siblingWaitProofs.get(error):undefined;}
 
 /** Retained financial anchors are canonical header checks, never a claim that
  * the new Chef account scanned notes before its explicit birthday. */
@@ -27,7 +33,17 @@ export async function appendChefAnchorHeaders(snapshot:Snapshot,batch:ReplaceRan
   blocks.set(check,{height:header.height,hash:header.hash,time:header.time});
  }
  requireThat(blocks.size<=1000,"CHEF_ANCHOR_CAPACITY_REACHED");
- requireChefCanonicalHead(batch.coverage.sourceHead,await canonical.header(batch.coverage.sourceHead.height,signal),'anchor-recheck');
+ try{requireChefCanonicalHead(batch.coverage.sourceHead,await canonical.header(batch.coverage.sourceHead.height,signal),'anchor-recheck');}
+ catch(error){
+  if(error instanceof ChefCanonicalHeadChanged&&error.expected.height===error.actual.height&&error.expected.parentHash===error.actual.parentHash&&error.expected.time===error.actual.time&&error.expected.hash!==error.actual.hash){
+   const parents:Header[]=[];
+   // Read ONLY headers already verified in the initial independent dense range.
+   // Never fetch a new parent or treat an unavailable prefix as verified.
+   try{for(let h=error.expected.height-1;h>=0&&parents.length<6;h--){const origin=canonical.headerOrigin?.(h);if(origin?.kind!=='prefetch-cache'||origin.sampledHeadHeight!==error.expected.height||origin.fromHeight===undefined||origin.fromHeight>h||origin.throughHeight===undefined||origin.throughHeight<error.expected.height)break;parents.push(parseHeader(await canonical.header(h,signal),'zcash-testnet'));}}catch(failure){error.recheckFailure=failure;throw error;}
+   siblingFrames.set(error,{error:stable([error.expected,error.actual]),anchors:new Map([...blocks].map(([h,b])=>[h,b.hash])),parents});
+  }
+  throw error;
+ }
  return validateSnapshot({...snapshot,blocks:[...blocks.values()].sort((a,b)=>a.height-b.height)});
 }
 
@@ -87,9 +103,24 @@ export async function chefHeadChangeCanWait(error:unknown,publicationAttempted:b
  for(const [table,key]of [['deposits','block_height'],['reverse_payouts','block_height'],['source_refunds','height']] as const)for(const row of financial[table]??[]){if(row[key]==null&&row.block_hash==null)continue;const h=Number(row[key]);if(!Number.isSafeInteger(h)||headers.get(h)!==row.block_hash)return false;}
  if(![...headers.keys(),scanned,finalized].every(h=>Number.isSafeInteger(h)&&h>=0&&h<expectedHeight))return false;
  try{
+ const frame=headChange?siblingFrames.get(error):undefined;
+ let sibling=false;
+ if(headChange&&frame&&cyclePhase==='VERIFY_ANCHORS'&&error.phase==='anchor-recheck'&&frame.error===stable([error.expected,error.actual])&&scanned===cursor.processedThrough&&scanned<expectedHeight&&expectedHeight-scanned<=6&&[...headers.keys()].every(h=>h<=scanned)){
+  const required=new Set([scanned,finalized,cursor.processedThrough]);
+  for(const [table,key]of [['deposits','block_height'],['reverse_payouts','block_height'],['source_refunds','height']] as const)for(const row of financial[table]??[])if(row[key]!=null)required.add(Number(row[key]));
+  // Required persisted/financial anchors were independently verified BEFORE the
+  // sibling was observed. Its unchanged parent chain commits to the same tip.
+  if([...required].every(h=>frame.anchors.get(h)===headers.get(h))){
+   let parentHash=error.actual.parentHash;
+   for(let h=expectedHeight-1;h>=scanned;h--){signal.throwIfAborted();const parent=frame.parents[expectedHeight-1-h];if(!parent||parent.height!==h||parent.hash!==parentHash)break;if(h===scanned){sibling=parent.hash===cp.tip_hash;break;}parentHash=parent.parentHash;}
+  }
+ }
+ if(sibling&&headChange){siblingWaitProofs.set(error,{kind:'verified-unpublished-sibling-ancestry',headHeight:expectedHeight,persistedTipHeight:scanned,unpublishedParentCount:expectedHeight-scanned-1});}
+ else {
  await canonical.prefetchPersisted?.([...headers.keys()],signal);
  for(const [h,hash]of headers){signal.throwIfAborted();const current=await canonical.header(h,signal);if(current.height!==h||current.hash!==hash)return false;}
- signal.throwIfAborted();let onAbort:()=>void=()=>{};const aborted=new Promise<never>((_,reject)=>{onAbort=()=>reject(signal.reason);signal.addEventListener('abort',onAbort,{once:true});});try{const result=await Promise.race([unchanged(),aborted]);signal.throwIfAborted();if(result&&verifiedDiagnostic){await verifiedDiagnostic();signal.throwIfAborted();const final=await Promise.race([unchanged(),aborted]);signal.throwIfAborted();return final;}return result;}finally{signal.removeEventListener('abort',onAbort);}
+ }
+ signal.throwIfAborted();let onAbort:()=>void=()=>{};const aborted=new Promise<never>((_,reject)=>{onAbort=()=>reject(signal.reason);signal.addEventListener('abort',onAbort,{once:true});});try{const result=await Promise.race([unchanged(),aborted]);signal.throwIfAborted();if(result&&(verifiedDiagnostic||sibling)){await verifiedDiagnostic?.();signal.throwIfAborted();const final=await Promise.race([unchanged(),aborted]);signal.throwIfAborted();return final;}return result;}finally{signal.removeEventListener('abort',onAbort);}
  }catch(recheckFailure){error.recheckFailure=recheckFailure;throw error;}
 }
 export const chefDiagnosticCodes=['CANONICAL_HEAD_CHANGED','OBSERVER_EPOCH_CHANGED','CHEF_LIVE_CURSOR_REORG','CHEF_LIVE_GENERATION_CHANGED','CHEF_RECOVERY_TARGET_REORG','CHEF_RECOVERY_OVERLAP_REORG','CHEF_LIVE_CURSOR_IDENTITY','CHEF_LIVE_SOURCE_REGRESSION','CHEF_RECOVERY_IDENTITY_CHANGED','CANONICAL_CHECKPOINT_MISMATCH','HEADER_GAP_OR_FORK','CANONICAL_NOTE_MISMATCH','CHEF_HTTP_ERROR','CHEF_CANONICAL_HEADER_FAILED','CANONICAL_RPC_HTTP_ERROR','CHEF_PERSISTED_STATE_BOUND'] as const;

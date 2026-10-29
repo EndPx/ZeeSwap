@@ -44,3 +44,11 @@ test('actual child transport uses persisted-range only and aborts without accept
   await writeFile(path,`for await(const chunk of process.stdin){};process.stdout.write('{');await new Promise(done=>setTimeout(done,10000));`);const stop=new AbortController();const pending=read(100,102,stop.signal);setTimeout(()=>stop.abort(),10);await assert.rejects(pending,/CHEF_PERSISTED_RANGE_FAILED/);
  }finally{await rm(directory,{recursive:true,force:true});}
 });
+
+test('failed child exposes only requested numeric range, exit and allowlisted reason/status, never raw stderr',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'persisted-diagnostic-')),path=join(directory,'reader.mjs');
+ try{for(const stderr of [JSON.stringify({event:'CHEF_PERSISTED_RANGE_FAILED',reason:'PERSISTED_RANGE_INCOMPLETE',grpcStatus:4,secret:'PRIVATE_TOKEN'}),'PRIVATE_TOKEN and raw provider payload']){
+  await writeFile(path,`for await(const chunk of process.stdin){};process.stderr.write(${JSON.stringify(stderr)});process.exitCode=1;`);
+  await assert.rejects(localChefPersistedRange(process.execPath,[path])(110,119,AbortSignal.timeout(5000)),error=>{const e=error as Error&{persistedRange:unknown};assert.equal(e.message,'CHEF_PERSISTED_RANGE_FAILED');assert.deepEqual(e.persistedRange,{fromHeight:110,throughHeight:119,exitCode:1,aborted:false,reason:stderr.startsWith('{')?'PERSISTED_RANGE_INCOMPLETE':null,grpcStatus:stderr.startsWith('{')?4:null});assert.equal(JSON.stringify(e).includes('PRIVATE_TOKEN'),false);return true;});
+ }}finally{await rm(directory,{recursive:true,force:true});}
+});
