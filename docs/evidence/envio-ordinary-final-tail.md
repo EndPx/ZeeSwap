@@ -75,3 +75,32 @@ full fence comparisons, reorgs, source-clock expiry, pacing and admission bounds
 No new Source/RPC probe, remote file change or observer execution was performed
 by the coding agent for this patch. Root reviews and publishes the observer-only
 release before another scoped opening and exact first-cycle qualification.
+
+## R9 two-page correction
+
+The initial3f implementation above introduced two additional restrictions. Root's
+actual R9 first cycle requested two64-header packets, then refused the final
+selection at10.077 seconds with `EVENT_FIRST_FINAL_TAIL_RANGE`; it wrote no hints
+or observer SQL. The trace proves the selection exceeded64, but did not record
+its exact size. A71-header selection in the regression test represents that
+same two-page boundary pattern, not an invented actual R9 measurement.
+
+The approved correction permits one fixed final selection of at most128 headers,
+consumed as at most two Source packets of at most64 each. No recursive selection
+or third tail page is allowed. Original30-second deadlines,10-second selection
+reserve, complete1000-block bound, packet verification, log equality, fences,
+Source clocks and baselineSource-claimed-head lag40 remain. A Source target
+regression and a selection above128 have distinct error codes; diagnostics expose
+only initial/selected target, tail start and tail width as integers.
+
+The extra3f final independent-peer-head-to-published-through40 check is removed.
+It was a new strengthening, rather than a pre3f acceptance gate. Original
+per-packet independent Source sampling, head/finality checks, fresh end fences,
+Source-claimed-head lag40 and receipt guards are unchanged. The correction does
+not promise a successful live first cycle; Root must qualify its next actual run.
+
+Current checks:35 focused TypeScript cases pass with zero skips; APItypecheck
+and scoped whitespace checks pass. Tests include one fixed two-page tail, >128
+refusal, distinct regressed target, original claimedSource lag40 refusal,
+clock/deadline bounds, cancellation/draining on either tail page and strict
+numeric-only diagnostics. No new live Source/RPC probe was performed.

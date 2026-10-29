@@ -62,7 +62,6 @@ export async function observeEnvioOnce(pool:pg.Pool,keys:PrivateData,base:BaseCo
  requireThat(batch.coverage.sourceHead.height-batch.coverage.through.height<=40,'WAIT_ENVIO_BEHIND_HEAD');
  const sample=await sampleCanonicalFinalityAtLeast(config.canonical,config.verificationSourceId??config.policy.canonicalSourceId,Number(previous?.finalized_height??0),signal);
  requireThat(sample.sourceId===(config.verificationSourceId??config.policy.canonicalSourceId),'WRONG_CANONICAL_SOURCE');fresh(sample.checkedAt,Date.now());
- if(config.eventFirst)requireThat(sample.head.height>=batch.coverage.through.height&&sample.head.height-batch.coverage.through.height<=40,'WAIT_ENVIO_BEHIND_HEAD');
  requireThat(sample.finalized&&sample.finalized.height<=batch.coverage.through.height,'WAIT_ENVIO_FINALITY');
  const finalized=sample.finalized;
  requireThat(stable(await config.canonical.header(finalized.height,signal))===stable(finalized),'FINALIZED_HEADER_CONFLICT');
