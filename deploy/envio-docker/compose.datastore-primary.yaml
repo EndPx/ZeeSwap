@@ -1,0 +1,21 @@
+# Add after compose.yaml + compose.event-first.yaml. New v3 descriptors/stages/runstate required.
+services:
+  engine:
+    networks: [source, datastore]
+    volumes:
+      - {type: bind, source: "${SDK_DATASTORE_PROOF_FILE:?Root completed SDK relocation receipt}", target: /opt/zeeswap-testnet/state/database-relocation/sdk-stores.private.json, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${SDK_DATASTORE_METADATA_STAGE:?CURATED metadata-only copies, never the credential source directory}", target: /opt/zeeswap-testnet/state/database-relocation/sdk-stores, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: /opt/zeeswap-testnet/secrets/app-postgres-ca.pem, target: /opt/zeeswap-testnet/secrets/app-postgres-ca.pem, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${SDK_SOURCE_COMBINED_CA:?new system plus destination CA bundle}", target: /opt/zeeswap-testnet/secrets/sdk-primary/source-combined-ca.pem, read_only: true, bind: {create_host_path: false}}
+  export:
+    # Retain existing host networking and loopback-only HTTP 8099.
+    volumes:
+      - {type: bind, source: "${SDK_DATASTORE_PROOF_FILE:?Root completed SDK relocation receipt}", target: /opt/zeeswap-testnet/state/database-relocation/sdk-stores.private.json, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${SDK_DATASTORE_METADATA_STAGE:?CURATED metadata-only copies, never the credential source directory}", target: /opt/zeeswap-testnet/state/database-relocation/sdk-stores, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: /opt/zeeswap-testnet/secrets/app-postgres-ca.pem, target: /opt/zeeswap-testnet/secrets/app-postgres-ca.pem, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${SDK_ENVIO_EXPORT_PROFILE:?new exact source-generation config}", target: /opt/zeeswap-testnet/secrets/sdk-primary/envio-export-profile.private.json, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${SDK_ENVIO_EXPORT_CREDENTIAL:?export-only loopback credential}", target: "${SDK_ENVIO_EXPORT_CREDENTIAL_TARGET:?exact receipt.envio.exportCredential.path}", read_only: true, bind: {create_host_path: false}}
+networks:
+  datastore:
+    external: true
+    name: zeeswap_app_db_v1

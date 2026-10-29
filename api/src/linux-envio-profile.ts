@@ -3,6 +3,7 @@ import {readFile,lstat,realpath} from 'node:fs/promises';
 import {posix} from 'node:path';
 import {linuxRawSha256,type PinnedFile} from './linux-testnet-profile.ts';
 import {validatePolicy,requireThat,type Policy} from './integrations/observation/types.ts';
+import {loadMainDatabaseTransport} from './main-database-relocation.ts';
 const root='/opt/zeeswap-testnet';
 export interface LinuxEnvioProfile {
  version:1;mode:'LINUX_ENVIO_TESTNET';
@@ -46,5 +47,6 @@ export async function loadLinuxEnvioProfile(path:string){
  const credential=JSON.parse(values[3]!.toString()),exportDb=new URL(credential.databaseUrl);
  requireThat(exportDb.hostname===runtime.host&&exportDb.pathname==='/zee_envio_20261023'&&decodeURIComponent(exportDb.username)==='zee_envio_export_20261023','LINUX_ENVIO_EXPORT_ROLE_SCOPE');
  const token=values[4]!.toString().trim();requireThat(token.length>=32,'AUTH_REQUIRED');
- return {profile:p,runtime,registry,source,credential,token};
+ const database=await loadMainDatabaseTransport(runtime,{operatorProfileSha256:p.operatorProfile.sha256,runtimeSha256:p.runtime.sha256});
+ return {profile:p,runtime:database.runtime,originRuntime:database.originRuntime,databaseTransport:database.transport,registry,source,credential,token};
 }

@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "status": "ROOT_ENVIO_RESTORED_STORE_SOURCE_PREPARATION",
+  "systemIdentifier": "ROOT_ACTUAL_DESTINATION_SYSTEM_IDENTIFIER",
+  "originalExportProfile": {
+    "path": "/opt/zeeswap-testnet/secrets/ROOT_RETAINED_ORIGINAL_EXPORT_CONFIG.private.json",
+    "sha256": "ROOT_ORIGINAL_SELECTED_EVENT_FIRST_CONFIG_RAW_SHA256"
+  },
+  "restoreProof": {
+    "path": "/opt/zeeswap-testnet/state/database-relocation/sdk-stores/envio-restore.private.json",
+    "sha256": "ROOT_ACTUAL_RESTORE_READBACK_RAW_SHA256"
+  },
+  "outputDirectory": "/opt/zeeswap-testnet/state/database-relocation/sdk-source-ROOT-NEW-ID"
+}

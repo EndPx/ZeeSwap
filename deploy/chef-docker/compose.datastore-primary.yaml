@@ -1,0 +1,24 @@
+# Add after base/normal overlays, using fresh reviewed runtime pins and source stages.
+x-datastore: &datastore
+  ZEESWAP_SDK_DATASTORE_MODE: VPS_PRIMARY_REQUIRED
+  ZEESWAP_SDK_DATASTORE_RELOCATION_PROOF: /opt/zeeswap-testnet/state/database-relocation/sdk-stores.private.json
+  ZEESWAP_SDK_DATASTORE_RELOCATION_SHA256: ${SDK_DATASTORE_PROOF_SHA256:?Root SDK relocation receipt raw hash}
+x-mounts: &mounts
+  - {type: bind, source: "${SDK_DATASTORE_MODULE:?reviewed public helper source}", target: /app/sdk-datastore-relocation.ts, read_only: true, bind: {create_host_path: false}}
+  - {type: bind, source: "${SDK_DATASTORE_PROOF_FILE:?Root SDK relocation receipt}", target: /opt/zeeswap-testnet/state/database-relocation/sdk-stores.private.json, read_only: true, bind: {create_host_path: false}}
+  - {type: bind, source: "${SDK_DATASTORE_METADATA_STAGE:?CURATED metadata-only copies, never the credential source directory}", target: /opt/zeeswap-testnet/state/database-relocation/sdk-stores, read_only: true, bind: {create_host_path: false}}
+  - {type: bind, source: /opt/zeeswap-testnet/secrets/app-postgres-ca.pem, target: /opt/zeeswap-testnet/secrets/app-postgres-ca.pem, read_only: true, bind: {create_host_path: false}}
+  - {type: bind, source: "${SDK_CHEF_CREDENTIAL:?Chef-only effective credential JSON}", target: "${SDK_CHEF_CREDENTIAL_TARGET:?exact receipt.chef.credential.path}", read_only: true, bind: {create_host_path: false}}
+services:
+  api:
+    environment: *datastore
+    networks: [default, datastore]
+    volumes: *mounts
+  follower:
+    environment: *datastore
+    networks: [default, datastore]
+    volumes: *mounts
+networks:
+  datastore:
+    external: true
+    name: zeeswap_app_db_v1

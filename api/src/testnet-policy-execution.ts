@@ -24,6 +24,7 @@ export const POLICY_WORKER_EXECUTION_PATHS=[
   "api/src/live-reverse-dispatch.ts",
   "api/src/live-source-refund.ts",
   "api/src/live-testnet-opening.ts",
+  "api/src/main-database-relocation.ts",
   "api/src/market-pricing.ts",
   "api/src/market-reference/cache.mjs",
   "api/src/market-reference/provider.mjs",

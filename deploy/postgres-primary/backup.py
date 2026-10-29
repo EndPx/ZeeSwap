@@ -56,14 +56,14 @@ def connection_files(url, database, user, scope='main', expected_host=None):
     values = [p.hostname, str(p.port or 5432), database, user, password]
     need(password and all(not any(c in v for c in '\r\n\0') for v in values), 'INVALID_CONNECTION_FIELD')
     escape = lambda v: v.replace('\\', '\\\\').replace(':', '\\:')
-    # PG18's system trust option requires verify-full. Upgrade verify-ca rather
-    # than weakening authentication or expecting a nonexistent container root.crt.
+    # Use Root's host trust bundle, not the image's potentially different trust
+    # store. Upgrade verify-ca rather than weakening hostname authentication.
     system_ca = p.hostname.endswith('.neon.tech') and (q['sslmode'][0] in ('verify-ca', 'verify-full') or 'sslrootcert' in q)
     sslmode = 'verify-full' if system_ca else q['sslmode'][0]
     service = '[zeeswap_source]\n' + '\n'.join([
         'host=' + p.hostname, 'port=' + str(p.port or 5432), 'dbname=' + database,
         'user=' + user, 'sslmode=' + sslmode, 'connect_timeout=10',
-        *(['sslrootcert=system'] if system_ca else []),
+        *(['sslrootcert=/run/backup/source-ca.crt'] if system_ca else []),
         *(['channel_binding=' + q['channel_binding'][0]] if 'channel_binding' in q else []),
     ]) + '\n'
     return service, ':'.join(escape(v) for v in values) + '\n'
@@ -171,10 +171,22 @@ def main():
     identifier = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + uuid4().hex
     run = output / identifier
     run.mkdir(mode=0o700)
+    source_ca_sha256 = None
     with tempfile.TemporaryDirectory(prefix='.connection-', dir=run) as temp:
         stage = Path(temp)
         (stage / 'pg_service.conf').write_text(service)
         (stage / 'pgpass').write_text(password)
+        if 'sslrootcert=/run/backup/source-ca.crt\n' in service:
+            ca = Path('/etc/ssl/certs/ca-certificates.crt')
+            stat = ca.lstat()
+            need(ca.is_file() and not ca.is_symlink() and ca.resolve() == ca and
+                 stat.st_uid == 0 and stat.st_mode & 0o022 == 0 and stat.st_size <= 8388608,
+                 'TRUSTED_HOST_SOURCE_CA_REQUIRED')
+            ca_bytes = ca.read_bytes()
+            need(b'-----BEGIN CERTIFICATE-----' in ca_bytes and b'PRIVATE KEY' not in ca_bytes,
+                 'PUBLIC_HOST_CA_BUNDLE_ONLY')
+            (stage / 'source-ca.crt').write_bytes(ca_bytes)
+            source_ca_sha256 = hashlib.sha256(ca_bytes).hexdigest()
         shutil.copyfile(Path(__file__).with_name('preflight.sql'), stage / 'preflight.sql')
         for f in stage.iterdir():
             f.chmod(0o600)
@@ -198,6 +210,7 @@ def main():
     result = {'status': 'ENCRYPTED_BACKUP_CREATED_RESTORE_NOT_QUALIFIED', 'version': 1,
               'postgresClient': '18.6', 'sourceRole': a.expected_user, 'sourceDatabase': a.expected_database,
               'files': files, 'rolesAndDataShareOneSnapshot': False,
+              'sourceCaBundleSha256': source_ca_sha256,
               'sourceChanged': False, 'restored': False, 'applicationActivated': False}
     (run / 'manifest.json').write_text(json.dumps(result, indent=2) + '\n')
     fd = os.open(run, os.O_RDONLY | os.O_DIRECTORY)

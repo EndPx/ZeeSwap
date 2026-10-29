@@ -1,6 +1,7 @@
 import {lstat,readFile,realpath} from 'node:fs/promises';
 import {digest,object,requireThat,validatePolicy,type Policy} from './integrations/observation/types.ts';
 import {safeEndpoint} from './integrations/observation/chef.ts';
+import {loadEnvioProducerDatastoreRelocation} from './sdk-datastore-relocation.ts';
 export type EventFirstExportConfig={version:1;protocol:'zee-envio-event-first-export-v1';generation:string;policy:Policy;schema:string;databaseUrlEnv:string;tokenEnv:string;port:number;verification:{sourceId:string;url:string;headerBatchSize:10;maxMethodsPerSecond:24}};
 /** Input hashes are actual staged bytes at their runtime-relative names, including the new tip helper. */
 export function eventFirstProducerIdentity(pins:Record<string,string>,issuedAt:string){
@@ -14,8 +15,12 @@ export function validateEventFirstExportConfig(value:unknown):EventFirstExportCo
  requireThat(c.verification.sourceId==='base-sepolia-publicnode-normal-rpc'&&c.verification.url==='https://base-sepolia-rpc.publicnode.com'&&c.verification.headerBatchSize===10&&c.verification.maxMethodsPerSecond===24,'EVENT_FIRST_VERIFIER_EXPLICIT');safeEndpoint(c.verification.url);return c;
 }
 /** Standalone source config: no wallet/operator key or financial authority is loaded. */
+export function requireEventFirstProfilePathBinding(path:string,sha256:string,relocatedProfile?:{path:string;sha256:string}){
+ const relocated=path==='/opt/zeeswap-testnet/secrets/sdk-primary/envio-export-profile.private.json';requireThat((path==='/opt/zeeswap-testnet/secrets/envio-event-first-export-profile.private.json'||relocated)&&/^[a-f0-9]{64}$/.test(sha256),'EVENT_FIRST_CONFIG_SELECTOR');if(relocated)requireThat(relocatedProfile?.path===path&&relocatedProfile.sha256===sha256,'EVENT_FIRST_RELOCATED_CONFIG_PROOF');
+}
 export async function loadEventFirstExportConfig(path:string,sha256:string){
- requireThat(path==='/opt/zeeswap-testnet/secrets/envio-event-first-export-profile.private.json'&&/^[a-f0-9]{64}$/.test(sha256),'EVENT_FIRST_CONFIG_SELECTOR');
+ const relocated=path==='/opt/zeeswap-testnet/secrets/sdk-primary/envio-export-profile.private.json';
+ requireThat((path==='/opt/zeeswap-testnet/secrets/envio-event-first-export-profile.private.json'||relocated)&&/^[a-f0-9]{64}$/.test(sha256),'EVENT_FIRST_CONFIG_SELECTOR');
  const stat=await lstat(path);requireThat(stat.isFile()&&!stat.isSymbolicLink()&&stat.uid===0&&stat.gid===978&&(stat.mode&0o777)===0o640&&stat.size<=65536&&await realpath(path)===path,'EVENT_FIRST_CONFIG_PROTECTION');
- const bytes=await readFile(path);const {createHash}=await import('node:crypto');requireThat(createHash('sha256').update(bytes).digest('hex')===sha256,'EVENT_FIRST_CONFIG_SHA');return validateEventFirstExportConfig(JSON.parse(bytes.toString('utf8')));
+ const bytes=await readFile(path);const {createHash}=await import('node:crypto');requireThat(createHash('sha256').update(bytes).digest('hex')===sha256,'EVENT_FIRST_CONFIG_SHA');const config=validateEventFirstExportConfig(JSON.parse(bytes.toString('utf8')));if(relocated){const store=await loadEnvioProducerDatastoreRelocation(config,sha256);requireEventFirstProfilePathBinding(path,sha256,store?.receipt.envio.exportProfile);}return config;
 }

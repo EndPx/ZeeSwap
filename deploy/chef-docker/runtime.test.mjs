@@ -4,11 +4,16 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runRuntime, digest, validateMetadata, validateDatabase, verifySourceRecovery, runtimeFailure } from './runtime.mjs';
+import { runRuntime, digest, validateMetadata, validateDatabase, verifySourceRecovery, runtimeFailure,bindChefDatastorePg } from './runtime.mjs';
 import { stageContext, projectFiles } from './stage-context.mjs';
 import { fixedPayloadClient } from '../../indexers/zeer/bounded-prep-client.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
+test('Chef-owned Pool verifies every new physical connection and refuses an unapproved URL without changing Core',async()=>{
+ let checked=0;class Pool{constructor(options){this.options=options;}}
+ const pg={Pool},module={verifySdkDatastoreClient:async(_c,_r,kind,role)=>{assert.equal(kind,'chef');assert.equal(role,'zee_chef_owner_20261023');checked++;}},loaded={receipt:{}};
+ bindChefDatastorePg(pg,module,loaded,'approved-url');const pool=new pg.Pool({connectionString:'approved-url'});await new Promise((resolve,reject)=>pool.options.verify({},error=>error?reject(error):resolve()));assert.equal(checked,1);assert.throws(()=>new pg.Pool({connectionString:'old-neon-url'}),/POOL_SCOPE/);
+});
 const metadata = {
   ZEESWAP_CHEF_PROJECT: 'zeeswap_shadow_fixture', ZEESWAP_CHEF_ACCOUNT_ID: 'fixture',
   ZEESWAP_CHEF_KEY_FINGERPRINT: 'a'.repeat(64), ZEESWAP_CHEF_BIRTHDAY: '1',

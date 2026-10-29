@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "status": "ROOT_SDK_DATASTORES_RELOCATED_EXACT",
+  "financialAction": false,
+  "publicCommit": "ROOT_FINAL_40_CHARACTER_PUBLIC_COMMIT",
+  "operatorProfileSha256": "76711023c2313cf7e1e30382ea1591f5ff7721b56f68b3094ad7dd0f92ff8251",
+  "destination": {
+    "kind": "VPS_POSTGRESQL_PRIMARY",
+    "systemIdentifier": "7701863382450487342",
+    "serverVersionNum": 180006,
+    "identityGrantSha256": "ROOT_EXPLICIT_DESTINATION_IDENTITY_GRANTS_SHA256"
+  },
+  "ca": {
+    "path": "/opt/zeeswap-testnet/secrets/app-postgres-ca.pem",
+    "sha256": "ROOT_PUBLIC_CA_RAW_SHA256"
+  },
+  "originClassifications": {
+    "path": "/opt/zeeswap-testnet/state/database-relocation/sdk-stores/origin-transactions.private.json",
+    "sha256": "ROOT_ACTUAL_RAW_SHA256"
+  },
+  "envio": {
+    "database": "zee_envio_20261023",
+    "schema": "envio_live_final",
+    "databaseOid": "18189",
+    "originHost": "ROOT_ACTUAL_ORIGIN_ENVIO_HOST.neon.tech",
+    "profileSha256": "ROOT_ORIGINAL_LINUX_ENVIO_PROFILE_RAW_SHA256",
+    "originalExportProfileSha256": "ROOT_ORIGINAL_SELECTED_EXPORT_CONFIG_RAW_SHA256",
+    "originGeneration": "ROOT_ORIGINAL_EVENT_FIRST_GENERATION",
+    "originRevision": "ROOT_ORIGIN_SNAPSHOT_XMAX_REVISION",
+    "projectionDigest": "ROOT_UNCHANGED_PROJECTION_SHA256",
+    "registryDigest": "ROOT_UNCHANGED_REGISTRY_SHA256",
+    "policySha256": "ROOT_CANONICAL_UNCHANGED_FULL_POLICY_SHA256",
+    "origin": {
+      "semanticSha256": "ROOT_CANONICAL_ALL_TABLE_ROW_DIGESTS_SHA256",
+      "entitiesSha256": "ROOT_ENTITY_TABLE_DIGESTS_SHA256",
+      "progressSha256": "ROOT_PROGRESS_STATE_TABLE_DIGESTS_SHA256",
+      "schemaSha256": "ROOT_NON_PRODUCER_SCHEMA_SHA256",
+      "schemaAclSha256": "ROOT_APPLICATION_OWNER_ACL_SHA256",
+      "tableCount": 48
+    },
+    "restored": {
+      "semanticSha256": "ROOT_CANONICAL_ALL_TABLE_ROW_DIGESTS_SHA256",
+      "entitiesSha256": "ROOT_ENTITY_TABLE_DIGESTS_SHA256",
+      "progressSha256": "ROOT_PROGRESS_STATE_TABLE_DIGESTS_SHA256",
+      "schemaSha256": "ROOT_NON_PRODUCER_SCHEMA_SHA256",
+      "schemaAclSha256": "ROOT_APPLICATION_OWNER_ACL_SHA256",
+      "tableCount": 48
+    },
+    "restoreProof": {
+      "path": "/opt/zeeswap-testnet/state/database-relocation/sdk-stores/envio-restore.private.json",
+      "sha256": "ROOT_ACTUAL_RAW_SHA256"
+    },
+    "storeIncarnation": "ROOT_DERIVED_NEW_PHYSICAL_INCARNATION_SHA256",
+    "generation": "ROOT_GENERATED_NEW_STORE_GENERATION",
+    "viewsDdl": {
+      "path": "/opt/zeeswap-testnet/state/database-relocation/sdk-stores/producer-views.next.sql",
+      "sha256": "ROOT_ACTUAL_RAW_SHA256"
+    },
+    "exportProfile": {
+      "path": "/opt/zeeswap-testnet/secrets/sdk-primary/envio-export-profile.private.json",
+      "sha256": "ROOT_NEW_PROFILE_RAW_SHA256"
+    },
+    "exportCredential": {
+      "path": "/opt/zeeswap-testnet/secrets/sdk-primary/envio-export-credentials.private.json",
+      "sha256": "ROOT_LOOPBACK_EXPORT_CREDENTIAL_RAW_SHA256"
+    },
+    "engineReaderCredential": {
+      "path": "/opt/zeeswap-testnet/secrets/sdk-primary/envio-engine-reader-credentials.private.json",
+      "sha256": "ROOT_DOCKER_READER_CREDENTIAL_RAW_SHA256"
+    },
+    "engineEnvironment": {
+      "path": "/opt/zeeswap-testnet/secrets/sdk-primary/envio-engine.private.env",
+      "sha256": "ROOT_NEW_ENGINE_ENV_RAW_SHA256"
+    }
+  },
+  "chef": {
+    "database": "zee_chef_20261023",
+    "databaseOid": "18964",
+    "originHost": "ROOT_ACTUAL_ORIGIN_CHEF_HOST.neon.tech",
+    "originDatabaseUrlSha256": "ROOT_ORIGINAL_CHEF_URL_FILE_RAW_SHA256",
+    "project": "ROOT_EXISTING_PROJECT",
+    "schema": "ROOT_EXISTING_CHEF_SCHEMA",
+    "fingerprint": "ROOT_EXISTING_PROJECT_FINGERPRINT",
+    "generation": "ROOT_ORIGINAL_LOGICAL_UUID",
+    "revision": "ROOT_ORIGINAL_DATA_REVISION",
+    "checkpoint": {
+      "height": "ROOT_ACTUAL_HEIGHT_INTEGER",
+      "hash": "ROOT_ACTUAL_CHECKPOINT_HASH"
+    },
+    "tokenSha256": "ROOT_ORIGINAL_API_TOKEN_VALUE_SHA256",
+    "revisionTriggerSha256": "ROOT_ORIGINAL_PG_GET_FUNCTIONDEF_SHA256",
+    "origin": {
+      "semanticSha256": "ROOT_CANONICAL_ALL_TABLE_ROW_DIGESTS_SHA256",
+      "entitiesSha256": "ROOT_ENTITY_TABLE_DIGESTS_SHA256",
+      "progressSha256": "ROOT_PROGRESS_STATE_TABLE_DIGESTS_SHA256",
+      "schemaSha256": "ROOT_NON_PRODUCER_SCHEMA_SHA256",
+      "schemaAclSha256": "ROOT_APPLICATION_OWNER_ACL_SHA256",
+      "tableCount": 15
+    },
+    "restored": {
+      "semanticSha256": "ROOT_CANONICAL_ALL_TABLE_ROW_DIGESTS_SHA256",
+      "entitiesSha256": "ROOT_ENTITY_TABLE_DIGESTS_SHA256",
+      "progressSha256": "ROOT_PROGRESS_STATE_TABLE_DIGESTS_SHA256",
+      "schemaSha256": "ROOT_NON_PRODUCER_SCHEMA_SHA256",
+      "schemaAclSha256": "ROOT_APPLICATION_OWNER_ACL_SHA256",
+      "tableCount": 15
+    },
+    "restoreProof": {
+      "path": "/opt/zeeswap-testnet/state/database-relocation/sdk-stores/chef-restore.private.json",
+      "sha256": "ROOT_ACTUAL_RAW_SHA256"
+    },
+    "storeIncarnation": "ROOT_DERIVED_NEW_CHEF_PHYSICAL_INCARNATION_SHA256",
+    "credential": {
+      "path": "/opt/zeeswap-testnet/secrets/sdk-primary/chef-credentials.private.json",
+      "sha256": "ROOT_NEW_CHEF_CREDENTIAL_RAW_SHA256"
+    }
+  },
+  "verifiedAt": "ROOT_ACTUAL_UTC_ISSUANCE_TIME"
+}

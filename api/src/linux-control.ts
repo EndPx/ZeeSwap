@@ -2,6 +2,7 @@ import {validatePrefundingEpochProof,requireEpochEvidenceBinding,requirePrefundi
 /** First-circle policy only. No signer, wallet operation or ledger mutation. */
 import type pg from 'pg';
 import {validateLiveOpeningRows} from './live-testnet-opening.ts';
+import {mainDatabaseTransportFor} from './main-database-relocation.ts';
 export const CONTROL_SCOPE={projectId:'raspy-truth-63998651',branchId:'br-broad-pine-ao79wemx',database:'zee_app_20261023',host:'ep-red-thunder-aosp0w70.c-2.ap-southeast-1.aws.neon.tech',role:'zee_app_admin_20261023'} as const;
 function need(v:unknown,c:string):asserts v{if(!v)throw Error('LINUX_CONTROL_'+c);}
 const hash=(v:unknown)=>typeof v==='string'&&/^[0-9a-f]{64}$/.test(v);
@@ -13,7 +14,7 @@ export interface WindowSample {at:string;control:{accepting_orders:false;dispatc
 export interface SourceWindow {version:1|2;prefunding?:{epoch:string;runtimeXmin:string;authorizationSha256:string};status:'ROOT_LINUX_SOURCE_WINDOW_VERIFIED';profileSha256:string;handoffSha256:string;startedAt:string;completedAt:string;samplingIntervalMs:number;maxGapMs:number;sourceReset:false;samples:WindowSample[]}
 export function validateAdminTarget(admin:any){
  need(admin?.projectId===CONTROL_SCOPE.projectId&&admin.branchId===CONTROL_SCOPE.branchId&&admin.database===CONTROL_SCOPE.database,'ADMIN_METADATA');
- const u=new URL(admin.adminUrl);need(['postgres:','postgresql:'].includes(u.protocol)&&u.hostname===CONTROL_SCOPE.host&&u.pathname==='/'+CONTROL_SCOPE.database&&decodeURIComponent(u.username)===CONTROL_SCOPE.role,'ADMIN_ROLE_AND_TARGET');return admin.adminUrl as string;
+ const u=new URL(admin.adminUrl),transport=mainDatabaseTransportFor(admin.adminUrl);need(['postgres:','postgresql:'].includes(u.protocol)&&(transport?u.hostname===transport.context.receipt.destination.host&&u.port===String(transport.context.receipt.destination.port):u.hostname===CONTROL_SCOPE.host)&&u.pathname==='/'+CONTROL_SCOPE.database&&decodeURIComponent(u.username)===CONTROL_SCOPE.role,'ADMIN_ROLE_AND_TARGET');return admin.adminUrl as string;
 }
 export function validateActivationEvidence(p:ActivationEvidence,expected:{profileSha256:string;handoffSha256:string;openingProofSha256:string;captureScriptSha256:string;base:Record<'inventory'|'available'|'reserved'|'liability',string>},now=Date.now(),authority?:EpochAuthority){
  if(authority)validatePrefundingEpochProof(authority.proof,{...expected,openingEventId:p.openingEventId},now);requireEpochEvidenceBinding(p.prefunding,authority);

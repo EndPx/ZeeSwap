@@ -3,6 +3,7 @@ import {readFile,lstat,realpath,readdir} from 'node:fs/promises';
 import {posix} from 'node:path';
 import {createHash} from 'node:crypto';
 import type {BaseRegistry} from './base-contract.ts';
+import {loadMainDatabaseTransport} from './main-database-relocation.ts';
 export type PinnedFile={path:string;sha256:string};
 export interface LinuxOperatorProfile {
  version:1;profile:'zeeswap-linux-operator-20261023';
@@ -50,7 +51,8 @@ export async function verifyLinuxOperatorProfile(path:string){
  need(binding.ledgerOpeningProofSha256===profile.immutable.openingProof.sha256&&binding.chefOpeningProofSha256===profile.immutable.chefOpeningProof.sha256&&binding.ufvkSha256===profile.immutable.operatorUfvk.sha256&&binding.sourceFingerprint===profile.identity.sourceFingerprint&&binding.chefAccountId===profile.identity.chefAccountId,'LOGICAL_OPERATOR_BINDING');
  need(linuxRawSha256(immutable.operatorUfvk.toString().trim())===profile.identity.sourceFingerprint,'ACTUAL_UFVK_IDENTITY');
  const keystore=JSON.parse((await readFile(profile.paths.baseKeystore)).toString());need(typeof keystore.address==='string'&&('0x'+keystore.address.replace(/^0x/,'' )).toLowerCase()===profile.identity.operator.toLowerCase(),'OPERATOR_KEYSTORE_IDENTITY');
- return{profile,profileSha256:linuxRawSha256(profileBytes),runtime,registry,opening};
+ const database=await loadMainDatabaseTransport(runtime,{operatorProfileSha256:linuxRawSha256(profileBytes),runtimeSha256:profile.immutable.runtime.sha256});
+ return{profile,profileSha256:linuxRawSha256(profileBytes),runtime:database.runtime,originRuntime:database.originRuntime,databaseTransport:database.transport,registry,opening};
 }
 export async function verifyLinuxWalletTransport(profile:LinuxOperatorProfile){
  need(profile.transport,'TRANSPORT_INVENTORY_REQUIRED');async function walk(root:string,prefix=''):Promise<string[]>{const result:string[]=[];for(const entry of await readdir(posix.join(root,prefix),{withFileTypes:true})){need(!entry.isSymbolicLink(),'WALLET_TREE_SYMLINK');const relative=posix.join(prefix,entry.name);if(entry.isDirectory())result.push(...await walk(root,relative));else{need(entry.isFile(),'WALLET_TREE_SPECIAL_FILE');result.push(relative);}}return result.sort();}for(const tree of profile.transport.walletTrees){need(JSON.stringify(await walk(tree.path))===JSON.stringify(tree.files.map(f=>f.relative).sort()),'WALLET_TREE_EXTRA_OR_MISSING_FILES');for(const f of tree.files){const p=posix.join(tree.path,f.relative);linuxPath(p,tree.path);const info=await lstat(p);need(info.isFile()&&!info.isSymbolicLink()&&info.size===f.bytes&&await realpath(p)===p,'WALLET_COPY_FILE_OR_SYMLINK');need(linuxRawSha256(await readFile(p))===f.sha256,'WALLET_COPY_BYTES_CHANGED');}}

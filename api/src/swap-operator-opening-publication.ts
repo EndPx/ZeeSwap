@@ -6,6 +6,7 @@ import {continuationDigest} from './native-circle-continuation.ts';
 import {stable,parseHeader,type Header} from './integrations/observation/types.ts';
 import type {FundingHint} from './integrations/observation/envio-live.ts';
 import {createHash} from 'node:crypto';
+import {databaseIncarnationFields,currentMainDatabaseProvenance,type MainDatabaseRelocationReceipt,type MainRestoredBaseline} from './main-database-relocation.ts';
 const hash=(v:unknown)=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v)&&v!=='0'.repeat(64);
 function need(v:unknown,c:string):asserts v{if(!v)throw Error('OPERATOR_OPENING_'+c);}
 export type OperatorOpeningApproval={version:1;status:'ROOT_BASE_OPERATOR_SCOPE_OPENING_APPROVED';metadataOnly:true;financialAction:false;
@@ -36,7 +37,7 @@ export function validateOperatorOpeningAdmission(a:OperatorOpeningAdmission,gene
 export function operatorOpeningAdmission(a:OperatorOpeningApproval,approvalSha256:string):OperatorOpeningAdmission{
  need(hash(approvalSha256),'APPROVAL_PIN');return {version:4,kind:'OPERATOR_SCOPE_OPENING',hints:[],checkpoint:{height:a.after.height,hash:'0x'+a.after.hash,generation:a.generation,projectionDigest:a.projectionDigest},scope:{operator:a.operator,openingHeight:a.after.height,approvalSha256,evidenceSha256:a.evidenceSha256,archiveManifestSha256:a.archiveManifestSha256,retainedRowsSha256:a.retainedRowsSha256,unverifiedHistoricalInterval:a.unverifiedHistoricalInterval}};
 }
-export type OperatorOpeningIntent={version:1;purpose:'BASE_OPERATOR_SCOPE_OPENING_METADATA';approvalSha256:string;approval:OperatorOpeningApproval;transactionId:string;expectedXmin:string;before:ClosedSnapshot;after:CampaignCheckpoint;afterRows:ClosedRows;candidateAdmissionSha256:string;candidateAdmissionBase64:string};
+export type OperatorOpeningIntent={version:1;purpose:'BASE_OPERATOR_SCOPE_OPENING_METADATA';databaseSystemIdentifier?:string;approvalSha256:string;approval:OperatorOpeningApproval;transactionId:string;expectedXmin:string;before:ClosedSnapshot;after:CampaignCheckpoint;afterRows:ClosedRows;candidateAdmissionSha256:string;candidateAdmissionBase64:string};
 export function classifyOperatorOpening(status:string,s:ClosedSnapshot,i:OperatorOpeningIntent){
  need(i?.version===1&&i.purpose==='BASE_OPERATOR_SCOPE_OPENING_METADATA'&&hash(i.approvalSha256),'INTENT_PURPOSE');
  if(stable(s.control)!==stable(i.before.control)||continuationDigest(s.books)!==i.approval.financialDigest||s.authorizationRows!==0)return'UNKNOWN_OR_INTERVENED_NO_REPLAY';
@@ -56,7 +57,7 @@ export async function publishOperatorOpening(c:Pick<pg.PoolClient,'query'>,a:Ope
    &&continuationDigest(before.books)===a.financialDigest&&stable(before.checkpoint)===stable(a.before)&&continuationDigest(before.rows)===a.retainedRowsSha256,'EXACT_BASELINE');
   const transactionId=String((await c.query('SELECT pg_current_xact_id()::text id')).rows[0]?.id);need(/^[1-9][0-9]*$/.test(transactionId)&&(await c.query('SELECT pg_xact_status($1::xid8) status',[transactionId])).rows[0]?.status==='in progress','ORIGINAL_XID');
   const expectedXmin=(BigInt(transactionId)%4294967296n).toString(),six=(x:string)=>new Date(x).toISOString().replace(/\.(\d{3})Z$/,'.$1000Z'),after={...a.after,finalizedTime:six(a.after.finalizedTime),observedAt:six(a.after.observedAt),xmin:expectedXmin};
-  const i:OperatorOpeningIntent={version:1,purpose:'BASE_OPERATOR_SCOPE_OPENING_METADATA',approvalSha256,approval:a,transactionId,expectedXmin,before,after,afterRows:before.rows,candidateAdmissionSha256:sha(candidate),candidateAdmissionBase64:candidate.toString('base64')};await persist(i);
+  const i:OperatorOpeningIntent={version:1,purpose:'BASE_OPERATOR_SCOPE_OPENING_METADATA',...databaseIncarnationFields(),approvalSha256,approval:a,transactionId,expectedXmin,before,after,afterRows:before.rows,candidateAdmissionSha256:sha(candidate),candidateAdmissionBase64:candidate.toString('base64')};await persist(i);
   await guard();validateOperatorOpeningApproval(a);need(stable(await read())===stable(before),'INTERVENTION');
   const b=a.before,r=await c.query("UPDATE zee.scanner_checkpoints SET scanned_height=$1,tip_hash=$2,finalized_height=$3,finalized_time=$4::timestamptz,observed_at=$5::timestamptz WHERE network='base-sepolia' AND xmin::text=$6 AND scanned_height=$7 AND tip_hash=$8 AND finalized_height=$9 AND finalized_time=$10::timestamptz AND observed_at=$11::timestamptz RETURNING xmin::text",[after.height,after.hash,after.finalizedHeight,after.finalizedTime,after.observedAt,b.xmin,b.height,b.hash,b.finalizedHeight,b.finalizedTime,b.observedAt]);
   need(r.rows.length===1&&r.rows[0].xmin===expectedXmin,'CHECKPOINT_CAS');need(classifyOperatorOpening('committed',await read(),i)==='COMMITTED_EXACT','EXACT_POST_DML');
@@ -72,9 +73,12 @@ export function validateOperatorOpeningReceipt(r:any,i:OperatorOpeningIntent,a:O
 /** An already committed scoped opening may supply its own archived finalized
  * anchor when that metadata-only operation intentionally inserted no SQL header.
  * It cannot justify changed control, books, checkpoint, rows or a nonterminal XID. */
-export function validatePriorOperatorOpening(r:any,i:OperatorOpeningIntent,a:OperatorOpeningApproval,approvalSha256:string,e:any,status:string,current:ClosedSnapshot):Header{
+export function validatePriorOperatorOpening(r:any,i:OperatorOpeningIntent,a:OperatorOpeningApproval,approvalSha256:string,e:any,status:string,current:ClosedSnapshot,archivedOrigin?:{scope:string;originClassificationSha256?:string;destinationSystemIdentifier?:string|null},relocation:MainDatabaseRelocationReceipt|undefined=currentMainDatabaseProvenance()?.receipt,restoredBaseline:MainRestoredBaseline|undefined=currentMainDatabaseProvenance()?.restoredBaseline):Header{
  validateOperatorOpeningReceipt(r,i,a,approvalSha256);
- need(status==='committed'&&classifyOperatorOpening(status,current,i)==='COMMITTED_EXACT','PRIOR_EXACT_COMMITTED_STATE');
+ if(archivedOrigin?.scope==='ARCHIVED_ORIGIN_CLUSTER'){
+  const withoutXmin=(v:Record<string,unknown>)=>Object.fromEntries(Object.entries(v).filter(([key])=>key!=='xmin'));
+  need(relocation&&restoredBaseline&&archivedOrigin.originClassificationSha256===relocation.origin.originClassificationSha256&&archivedOrigin.destinationSystemIdentifier===relocation.destination.systemIdentifier&&status==='committed'&&current.database==='zee_app_20261023'&&current.authorizationRows===0&&continuationDigest(current.books)===a.financialDigest&&a.financialDigest===restoredBaseline.financialDigest&&continuationDigest(current.rows)===restoredBaseline.retainedBaseRowsSha256&&stable(current.rows)===stable(i.afterRows)&&stable(current.control)===stable(restoredBaseline.control)&&stable(current.checkpoint)===stable(restoredBaseline.baseCheckpoint)&&stable(withoutXmin(current.checkpoint))===stable(withoutXmin(i.after)),'PRIOR_RELOCATED_ORIGIN_STATE');
+ }else need(status==='committed'&&classifyOperatorOpening(status,current,i)==='COMMITTED_EXACT','PRIOR_EXACT_COMMITTED_STATE');
  need(e?.version===1&&e.status==='ROOT_BASE_OPERATOR_SCOPE_OPENING_COLLECTED'&&e.profileSha256===a.profileSha256&&e.registrySha256===a.registrySha256&&e.operator===a.operator&&e.financialDigest===a.financialDigest&&e.retainedRowsSha256===a.retainedRowsSha256&&e.archiveManifestSha256===a.archiveManifestSha256&&stable(e.before)===stable(i.before)&&stable(e.after)===stable(a.after),'PRIOR_EVIDENCE_BINDING');
  const F=parseHeader(e.selection?.independentSample?.finalized??e.selection?.selection?.verification?.finalized,'eip155:84532');
  if(e.selection?.independentSample)need(e.selection.independentSample.sourceId===e.selection.producerCanonical?.sourceId,'PRIOR_INDEPENDENT_PROVIDER');
@@ -85,5 +89,6 @@ export function validatePriorOperatorOpening(r:any,i:OperatorOpeningIntent,a:Ope
 /** Complete only the original transaction's durable file boundary. This kernel
  * contains no checkpoint UPDATE and cannot replay a new metadata transaction. */
 export async function finishOperatorOpeningUnderObserverLock(c:Pick<pg.PoolClient,'query'>,read:()=>Promise<ClosedSnapshot>,i:OperatorOpeningIntent,finish:()=>Promise<void>){
+ const relocation=currentMainDatabaseProvenance();if(relocation)need(i.databaseSystemIdentifier===relocation.receipt.destination.systemIdentifier,'ORIGIN_FINISH_ARCHIVE_ONLY');
  await c.query('BEGIN');try{await c.query("SET LOCAL statement_timeout='30000ms'");await c.query("SET LOCAL idle_in_transaction_session_timeout='30000ms'");await c.query('SELECT zee.lock_observer_cycle()');need((await c.query('SELECT pg_try_advisory_xact_lock(84532,20261024) ok')).rows[0]?.ok===true,'OBSERVER_MUST_BE_STOPPED');const status=(await c.query('SELECT pg_xact_status($1::xid8) status',[i.transactionId])).rows[0]?.status;need(classifyOperatorOpening(status,await read(),i)==='COMMITTED_EXACT','ORIGINAL_XID_FINISH');await finish();need(classifyOperatorOpening(status,await read(),i)==='COMMITTED_EXACT','FINISH_INTERVENTION');await c.query('COMMIT');}catch(e){await c.query('ROLLBACK').catch(()=>{});throw e;}
 }

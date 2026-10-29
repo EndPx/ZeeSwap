@@ -248,3 +248,31 @@ actual sample with explicit provider/archive binding; legacy completed openings
 retain the original Source-finality fallback. Forty-four focused tests and API
 TypeScript passed, including honest dual-provider identity, strict rolling count,
 WithSample RPC count and new/legacy prior-finality binding.
+
+## Bounded metadata publication rechecks
+
+Root's R9 publication attempt safely aborted its original transaction before
+publishing the proposed checkpoint. Read-only original-XID inspection confirmed
+the exact prior checkpoint and xmin remained unchanged. Repeating the complete
+Source export three times during metadata publication consumed the finite
+opening-to-current suffix allowance despite the independently qualified source.
+
+Initial collection retains its full H-H Source certificate and independent
+header/log/finality verification. Publication rechecks now use authenticated SDK
+status with exact generation, registry/projection identity and fresh processor
+clock; the actual independent current sample/finality and SDK checkpoint hash;
+and unfiltered RPC logs for every block from opening height through that current
+SDK checkpoint. All intervals are at most 64 blocks and must contain zero logs.
+Current sampled head, SDK checkpoint and actual finalized hashes are rechecked
+at the end. This covers the full quiet suffix rather than only a new H-H event.
+
+The original 150-block suffix, SDK recovery floor, approval/source clocks,
+dual-RPC opening anchor, nonces, signer quiescence, private books/control and
+code pins remain unchanged. No new frontier or observation clock is substituted.
+The original-XID/CAS transaction kernel is unchanged.
+
+Eight focused publication/guard tests and API TypeScript passed. Regressions
+verify complete quiet-range log coverage and refusal on an event, wrong
+generation, stale/beyond-bound source, changed canonical data, insufficient actual
+finality or cancellation. No live retry or publication was performed for these
+tests.

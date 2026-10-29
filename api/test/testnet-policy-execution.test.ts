@@ -6,7 +6,7 @@ const fixture=():{publicCommit:string;files:{relativePath:string;path:string;sha
 
 test('fresh execution root is independent of original native profile release and policy-bound',()=>{
  assert.equal(workerExecutionRoot(root+'/api/scripts/work-linux-testnet-policy.ts',root),root);
- const pins=workerExecutionPins(fixture(),root,commit);assert.equal(pins.length,47);assert(pins.every(p=>p.path.startsWith(root+'/')));requireWorkerPolicyCommit(commit,commit);
+ const pins=workerExecutionPins(fixture(),root,commit);assert.equal(pins.length,48);assert(POLICY_WORKER_EXECUTION_PATHS.includes('api/src/main-database-relocation.ts'));assert(pins.every(p=>p.path.startsWith(root+'/')));requireWorkerPolicyCommit(commit,commit);
  for(const bad of['/tmp/app','/opt/zeeswap-testnet/releases/../app','/opt/zeeswap-testnet/releases/x/extra/app',root+'/'])assert.throws(()=>workerExecutionRoot(bad+'/api/scripts/work-linux-testnet-policy.ts',bad),/EXECUTION_ROOT/);
  assert.throws(()=>workerExecutionRoot(root+'/api/scripts/work-linux-testnet-policy.ts','/opt/zeeswap-testnet/releases/linux-live-20261024/app'),/EXECUTION_ROOT/);
  assert.throws(()=>workerExecutionRoot(root+'/api/scripts/other.ts',root),/EXECUTION_ENTRY/);

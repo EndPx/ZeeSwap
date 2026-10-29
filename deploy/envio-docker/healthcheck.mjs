@@ -1,7 +1,7 @@
 import {readFile,lstat} from 'node:fs/promises';
 import {createRequire} from 'node:module';
 import {pathToFileURL} from 'node:url';
-import {loadConfig,exportInputs,validateSourceCheckpoint,eventFirst,need,API} from './config.mjs';
+import {loadConfig,exportInputs,validateSourceCheckpoint,eventFirst,need,API,openDatastoreReaderPool} from './config.mjs';
 export function validateEventFirstHealthState(s,cfg,profile,now=Date.now()){
  const n=s?.progress?.height,stamp=s?.processor?.observedAt,age=now-Date.parse(stamp);need(s?.generation===cfg.generation&&s.projectionDigest===cfg.projectionDigest&&s.registryDigest===profile.policy.registryDigest&&Number.isSafeInteger(n)&&n>=49128651&&s.checkpoint?.chainId===84532&&s.checkpoint.height===n&&s.checkpoint.id===s.progress.checkpointId&&/^[1-9][0-9]*$/.test(s.checkpoint.id)&&/^0x[a-f0-9]{64}$/.test(s.checkpoint.hash)&&s.processor.height===n&&typeof stamp==='string'&&/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(stamp)&&Number.isFinite(age)&&new Date(Date.parse(stamp)).toISOString()===stamp&&age>=-5000&&age<=60000&&Number.isSafeInteger(s.recoveryFloor)&&s.recoveryFloor>=0&&s.recoveryFloor<=n+1,'EVENT_FIRST_HEALTH_STATE');return{through:n,sourceAgeMs:age,state:s};
 }
@@ -17,7 +17,7 @@ export async function readCheckpoint(pool,cfg,profile){
   await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');await c.query("SET LOCAL statement_timeout='3000ms'");await c.query("SET LOCAL idle_in_transaction_session_timeout='5000ms'");
   const r=(await c.query("SELECT current_database() db,current_user role,rolsuper,rolcreatedb,rolcreaterole,rolreplication,has_schema_privilege(current_user,'envio_live_final','CREATE') writable FROM pg_roles WHERE rolname=current_user")).rows;
   need(r.length===1&&r[0].db==='zee_envio_20261023'&&r[0].role==='zee_envio_export_20261023'&&['rolsuper','rolcreatedb','rolcreaterole','rolreplication','writable'].every(k=>r[0][k]===false),'READONLY_HEALTH_ROLE');
-  const rights=(await c.query("SELECT bool_or(has_table_privilege(current_user,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,TRIGGER')) writable FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='envio_live_final' AND c.relkind IN ('r','v','m','p')")).rows;
+  const rights=(await c.query("SELECT bool_or(CASE WHEN c.relkind IN ('r','v','m','p') THEN has_table_privilege(current_user,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,TRIGGER') ELSE false END) writable FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='envio_live_final'")).rows;
   need(rights.length===1&&rights[0].writable===false,'READONLY_HEALTH_TABLE_RIGHTS');
   const rows=(await c.query(eventFirst(cfg)?"SELECT payload FROM envio_live_final.zee_event_first_state WHERE stream_id='base-v1'":"SELECT payload FROM envio_live_final.zee_checkpoint WHERE stream_id='base-v1'")).rows;need(rows.length===1&&rows[0].payload.registryDigest===profile.policy.registryDigest,'SOURCE_REGISTRY');const result=eventFirst(cfg)?validateEventFirstHealthState(rows[0].payload,cfg,profile):validateSourceCheckpoint(rows[0].payload);await c.query('COMMIT');return result;
  }finally{await c.query('ROLLBACK').catch(()=>{});c.release();}
@@ -27,7 +27,7 @@ export async function main(component){
  const cfg=await loadConfig(component,process.env,false),s=await lstat('/runstate/health.private.json');need(s.isFile()&&!s.isSymbolicLink()&&s.uid===986&&(s.mode&0o777)===0o600&&s.size<=16384,'HEALTH_STATE');
  const state=JSON.parse(await readFile('/runstate/health.private.json','utf8'));need(state.component===component&&state.configSha256===process.env.ENVIO_DOCKER_CONFIG_SHA256&&state.status==='CHILD_RUNNING'&&Date.now()-state.at>=0&&Date.now()-state.at<=20000&&Number.isSafeInteger(state.pid)&&state.pid>1,'CHILD_HEARTBEAT');
  const actual=await processIdentity(state.pid);need(actual.start===state.start&&actual.group===state.pid,'CHILD_IDENTITY');
- const input=await exportInputs(cfg),{Pool}=createRequire(API+'/package.json')('pg'),pool=new Pool({connectionString:input.credential.databaseUrl,max:1,connectionTimeoutMillis:3000});
+ const input=await exportInputs(cfg),{Pool}=createRequire(API+'/package.json')('pg'),pool=await openDatastoreReaderPool(Pool,cfg,input);
  try{const facts=await readCheckpoint(pool,cfg,input.profile),checked=eventFirst(cfg)?await verifyEventFirstHealthRpc(facts,input.profile):facts;if(component==='export'){
    const response=await fetch('http://127.0.0.1:8099'+(eventFirst(cfg)?'/zee-observation/event-first/status':'/zee-observation/status'),{headers:{authorization:'Bearer '+input.token},redirect:'error',signal:AbortSignal.timeout(3000)});need(response.ok,'EXPORT_HTTP_UNREADY');const body=await boundedJson(response);if(eventFirst(cfg)){need(body.protocol==='zee-envio-event-first-status-v1','EXPORT_EVENT_FIRST_HTTP_PROTOCOL');const http=validateEventFirstHealthState(body.state,cfg,input.profile);need(http.through>=facts.through,'EXPORT_EVENT_FIRST_HTTP_BEHIND');}else{need(body.protocol==='zee-envio-status-v1','EXPORT_HTTP_PROTOCOL');validateSourceCheckpoint(body.checkpoint);}
   }return checked;}finally{await pool.end();}

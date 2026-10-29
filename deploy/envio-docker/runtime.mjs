@@ -3,11 +3,12 @@ import {readFile,lstat,rename,open} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 import {pathToFileURL} from 'node:url';
 import {setTimeout as delay} from 'node:timers/promises';
-import {loadConfig,exportInputs,nativeEngineEnvironment,eventFirst,durable,need,ROOT,APP,API,PROJECT} from './config.mjs';
+import {loadConfig,exportInputs,nativeEngineEnvironment,eventFirst,datastorePrimary,durable,need,ROOT,APP,API,PROJECT} from './config.mjs';
+import {createRequire} from 'node:module';
 import {processIdentity} from './healthcheck.mjs';
 export function commandFor(component,cfg){
  if(component==='engine')return{command:'/bin/bash',args:[APP+'/deploy/linux/envio/run-engine.sh'],cwd:PROJECT};
- need(component==='export','COMMAND_COMPONENT');return{command:'/usr/bin/node',args:eventFirst(cfg)?['--import','tsx','scripts/envio-event-first-export-server.ts',ROOT+'/secrets/envio-event-first-export-profile.private.json']:['--import','tsx','scripts/envio-export-server.ts','/run/zeeswap-envio/export-profile.private.json'],cwd:API};
+ need(component==='export','COMMAND_COMPONENT');return{command:'/usr/bin/node',args:eventFirst(cfg)?['--import','tsx','scripts/envio-event-first-export-server.ts',datastorePrimary(cfg)?cfg.datastore.sourceProfile.path:ROOT+'/secrets/envio-event-first-export-profile.private.json']:['--import','tsx','scripts/envio-export-server.ts','/run/zeeswap-envio/export-profile.private.json'],cwd:API};
 }
 export async function groupExists(pid){try{process.kill(-pid,0);return true;}catch(e){if(e.code==='ESRCH')return false;throw e;}}
 /** Do not acknowledge cleanup until the entire original group is absent. Docker init reaps orphans. */
@@ -39,12 +40,20 @@ export async function hold(signals=process){await new Promise(resolve=>{const ke
 export function childBaseEnvironment(component){need(['engine','export'].includes(component),'COMMAND_COMPONENT');return{HOME:'/tmp',PATH:'/usr/bin:/bin',...(component==='export'?{NODE_ENV:'production'}:{})};}
 export async function main(component){
  const stat=await lstat('/runstate');need(stat.isDirectory()&&!stat.isSymbolicLink()&&stat.uid===986&&stat.gid===978&&(stat.mode&0o777)===0o700,'SUPERVISION_STATE_MODE');
- const cfg=await loadConfig(component),identity={version:1,component,database:cfg.database,schema:cfg.schema,generation:cfg.generation,projectionDigest:cfg.projectionDigest,configSha256:process.env.ENVIO_DOCKER_CONFIG_SHA256};
+ const cfg=await loadConfig(component),identity={version:1,component,database:cfg.database,schema:cfg.schema,generation:cfg.generation,projectionDigest:cfg.projectionDigest,...(datastorePrimary(cfg)?{storeIncarnation:cfg.datastore.storeIncarnation}:{}),configSha256:process.env.ENVIO_DOCKER_CONFIG_SHA256};
  if(await exists('/runstate/identity.private.json'))need(JSON.stringify(JSON.parse(await readFile('/runstate/identity.private.json','utf8')))===JSON.stringify(identity),'SUPERVISION_IDENTITY_CHANGED');else await durable('/runstate/identity.private.json',identity);
  if(await exists('/runstate/fatal.private.json')){await health({...identity,status:'FATAL_LATCHED',at:Date.now()});console.error('ENVIO_SOURCE_FATAL_LATCH_REQUIRES_ROOT_REVIEW');await hold();return;}
  const input=await exportInputs(cfg),env=childBaseEnvironment(component);
  if(component==='engine')Object.assign(env,nativeEngineEnvironment(await readFile(cfg.engineEnvironment.path,'utf8'),cfg.systemCa,cfg));
  else Object.assign(env,{NODE_OPTIONS:'--max-old-space-size=192',[input.profile.databaseUrlEnv]:input.credential.databaseUrl,[input.profile.tokenEnv]:input.token,...(eventFirst(cfg)?{ZEESWAP_EVENT_FIRST_EXPORT_PROFILE_SHA256:cfg.exportProfile.sha256}:{})});
+ if(input.datastore){const d=input.datastore;Object.assign(env,{ZEESWAP_SDK_DATASTORE_MODE:'VPS_PRIMARY_REQUIRED',ZEESWAP_SDK_DATASTORE_RELOCATION_PROOF:d.proof.path,ZEESWAP_SDK_DATASTORE_RELOCATION_SHA256:d.proof.sha256});
+  if(component==='engine'){
+   need(cfg.engineEnvironment.sha256===d.receipt.envio.engineEnvironment.sha256,'DATASTORE_ENGINE_ENV_PIN');
+   const combined=await readFile(cfg.systemCa.path,'utf8'),system=await readFile('/etc/ssl/certs/ca-certificates.crt','utf8');need(combined.includes(d.caPem.trim())&&combined.includes(system.trim()),'DATASTORE_RPC_AND_DATABASE_CA');
+   const url='postgresql://'+encodeURIComponent(env.ENVIO_PG_USER)+':'+encodeURIComponent(env.ENVIO_PG_PASSWORD)+'@'+env.ENVIO_PG_HOST+':'+env.ENVIO_PG_PORT+'/'+env.ENVIO_PG_DATABASE+'?sslmode=verify-full';
+   const {Pool}=createRequire(API+'/package.json')('pg'),pool=new Pool(d.module.sdkPoolOptions(url,d.receipt,'envio-engine',d.caPem));try{const client=await pool.connect();try{await d.module.verifySdkDatastoreClient(client,d.receipt,'envio','zee_envio_owner_20261023');}finally{client.release();}}finally{await pool.end();}
+  }
+ }
  if(component==='engine'){
   // The exact existing systemd ExecStartPre, followed by the exact existing engine launcher.
   await new Promise((resolve,reject)=>{const c=spawn('/usr/bin/sha256sum',['--check','--status',ROOT+'/secrets/envio-sdk-runtime.sha256'],{env,stdio:'ignore'});c.once('error',reject);c.once('exit',code=>code===0?resolve():reject(Error('SDK_CHECKSUM_FAILED')));});

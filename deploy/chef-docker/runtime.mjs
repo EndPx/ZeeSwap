@@ -3,6 +3,7 @@ import { readFile, lstat } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import {createRequire} from 'node:module';
 import { projectFiles } from './stage-context.mjs';
 
 export class RuntimeError extends Error { constructor(code) { super(code); this.code = code; } }
@@ -39,6 +40,13 @@ export function validateDatabase(value) {
     || !url.username || !url.password || url.pathname.length < 2
     || !['require', 'verify-full'].includes(url.searchParams.get('sslmode'))) fail('REMOTE_NEON_TLS_REQUIRED');
   return value;
+}
+export function bindChefDatastorePg(pg,module,loaded,value){
+ const OriginalPool=pg.Pool;
+ pg.Pool=class extends OriginalPool{constructor(options){
+  if(options?.connectionString!==value)fail('CHEF_DATASTORE_POOL_SCOPE');const verify=options.verify;
+  super({...options,verify(client,done){module.verifySdkDatastoreClient(client,loaded.receipt,'chef','zee_chef_owner_20261023').then(()=>{try{return verify?verify(client,done):done();}catch(error){done(error);}},done);}});
+ }};return OriginalPool;
 }
 export async function verifySourceRecovery({ pins, status, metadata, client, now = () => Date.now() / 1000 }) {
   const proof = pins.sourceRecovery, checkpoint = status?.checkpoint;
@@ -113,7 +121,15 @@ export async function runRuntime(args = process.argv.slice(2), options = {}) {
     if (!value || /[\s\0]/.test(value)) fail('INVALID_SECRET_FILE');
     return value;
   };
-  env.ZEESWAP_CHEF_DATABASE_URL = validateDatabase(await secret('database-url'));
+  const databaseValue=await secret('database-url');let datastore;
+  if(env.ZEESWAP_SDK_DATASTORE_MODE!==undefined||env.ZEESWAP_SDK_DATASTORE_RELOCATION_PROOF||env.ZEESWAP_SDK_DATASTORE_RELOCATION_SHA256){
+    if(env.ZEESWAP_SDK_DATASTORE_MODE!==undefined&&env.ZEESWAP_SDK_DATASTORE_MODE!=='VPS_PRIMARY_REQUIRED')fail('CHEF_DATASTORE_MODE');
+    if(pins.datastoreModule?.path!==resolve(app,'sdk-datastore-relocation.ts')||!sha(pins.datastoreModule.sha256)||await digest(pins.datastoreModule.path)!==pins.datastoreModule.sha256)fail('CHEF_DATASTORE_MODULE_PIN');
+    const module=await import(pathToFileURL(pins.datastoreModule.path).href),loaded=await module.loadChefDatastoreRelocation({project:metadata.ZEESWAP_CHEF_PROJECT,fingerprint:pins.projectFingerprint,databaseUrl:databaseValue});
+    const pg=createRequire(resolve(app,'node_modules/@zeer-dev/chef/package.json'))('pg'),OriginalPool=bindChefDatastorePg(pg,module,loaded,databaseValue);
+    const pool=new OriginalPool(module.sdkPoolOptions(databaseValue,loaded.receipt,'chef',loaded.caPem));try{const client=await pool.connect();try{await module.verifySdkDatastoreClient(client,loaded.receipt,'chef','zee_chef_owner_20261023');await module.verifyChefLogicalStore(client,loaded.receipt);}finally{client.release();}}finally{await pool.end();}
+    datastore=loaded;env.ZEESWAP_CHEF_DATABASE_URL=databaseValue;
+  }else env.ZEESWAP_CHEF_DATABASE_URL = validateDatabase(databaseValue);
   // Config/SDK use process.env. Isolated environments are for unit tests with an injected runner only.
   if (env !== process.env && !options.sdk) fail('INJECTED_RUNNER_REQUIRED');
   const sdk = options.sdk ?? {
@@ -126,6 +142,7 @@ export async function runRuntime(args = process.argv.slice(2), options = {}) {
   if (sdk.projectFingerprint(project, metadata.ZEESWAP_CHEF_PREP_URL) !== pins.projectFingerprint) fail('PROJECT_FINGERPRINT_MISMATCH');
   if (role === 'api') {
     env.CHEF_API_TOKEN = await secret('api-token');
+    if(datastore&&createHash('sha256').update(env.CHEF_API_TOKEN).digest('hex')!==datastore.receipt.chef.tokenSha256)fail('CHEF_CURSOR_TOKEN_CHANGED');
     if (Buffer.byteLength(env.CHEF_API_TOKEN) < 16) fail('API_TOKEN_TOO_SHORT');
     await sdk.main(['serve', '--config', config, '--listen', '0.0.0.0', '--port', '39375', '--json']);
     return;

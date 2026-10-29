@@ -9,6 +9,7 @@ import {dispatchBaseOnce,reconcileBaseReceipts} from './base-settlement.ts';
 import {LIVE_DISPATCH_SCOPE as scope,withLiveOperatorLock,requireFreshLiveDispatchObservers,pauseLiveFailureBeforeUnlock,type LiveRuntime,type LiveBaseSignerConfig} from './live-dispatch-scope.ts';
 import {isObserverWait} from './observer-frontiers.ts';
 import {linuxRawSha256,verifyLinuxOperatorProfile,type LinuxOperatorProfile,type PinnedFile} from './linux-testnet-profile.ts';
+import {mainDatabaseTransportFor} from './main-database-relocation.ts';
 export type LinuxForwardConfig={version:1;mode:'LINUX_TESTNET_FORWARD';enabled:boolean;operatorProfile:string;signerConfig:PinnedFile;supervisor:PinnedFile;signerScript:PinnedFile;handoffProof:string;python:string;pollSeconds:5};
 function need(value:unknown,code:string):asserts value{if(!value)throw Error(code);}
 export function validateLinuxForwardScope(c:LinuxForwardConfig,p:LinuxOperatorProfile,r:LiveRuntime,b:BaseRegistry,s:LiveBaseSignerConfig){
@@ -17,8 +18,9 @@ export function validateLinuxForwardScope(c:LinuxForwardConfig,p:LinuxOperatorPr
  need(root==='/opt/zeeswap-testnet'&&c.operatorProfile===root+'/secrets/linux-operator-profile.private.json'&&c.python===root+'/tools/python/bin/python'&&c.signerConfig.path===root+'/secrets/forward-signer.private.json'&&c.handoffProof===root+'/secrets/relocation-applied-proof.private.json','LINUX_FORWARD_PHYSICAL_SCOPE');
  need(c.supervisor.path===p.roots.release+'/app/workers/zcash-wallet/owned_wallet_call.py'&&c.signerScript.path===p.roots.release+'/app/workers/base-signer/signer.py','LINUX_FORWARD_RELEASE_BOUNDARY');
  for(const pin of [c.signerConfig,c.supervisor,c.signerScript])need(/^[0-9a-f]{64}$/.test(pin.sha256),'LINUX_FORWARD_PIN_REQUIRED');
- need(r.projectId===scope.projectId&&r.branchId===scope.branchId&&r.host===scope.host&&r.database===scope.database,'LINUX_FORWARD_DATABASE_SCOPE');
- const url=new URL(r.workerUrl);need(['postgres:','postgresql:'].includes(url.protocol)&&url.hostname===scope.host&&url.pathname==='/'+scope.database&&decodeURIComponent(url.username)===scope.worker,'LINUX_FORWARD_WORKER_SCOPE');
+ const transport=mainDatabaseTransportFor(r.workerUrl),host=transport?.context.receipt.destination.host??scope.host;
+ need(r.projectId===scope.projectId&&r.branchId===scope.branchId&&r.host===host&&r.database===scope.database,'LINUX_FORWARD_DATABASE_SCOPE');
+ const url=new URL(r.workerUrl);need(['postgres:','postgresql:'].includes(url.protocol)&&url.hostname===host&&(!transport||url.port===String(transport.context.receipt.destination.port))&&url.pathname==='/'+scope.database&&decodeURIComponent(url.username)===scope.worker,'LINUX_FORWARD_WORKER_SCOPE');
  need(/^[0-9a-f]{64}$/.test(r.payloadKeyHex)&&/^[0-9a-f]{64}$/.test(r.lookupKeyHex)&&r.payloadKeyHex!==r.lookupKeyHex,'LINUX_FORWARD_PRIVATE_KEYS');
  need(b.chainId===84532&&b.operator.toLowerCase()===scope.operator&&b.rpcUrl==='https://sepolia.base.org'&&b.contracts.ZeeSwapSettlement.address.toLowerCase()===scope.settlement&&b.contracts.MockUSDC.address.toLowerCase()===scope.token&&b.contracts.ZeeSwapSettlement.runtimeCodeHash===scope.settlementCodeHash&&b.contracts.MockUSDC.runtimeCodeHash===scope.tokenCodeHash,'LINUX_FORWARD_REGISTRY_SCOPE');
  need(s.operator.toLowerCase()===scope.operator&&s.rpcUrl===b.rpcUrl&&s.account===scope.account&&s.token.toLowerCase()===scope.token&&s.settlement.toLowerCase()===scope.settlement&&s.tokenCodeHash===scope.tokenCodeHash&&s.settlementCodeHash===scope.settlementCodeHash&&s.cast===p.artifacts.cast.path&&s.passwordFile===p.paths.basePassword&&s.journalRoot===p.paths.baseJournal&&s.journalRoot===root+'/state/base-signer-journal'&&s.passwordFile===root+'/secrets/operator-password','LINUX_FORWARD_SIGNER_SCOPE');

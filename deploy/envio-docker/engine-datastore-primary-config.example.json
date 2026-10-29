@@ -1,0 +1,101 @@
+{
+  "version": 3,
+  "scope": "ZEESWAP_EVENT_FIRST_ENVIO_VPS_DATASTORE",
+  "metadataOnly": true,
+  "noFinance": true,
+  "component": "engine",
+  "database": "zee_envio_20261023",
+  "schema": "envio_live_final",
+  "generation": "ROOT_NEW_STORE_INCARNATION_GENERATION",
+  "projectionDigest": "ROOT_CODE_DERIVED_PROJECTION_SHA256",
+  "nodeSha256": "e237a2839d0cbdc9a9a2adda1a184afc0f5b20306ffbe923af5686550472d8a8",
+  "systemCa": {
+    "path": "/opt/zeeswap-testnet/secrets/sdk-primary/source-combined-ca.pem",
+    "sha256": "ROOT_SYSTEM_PLUS_DESTINATION_CA_BUNDLE_SHA256"
+  },
+  "publicPins": [
+    {
+      "path": "/opt/zeeswap-testnet/current/app/deploy/linux/envio/run-engine.sh",
+      "sha256": "ROOT_CURRENT_PUBLIC_FILE_SHA256"
+    },
+    {
+      "path": "/opt/zeeswap-testnet/current/app/deploy/linux/envio/rpc-coalescer.mjs",
+      "sha256": "ROOT_CURRENT_PUBLIC_FILE_SHA256"
+    },
+    {
+      "path": "/opt/zeeswap-testnet/state/envio-engine/project/node_modules/.pnpm/envio@3.14.0_typescript@6.0.3/node_modules/envio/src/Main.res.mjs",
+      "sha256": "ROOT_CURRENT_PUBLIC_FILE_SHA256"
+    },
+    {
+      "path": "/opt/zeeswap-testnet/state/envio-engine/project/node_modules/.pnpm/envio-linux-x64@3.14.0/node_modules/envio-linux-x64/envio.node",
+      "sha256": "ROOT_CURRENT_PUBLIC_FILE_SHA256"
+    },
+    {
+      "path": "/opt/zeeswap-testnet/tools/pnpm-10.21.0/bin/pnpm.cjs",
+      "sha256": "ROOT_CURRENT_PUBLIC_FILE_SHA256"
+    },
+    {
+      "path": "/opt/zeeswap-testnet/state/envio-engine/project/live.yaml",
+      "sha256": "ROOT_CURRENT_PUBLIC_FILE_SHA256"
+    },
+    {
+      "path": "/opt/zeeswap-testnet/state/envio-engine/project/package.json",
+      "sha256": "ROOT_CURRENT_PUBLIC_FILE_SHA256"
+    },
+    {
+      "path": "/opt/zeeswap-testnet/state/envio-engine/project/schema.graphql",
+      "sha256": "ROOT_CURRENT_PUBLIC_FILE_SHA256"
+    },
+    {
+      "path": "/opt/zeeswap-testnet/state/envio-engine/project/src/headers.ts",
+      "sha256": "ROOT_CURRENT_PUBLIC_FILE_SHA256"
+    },
+    {
+      "path": "/opt/zeeswap-testnet/state/envio-engine/project/src/handlers/settlement.ts",
+      "sha256": "ROOT_CURRENT_PUBLIC_FILE_SHA256"
+    },
+    {
+      "path": "/opt/zeeswap-testnet/current/app/api/package.json",
+      "sha256": "ROOT_CURRENT_PUBLIC_FILE_SHA256"
+    },
+    {
+      "sha256": "ROOT_CURRENT_PUBLIC_FILE_SHA256",
+      "path": "/opt/zeeswap-testnet/state/envio-engine/project/src/event-first-tip.ts"
+    },
+    {
+      "path": "/opt/zeeswap-testnet/current/app/api/src/sdk-datastore-relocation.ts",
+      "sha256": "ROOT_SHARED_SDK_RELOCATION_MODULE_SHA256"
+    }
+  ],
+  "exportProfile": {
+    "path": "/run/zeeswap-envio/export-profile.private.json",
+    "sha256": "ROOT_NEW_EXPORT_PROFILE_RAW_SHA256"
+  },
+  "exportCredentials": {
+    "path": "/run/zeeswap-envio/export-credentials.private.json",
+    "sha256": "ROOT_ENGINE_DOCKER_READER_RAW_SHA256"
+  },
+  "exportToken": {
+    "path": "/run/zeeswap-envio/export-token.private.txt",
+    "sha256": "ROOT_EXACT_EXISTING_FILE_RAW_SHA256"
+  },
+  "engineEnvironment": {
+    "path": "/run/zeeswap-envio/engine.private.env",
+    "sha256": "ROOT_NEW_ENGINE_ENV_RAW_SHA256"
+  },
+  "sdkChecksum": {
+    "path": "/opt/zeeswap-testnet/secrets/envio-sdk-runtime.sha256",
+    "sha256": "ROOT_ORIGINAL_SDK_CHECKSUM_FILE_RAW_SHA256"
+  },
+  "datastore": {
+    "proof": {
+      "path": "/opt/zeeswap-testnet/state/database-relocation/sdk-stores.private.json",
+      "sha256": "ROOT_SDK_RELOCATION_RECEIPT_RAW_SHA256"
+    },
+    "storeIncarnation": "ROOT_DERIVED_STORE_INCARNATION_SHA256",
+    "sourceProfile": {
+      "path": "/opt/zeeswap-testnet/secrets/sdk-primary/envio-export-profile.private.json",
+      "sha256": "ROOT_NEW_EXPORT_PROFILE_RAW_SHA256"
+    }
+  }
+}
