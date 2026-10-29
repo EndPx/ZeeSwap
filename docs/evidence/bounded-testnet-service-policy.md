@@ -108,7 +108,7 @@ policy, original financial release, separate activator release, exact paused
 235/xmin43503 control and active236, canonical audit, actual allocation receipt,
 current source proof, capital and neutral-capture artifacts, and Root's latest
 human-instruction attestation. It preserves the existing canonical/identity/
-cursor/finality checks, requires both SQL observations within30 seconds, checks
+cursor/finality checks, requires both SQL observations within 30 seconds, checks
 the actual Main database identity, and uses the same original-XID, capital,
 treasury, policy-limit, locking, CAS and reconciliation kernel. The original
 100000 input amount, two-per-direction caps, one global active order and fee and
@@ -129,3 +129,14 @@ authority, changed proof pins/control/database, failed capital and intervened
 state, while confirming the original SQL limits and three capital guards.
 These are local tests. No qualified current-source artifact, actual activation
 or browser transaction is claimed by this implementation evidence.
+
+The transferred current-source proof checks its SQL observations were within
+30 seconds of the actual capture timestamp. Its existing source-proof freshness
+limit remains 60 seconds. The local activation state guard independently reads
+the live SQL checkpoints and requires both to be within 30 seconds on every
+activation guard. Advancing live checkpoints therefore do not make a correctly
+issued proof fail solely because its frozen SQL timestamps age during local
+manifest/metadata checks. Issuance-stale observations and proofs older than 60
+seconds are still refused; no timestamp is rewritten or renewed.
+
+Five focused CURRENT_SOURCE tests passed, including rejection of SQL timestamps more than 5 seconds after issuance. The live SQL 30-second activation guard remains unchanged.

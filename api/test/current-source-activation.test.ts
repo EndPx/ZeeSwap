@@ -28,6 +28,17 @@ test('current mode refuses staleSQL, falsecanonical/source identity, missinghuma
  ];for(const change of mutate){const f=fixture();change(f);assert.throws(()=>validateCurrentSourceActivation(f.q,f.p,POLICY_SHA,f.now));}
  const f=fixture();assert.throws(()=>validateServiceCurrentSourceProof({...f.q.proof,status:'ROOT_TESTNET_SERVICE_SOURCE_WINDOW_VERIFIED' as any},f.p,POLICY_SHA,f.now));
 });
+test('current SQL issuance is 30 seconds while transferred proof freshness stays 60 and live SQL remains a separate guard',()=>{
+ const f=fixture();validateCurrentSourceActivation(f.q,f.p,POLICY_SHA,f.now);
+ const q=structuredClone(f.q),captured=new Date(f.now-40000).toISOString(),observed=new Date(f.now-50000).toISOString();q.proof.capturedAt=captured;q.proof.sample.at=captured;
+ for(const r of q.proof.sample.sql){r.observedAt=observed;r.canonical.checkedAt=captured;}
+ for(const r of[q.proof.sample.chef,q.proof.sample.envio]){r.sampledAt=captured;r.canonical.checkedAt=captured;}
+ q.proof.sample.cursor.checkedAt=captured;validateCurrentSourceActivation(q,f.p,POLICY_SHA,f.now);
+ const future=structuredClone(q);future.proof.sample.sql[0]!.observedAt=new Date(Date.parse(captured)+5001).toISOString();assert.throws(()=>validateCurrentSourceActivation(future,f.p,POLICY_SHA,f.now),/CURRENT_SQL_30_SECONDS/);
+ const stale=structuredClone(q);stale.proof.sample.sql[0]!.observedAt=new Date(f.now-71000).toISOString();assert.throws(()=>validateCurrentSourceActivation(stale,f.p,POLICY_SHA,f.now));
+ assert.throws(()=>validateCurrentSourceActivation(q,f.p,POLICY_SHA,f.now+20001),/CURRENT_SOURCE_SCOPE/);
+ const issuance=structuredClone(f.q);issuance.proof.capturedAt=new Date(f.now-10000).toISOString();issuance.proof.sample.at=issuance.proof.capturedAt;issuance.proof.sample.sql[0]!.observedAt=new Date(f.now-40001).toISOString();assert.throws(()=>validateCurrentSourceActivation(issuance,f.p,POLICY_SHA,f.now),/CURRENT_SQL_30_SECONDS/);
+});
 test('current activation uses the same originalXID/CAS/limits and three capital guards, with an explicit non-stability intent',async()=>{
  const{s,p,q}=fixture(),sql:string[]=[],inserts:any[]=[];let guards=0,capital=0,intent:ServiceActivationIntent|undefined;
  const c={async query(text:string,args?:unknown[]){sql.push(text);if(text.includes('pg_try_advisory'))return{rows:[{locked:true}]};if(text.includes('pg_control_system'))return{rows:[{database:'zee_app_20261023',role:'zee_app_admin_20261023',system_identifier:'7701863382450487342'}]};if(text.includes('pg_current_xact_id'))return{rows:[{id:'60001'}]};if(text.includes('pg_xact_status'))return{rows:[{status:'in progress'}]};if(text.startsWith('INSERT'))inserts.push(args);if(text.startsWith('UPDATE'))return{rows:[{xmin:'60001'}]};return{rows:[]};}};

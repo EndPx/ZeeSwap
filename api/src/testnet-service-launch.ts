@@ -63,7 +63,7 @@ export function validateServiceCurrentSourceProof(v:ServiceCurrentSourceProof,p:
   &&v.policySha256===policySha256&&hash(policySha256)&&v.canonicalAuditSha256===p.canonicalAuditSha256&&continuationDigest(v.sourceIdentity)===p.sourceIdentityDigest
   &&hash(v.snapshotSha256)&&fresh(v.capturedAt,now)&&Date.parse(v.capturedAt)>=Date.parse(p.verifiedAt)&&v.capturedAt===v.sample?.at&&Number.isSafeInteger(v.auditCursorFloor)&&v.auditCursorFloor>=0,'CURRENT_SOURCE_SCOPE');
  need(v.sample.cycleMs>=0&&v.sample.cycleMs<=30000,'CURRENT_SOURCE_CYCLE');validateServiceSourceSample(v.sample,p,v,now,now);
- for(const row of v.sample.sql)need(now-Date.parse(row.observedAt)<=30000,'CURRENT_SQL_30_SECONDS');return v;
+ for(const row of v.sample.sql){const age=Date.parse(v.capturedAt)-Date.parse(row.observedAt);need(age>=-5000&&age<=30000,'CURRENT_SQL_30_SECONDS');}return v;
 }
 export function validateCurrentSourceActivation(v:CurrentSourceActivation,p:ServicePolicyApproval,policySha256:string,now=Date.now()){
  const a=v.permit;need(v.mode==='CURRENT_SOURCE'&&hash(v.permitSha256)&&hash(v.proofSha256)&&a?.version===1&&a.purpose==='CURRENT_SOURCE_PILOT_ACTIVATION'&&a.status==='ROOT_CURRENT_SOURCE_PILOT_ACTIVATION_APPROVED'&&a.noStabilityClaim===true,'CURRENT_PERMIT_PURPOSE');

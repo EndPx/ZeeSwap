@@ -17,6 +17,27 @@ ZeeSwap service may depend on Neon after the verified primary cutover. Keep the
 source and private backups until restoration and reconciliation are established;
 this does not authorize deleting unresolved historical evidence.
 
+Current-source browser pilot decision (29 October, explicit user override):
+The user requested the real browser transaction now. The separately authorized
+`CURRENT_SOURCE_PILOT_ACTIVATION` purpose replaces only the 300-second/16-sample
+historical stability prerequisite. It uses an actual coherent current-source
+proof and makes no stability-window, complete-history or intervening historical
+header-readiness claim. The default stability-window validator remains intact.
+
+Retain actual current financial books, fee allocation, physical capital, Source
+identity, financial receipt anchors, canonical checkpoints/finality, database
+identity and fresh SQL observations for both networks within 30 seconds. Preserve
+Root's exact purpose/proof/control pins, finite permit, original-XID/CAS,
+reconciliation, quote and payment guards, principal/fee budgets and existing
+per-direction caps. Pilot units remain **0.001 TAZ / 0.1 USDC**, with **one active
+order globally**. Old G5 actors remain stopped; this does not resume that campaign
+or resolve its unfinished history. Implementation and bounded local checks are
+recorded in `docs/evidence/bounded-testnet-service-policy.md`.
+
+This decision authorizes the bounded activation path; it does not claim that a
+permit, current-source proof, service activation or browser payment has actually
+succeeded. Record those outcomes only after Root verifies the original operation.
+
 Approved current-operator pilot opening (29 October): the user explicitly chose
 "Aktifkan pilot operator saat ini" instead of replaying the entire shared
 contract's historical gap. Qualify the application's current operator through
@@ -83,7 +104,9 @@ their original meaning rather than silently rebasing their authority.
 Expired campaign permits remain expired. A fresh campaign requires its own
 explicit current-state authority and retains the existing resource limits.
 
-Current bounded work: recover the missing Base event history, collect the
+Historical bounded recovery work (27 October; superseded for the approved
+current-source pilot, retained as its original checkpoint): recover the missing
+Base event history, collect the
 Native gap through the existing finite traversal and linked journal kernels,
 then qualify exact metadata commits and ordinary observation. Ordinary Native
 traversal cannot consume the observed 3,020-block gap inside its 1,000-block
