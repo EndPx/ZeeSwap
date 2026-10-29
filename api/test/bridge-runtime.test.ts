@@ -26,6 +26,11 @@ test('unexpected physical capital cannot create a book credit or a successful in
  const {state,store,runtime}=setup();state.snapshot.controlledZatoshi='100000';state.snapshot.notes=[note('principal','100000')];
  await assert.rejects(()=>runtime.refreshPaused(store),/EMPTY_INITIALIZATION_REQUIRED/);assert.deepEqual(await store.read(),emptyBooks());
 });
+test('a conservatively lower current finality observation cannot move the accepted paired checkpoint backward',async()=>{
+ const {store,runtime,base}=setup();await runtime.refreshPaused(store);const before=JSON.stringify(await store.read());
+ base.finalized=async()=>({...anchor(199),hash:'0x'+hash});
+ await assert.rejects(()=>runtime.refreshPaused(store),/BASE_CHECKPOINT_REGRESSION/);assert.equal(JSON.stringify(await store.read()),before);
+});
 function note(role:'principal'|'fee',value:string){return {pool:'ironwood' as const,txid:(role==='principal'?'b':'c').repeat(64),index:0,value,height:90,ownChange:false,unspent:true as const,role,blockHash:hash};}
 test('fresh accepted deposit, exact fee reserve and concrete bounded mint proof',async()=>{
  const {state,store,runtime,base}=setup();await runtime.refreshPaused(store);

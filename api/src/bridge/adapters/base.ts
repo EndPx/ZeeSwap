@@ -22,19 +22,27 @@ export const redemptionTypes={Redemption:[{name:'id',type:'bytes32'},{name:'paye
 export const bridgeDomain=(p:BridgeBaseProfile)=>({name:'ZeeSwapBridge',version:'1',chainId:84532,verifyingContract:p.contractAddress});
 const json=(v:unknown)=>JSON.stringify(v,(_,x)=>typeof x==='bigint'?x.toString():x);
 export type BaseCounters={anchor:Anchor;supply:string;unpaid:string;gasBalanceWei:string;paused:boolean};
+export function requireBaseCanonicalPredicates(predicates:Record<string,boolean>,diagnostic:Record<string,unknown>={}){
+ for(const [name,valid] of Object.entries(predicates))if(!valid){const error=Error('BRIDGE_BASE_'+name);Object.assign(error,{canonicalDiagnostic:{...diagnostic,failedPredicate:name}});throw error;}
+}
 export class CanonicalBridgeBase {
  readonly clients;
  constructor(readonly profile:BridgeBaseProfile,readonly localTest=false){validateBridgeBaseProfile(profile,localTest);this.clients=profile.rpcUrls.map(url=>createPublicClient({chain:baseSepolia,transport:http(url,{timeout:15000,retryCount:0})}));}
  async finalized():Promise<Anchor>{
-  const heads=await Promise.all(this.clients.map(c=>c.getBlock({blockTag:'finalized'})));const height=heads.reduce((v,h)=>h.number!<v?h.number!:v,heads[0].number!);
+  // Some independent public providers load-balance nodes with different
+  // finalized views. Observe two finite rounds and retain the minimum ACTUAL
+  // observed authority; readAt still refuses any later view below this anchor.
+  const first=await Promise.all(this.clients.map(c=>c.getBlock({blockTag:'finalized'}))),second=await Promise.all(this.clients.map(c=>c.getBlock({blockTag:'finalized'}))),heads=[...first,...second];
+  if(heads.some(h=>typeof h.number!=='bigint'||h.number<1n))throw Error('BRIDGE_BASE_FINALIZED_DISAGREEMENT');const height=heads.reduce((v,h)=>h.number!<v?h.number!:v,heads[0].number!);
   const anchors=await Promise.all(this.clients.map(c=>c.getBlock({blockNumber:height})));if(!anchors[0].hash||anchors.some(h=>h.hash!==anchors[0].hash)||height>BigInt(Number.MAX_SAFE_INTEGER))throw Error('BRIDGE_BASE_FINALIZED_DISAGREEMENT');
   return {height:Number(height),hash:anchors[0].hash,observedAt:new Date().toISOString()};
  }
  async readAt(anchor:Anchor):Promise<BaseCounters>{
   validateAnchor(anchor,Date.now(),true);const p=this.profile,height=BigInt(anchor.height);
-  const observations=await Promise.all(this.clients.map(async c=>{
+  const observations=await Promise.all(this.clients.map(async(c,reader)=>{
    const [chain,latest,finalized,block,code,receipt]=await Promise.all([c.getChainId(),c.getBlock(),c.getBlock({blockTag:'finalized'}),c.getBlock({blockNumber:height}),c.getCode({address:p.contractAddress,blockNumber:height}),c.getTransactionReceipt({hash:p.deployment.transactionHash})]);
-   if(chain!==84532||block.hash!==anchor.hash||finalized.number!<height||latest.number!<finalized.number!||(!this.localTest&&(Date.now()-Number(latest.timestamp)*1000>60000||Date.now()-Number(latest.timestamp)*1000< -5000))||!code||keccak256(code)!==p.runtimeCodeHash||receipt.status!=='success'||receipt.contractAddress?.toLowerCase()!==p.contractAddress.toLowerCase()||Number(receipt.blockNumber)!==p.deployment.blockHeight||receipt.blockHash!==p.deployment.blockHash||height<receipt.blockNumber)throw Error('BRIDGE_BASE_CANONICAL_IDENTITY');
+   const latestAgeMs=Date.now()-Number(latest.timestamp)*1000;
+   requireBaseCanonicalPredicates({CHAIN_IDENTITY:chain===84532,ANCHOR_HASH_IDENTITY:block.hash===anchor.hash,FINALITY_COVERS_ANCHOR:finalized.number!>=height,LATEST_COVERS_FINALIZED:latest.number!>=finalized.number!,LATEST_NOT_STALE:this.localTest||latestAgeMs<=60000,LATEST_NOT_FUTURE:this.localTest||latestAgeMs>=-5000,RUNTIME_CODE_IDENTITY:!!code&&keccak256(code)===p.runtimeCodeHash,DEPLOYMENT_RECEIPT_SUCCESS:receipt.status==='success',DEPLOYMENT_ADDRESS_IDENTITY:receipt.contractAddress?.toLowerCase()===p.contractAddress.toLowerCase(),DEPLOYMENT_HEIGHT_IDENTITY:Number(receipt.blockNumber)===p.deployment.blockHeight,DEPLOYMENT_HASH_IDENTITY:receipt.blockHash===p.deployment.blockHash,ANCHOR_COVERS_DEPLOYMENT:height>=receipt.blockNumber},{reader,anchorHeight:anchor.height,anchorHash:anchor.hash,anchorObservedAt:anchor.observedAt,actualAnchorHash:block.hash,latestHeight:latest.number?.toString(),finalizedHeight:finalized.number?.toString(),latestAgeMs,actualRuntimeCodeHash:code?keccak256(code):null,expectedRuntimeCodeHash:p.runtimeCodeHash});
    const deploymentBlock=await c.getBlock({blockNumber:receipt.blockNumber});if(deploymentBlock.hash!==p.deployment.blockHash)throw Error('BRIDGE_BASE_DEPLOYMENT_REORG');
    const read=(functionName:'decimals'|'admin'|'operator'|'authorizer'|'totalSupply'|'unpaidRedemptionPrincipal'|'paused')=>c.readContract({address:p.contractAddress,abi:bridgeAbi,functionName,blockNumber:height});
    const [decimals,admin,operator,authorizer,supply,unpaid,paused,gas]=await Promise.all([read('decimals'),read('admin'),read('operator'),read('authorizer'),read('totalSupply'),read('unpaidRedemptionPrincipal'),read('paused'),c.getBalance({address:p.operator,blockNumber:height})]);
