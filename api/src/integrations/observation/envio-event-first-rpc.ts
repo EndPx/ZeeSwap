@@ -12,5 +12,15 @@ export function eventFirstRpc(c:{url:string;sourceId:string;sourceProofSourceId?
   const signal=init?.signal??AbortSignal.timeout(30000);const permit=queue.then(async()=>{for(;;){signal.throwIfAborted();const now=Date.now();while(window.length&&now-window[0]!.at>=1000)window.shift();const used=window.reduce((n,r)=>n+r.count,0),wait=Math.max(0,next-now,used+calls.length>24?window[0]!.at+1001-now:0);if(wait){await delay(wait,undefined,{signal});continue;}window.push({at:now,count:calls.length});next=now+Math.ceil(calls.length*1000/c.maxMethodsPerSecond);break;}});queue=permit.catch(()=>{});await permit;return(c.fetch??fetch)(input,init);
  };
  const canonical=canonicalRpc({url:c.url,sourceId:c.sourceId,network:'eip155:84532',headerBatchSize:c.headerBatchSize,fetch:request,batchEvmSample:c.batchSample});
- return{...canonical,sourceId:c.sourceId,sourceProofSourceId:proofSourceId,async logs(from,through,signal){height(from);height(through);requireThat(through>=from&&through-from+1<=(c.logRangeLimit??EVENT_FIRST_MAX_EXPORT_BLOCKS),'EVENT_FIRST_RANGE_BOUND');const response=await request(endpoint,{method:'POST',redirect:'error',signal,headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'eth_getLogs',params:[{address:c.contract,fromBlock:'0x'+from.toString(16),toBlock:'0x'+through.toString(16)}]})});requireThat(response.ok,'EVENT_FIRST_LOG_HTTP');const raw=await readJson(response,signal,8_000_000) as any;requireThat(raw?.jsonrpc==='2.0'&&raw.id===1&&raw.error==null&&Array.isArray(raw.result)&&raw.result.length<=1000,'EVENT_FIRST_LOG_RESPONSE');return raw.result;}};
+ return{...canonical,sourceId:c.sourceId,sourceProofSourceId:proofSourceId,async logs(from,through,signal){
+  height(from);height(through);requireThat(through>=from&&through-from+1<=(c.logRangeLimit??EVENT_FIRST_MAX_EXPORT_BLOCKS),'EVENT_FIRST_RANGE_BOUND');
+  const width=c.logRangeLimit===1000?200:EVENT_FIRST_MAX_EXPORT_BLOCKS,calls=[];
+  for(let first=from;first<=through;first+=width)calls.push({jsonrpc:'2.0',id:calls.length+1,method:'eth_getLogs',params:[{address:c.contract,fromBlock:'0x'+first.toString(16),toBlock:'0x'+Math.min(through,first+width-1).toString(16)}]});
+  const response=await request(endpoint,{method:'POST',redirect:'error',signal,headers:{'content-type':'application/json'},body:JSON.stringify(calls.length===1?calls[0]:calls)});requireThat(response.ok,'EVENT_FIRST_LOG_HTTP');
+  const raw=await readJson(response,signal,8_000_000)as any,replies=calls.length===1?[raw]:raw;
+  requireThat(Array.isArray(replies)&&replies.length===calls.length&&replies.every(r=>r?.jsonrpc==='2.0'&&Number.isInteger(r.id)&&r.id>=1&&r.id<=calls.length&&r.error==null&&Array.isArray(r.result)&&r.result.length<=1000),'EVENT_FIRST_LOG_RESPONSE');
+  const byId=new Map(replies.map(r=>[r.id,r]));requireThat(byId.size===calls.length,'EVENT_FIRST_LOG_RESPONSE');const logs:unknown[]=[];
+  for(const call of calls){const reply=byId.get(call.id)as any;requireThat(reply,'EVENT_FIRST_LOG_RESPONSE');logs.push(...reply.result);requireThat(logs.length<=1000,'EVENT_FIRST_LOG_RESPONSE');}
+  return logs;
+ }};
 }

@@ -43,9 +43,22 @@ provenance advance. Unknown commits or changed bytes require inspecting that
 original intent; they do not authorize a new publication attempt. No wallet,
 signer, payment, policy or control mutation is part of this CLI.
 
-Local verification: six synthetic tests passed, including the actual RPC
-transport opt-in for one 1,000-block log query. Default RPC callers still refuse
-65 blocks; the recovery opt-in refuses 1,001. Tests also cover complete packet
+Root's actual R2/R3 collection attempts reached the Official provider, which
+refused a 1,000-block log method with HTTP 413/RPC -32614 because its per-method
+limit was 200 blocks. Those attempts produced no proof or publication intent;
+their baseline and original-admission artifacts were retained. The narrow
+recovery opt-in now sends one HTTP batch of up to five contiguous log methods,
+each covering at most 200 blocks. The same shared queue charges every method;
+batch replies are matched by exact ID and concatenated in request order. Any
+group error, missing/duplicate ID, combined log count above 1,000 or response above
+the existing 8 MB bound refuses the whole packet. Default callers remain limited
+to 64 blocks and retain their single-method request shape.
+
+Local verification: six synthetic tests passed, including fake-HTTP checks for
+one 1,000-block recovery packet represented by five 200-block methods, shuffled
+reply IDs, group errors, aggregate overflow and five-method queue accounting.
+Default RPC callers still refuse 65 blocks; the recovery opt-in refuses 1,001.
+Tests also cover complete packet
 coverage, nonempty SDK/log refusal, financial or lease changes, canonical
 conflict, finality regression, candidate-byte/scope mismatch and durable
 original-XID metadata publication. API TypeScript passed. These checks are not
