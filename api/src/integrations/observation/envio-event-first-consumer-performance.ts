@@ -1,6 +1,6 @@
 /** Opt-in consumer only. Source producer/runtime and serial verifier are unchanged. */
 import {readJson} from './chef.ts';
-import {validateEventFirstExport,sampleIndependentEventFirstSource,compareEventFirstLogs,type EventFirstReader,type EventFirstVerifiedExport} from './envio-event-first.ts';
+import {validateEventFirstExport,sampleIndependentEventFirstSource,compareEventFirstLogs,type EventFirstReader,type EventFirstVerifiedExport,type OrdinaryPreReadSample} from './envio-event-first.ts';
 import {fresh,requireThat,stable,type Policy} from './types.ts';
 /** At most two workers; first failure aborts and drains both before returning.
  * A rejected Promise.all alone would leave an RPC group running. */
@@ -9,10 +9,11 @@ export async function consumerGroups<T>(items:readonly T[],run:(item:T,signal:Ab
  async function worker(){try{for(;;){signal.throwIfAborted();const index=next++;if(index>=items.length)return;await run(items[index]!,signal);}}catch(error){if(first===undefined)first=error;stop.abort();}}
  await Promise.allSettled([worker(),worker()]);if(first!==undefined)throw first;signal.throwIfAborted();
 }
-export async function verifyEventFirstExportParallel(value:unknown,p:Policy,reader:EventFirstReader,outer=AbortSignal.timeout(30000),options?:{batchFences:true}){
+export async function verifyEventFirstExportParallel(value:unknown,p:Policy,reader:EventFirstReader,outer=AbortSignal.timeout(30000),options?:{batchFences:true;ordinaryPreReadFreshness?:true;preReadSample?:OrdinaryPreReadSample}){
  const started=performance.now(),signal=AbortSignal.any([outer,AbortSignal.timeout(30000)]),proofSourceId=reader.sourceProofSourceId??reader.sourceId,v=validateEventFirstExport(value,p,Date.now(),proofSourceId);signal.throwIfAborted();
  requireThat(reader.headerBatchSize===10&&reader.headers,'ENVIO_CONSUMER_PARALLEL_READER');const headers=reader.headers;
- const sample=await sampleIndependentEventFirstSource(v,reader,signal);
+ if(options?.ordinaryPreReadFreshness)requireThat(options.preReadSample,'EVENT_FIRST_PRE_READ_SAMPLE');
+ const sample=await sampleIndependentEventFirstSource(v,reader,signal,options?.ordinaryPreReadFreshness?options.preReadSample:undefined);
  const initial=[{header:v.producer.through,code:'EVENT_FIRST_INDEPENDENT_M'},{header:v.producer.sourceHead,code:'EVENT_FIRST_INDEPENDENT_CLAIMED_HEAD_OR_FINALITY'},{header:v.verification.finalized,code:'EVENT_FIRST_INDEPENDENT_CLAIMED_HEAD_OR_FINALITY'}];
  // Ordinary observation may group these same header methods into one HTTP
  // batch. No cached result is reused: the end fence is dispatched after logs.

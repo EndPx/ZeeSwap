@@ -85,20 +85,30 @@ export function validateEventFirstExport(value:unknown,p:Policy,now=Date.now(),v
  for(let i=0;i<r.headers.length;i++){const h=parseHeader(r.headers[i],p.network);requireThat(h.height===r.fromHeight+i&&(!i||h.parentHash===r.headers[i-1]!.hash),'EVENT_FIRST_HEADER_LINK');}
  const logs=compareEventFirstLogs(r.observations.map(e=>eventFirstLogForEvent(e)),r.observations,p,r.headers,r.fromHeight,r.through.height);requireThat(logs.rpcLogDigest===q.rpcLogDigest&&logs.sdkEventDigest===q.sdkEventDigest&&logs.eventCount===q.eventCount&&r.contentDigest===contentDigest({headers:r.headers,observations:r.observations}),'EVENT_FIRST_DIGEST');return v;
 }
+/** Consumer-owned actual sample, captured immediately before its export HTTP read. */
+export type OrdinaryPreReadSample={sample:CanonicalSample;exportRequestedAt:string};
+function preReadFreshness(v:EventFirstVerifiedExport,reader:EventFirstReader,pre:OrdinaryPreReadSample){
+ requireThat(pre&&pre.sample&&pre.sample.sourceId===reader.sourceId&&pre.sample.finalized,'EVENT_FIRST_PRE_READ_SAMPLE');
+ const checked=Date.parse(utc(pre.sample.checkedAt)),requested=Date.parse(utc(pre.exportRequestedAt)),started=Date.parse(v.range.readStartedAt);
+ fresh(pre.sample.checkedAt,Date.now());parseHeader(pre.sample.head,'eip155:84532');parseHeader(pre.sample.finalized,'eip155:84532');
+ requireThat(pre.sample.finalized.height<=pre.sample.head.height&&checked<=requested&&requested-checked<=5000&&Math.abs(checked-started)<=5000&&requested<=started+5000,'EVENT_FIRST_PRE_READ_SAMPLE');
+ return pre.sample;
+}
 /** Safe scalar conjuncts retain the SAME public error code. No raw event/auth data. */
-export function requireIndependentEventFirstSource(v:EventFirstVerifiedExport,sample:Awaited<ReturnType<EventFirstReader['sample']>>,reader:EventFirstReader){
- const checks={sourceId:sample.sourceId===reader.sourceId,hasFinalized:!!sample.finalized,headAtLeastClaimed:sample.head.height>=v.producer.sourceHead.height,headAtLeastM:sample.head.height>=v.producer.through.height,mLagWithin40:sample.head.height-v.producer.through.height<=40,finalityNotRegressed:!!sample.finalized&&v.verification.finalized.height<=sample.finalized.height};
- if(!Object.values(checks).every(Boolean)){const error=new ObservationError('EVENT_FIRST_INDEPENDENT_SOURCE');Object.assign(error,{details:{checks,source:{M:v.producer.through.height,head:v.producer.sourceHead.height,finalized:v.verification.finalized.height,readStartedAt:v.range.readStartedAt,readCompletedAt:v.range.readCompletedAt,sourceSampledAt:v.producer.sourceSampledAt},canonical:{head:sample.head.height,finalized:sample.finalized?.height??null,checkedAt:sample.checkedAt},mLag:sample.head.height-v.producer.through.height}});throw error;}
+export function requireIndependentEventFirstSource(v:EventFirstVerifiedExport,sample:Awaited<ReturnType<EventFirstReader['sample']>>,reader:EventFirstReader,preRead?:OrdinaryPreReadSample){
+ const freshnessSample=preRead?preReadFreshness(v,reader,preRead):sample;
+ const checks={sourceId:sample.sourceId===reader.sourceId,hasFinalized:!!sample.finalized,headAtLeastClaimed:sample.head.height>=v.producer.sourceHead.height,headAtLeastM:sample.head.height>=v.producer.through.height,mLagWithin40:freshnessSample.head.height-v.producer.through.height<=40,finalityNotRegressed:!!sample.finalized&&v.verification.finalized.height<=sample.finalized.height&&(!preRead||preRead.sample.finalized!.height<=sample.finalized.height)};
+ if(!Object.values(checks).every(Boolean)){const error=new ObservationError('EVENT_FIRST_INDEPENDENT_SOURCE');Object.assign(error,{details:{checks,source:{M:v.producer.through.height,head:v.producer.sourceHead.height,finalized:v.verification.finalized.height,readStartedAt:v.range.readStartedAt,readCompletedAt:v.range.readCompletedAt,sourceSampledAt:v.producer.sourceSampledAt},canonical:{head:sample.head.height,finalized:sample.finalized?.height??null,checkedAt:sample.checkedAt},mLag:freshnessSample.head.height-v.producer.through.height,...(preRead?{preRead:{head:preRead.sample.head.height,finalized:preRead.sample.finalized!.height,checkedAt:preRead.sample.checkedAt,exportRequestedAt:preRead.exportRequestedAt}}:{})}});throw error;}
 }
 /** PublicNode can return an older finalized view on an otherwise current head.
  * Retry only that sole failed conjunct, using actual responses and the SAME
  * deadline. The original head/clock stays fixed for finalized-only rereads;
  * chosen finalized/head hashes still undergo the normal explicit end fences. */
-export async function sampleIndependentEventFirstSource(v:EventFirstVerifiedExport,reader:EventFirstReader,signal:AbortSignal){
+export async function sampleIndependentEventFirstSource(v:EventFirstVerifiedExport,reader:EventFirstReader,signal:AbortSignal,preRead?:OrdinaryPreReadSample){
  let sample=await reader.sample(signal);
  for(let attempt=0;;attempt++){
   signal.throwIfAborted();fresh(sample.checkedAt,Date.now());
-  try{requireIndependentEventFirstSource(v,sample,reader);return sample;}catch(error){
+  try{requireIndependentEventFirstSource(v,sample,reader,preRead);return sample;}catch(error){
    const d=safeIndependentSourceDetails(error),onlyFinality=d?.checks.finalityNotRegressed===false&&Object.entries(d.checks).every(([key,ok])=>key==='finalityNotRegressed'||ok===true);
    if(!onlyFinality||attempt>=2)throw error;await delay(250,undefined,{signal});
    if(reader.finalizedHeader){const finalized=await reader.finalizedHeader(signal);requireThat(finalized.height<=sample.head.height,'FINALIZED_HEAD_REGRESSION');sample={...sample,finalized};}
@@ -122,7 +132,8 @@ export function safeIndependentSourceDetails(error:unknown){
  const keys=['sourceId','hasFinalized','headAtLeastClaimed','headAtLeastM','mLagWithin40','finalityNotRegressed'];if(!d||!keys.every(k=>typeof d.checks?.[k]==='boolean'))return undefined;
  const heights=[d.source?.M,d.source?.head,d.source?.finalized,d.canonical?.head,d.canonical?.finalized??0,d.mLag];if(!heights.every(Number.isSafeInteger))return undefined;
  const times=[d.source?.readStartedAt,d.source?.readCompletedAt,d.source?.sourceSampledAt,d.canonical?.checkedAt];if(!times.every(t=>typeof t==='string'&&/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z$/.test(t)&&Number.isFinite(Date.parse(t))))return undefined;
- return{checks:Object.fromEntries(keys.map(k=>[k,d.checks[k]])),source:{M:d.source.M,head:d.source.head,finalized:d.source.finalized,readStartedAt:times[0],readCompletedAt:times[1],sourceSampledAt:times[2]},canonical:{head:d.canonical.head,finalized:d.canonical.finalized??null,checkedAt:times[3]},mLag:d.mLag};
+ const pre=d.preRead;if(pre&&(!Number.isSafeInteger(pre.head)||!Number.isSafeInteger(pre.finalized)||![pre.checkedAt,pre.exportRequestedAt].every(t=>typeof t==='string'&&/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z$/.test(t)&&Number.isFinite(Date.parse(t)))))return undefined;
+ return{checks:Object.fromEntries(keys.map(k=>[k,d.checks[k]])),source:{M:d.source.M,head:d.source.head,finalized:d.source.finalized,readStartedAt:times[0],readCompletedAt:times[1],sourceSampledAt:times[2]},canonical:{head:d.canonical.head,finalized:d.canonical.finalized??null,checkedAt:times[3]},mLag:d.mLag,...(pre?{preRead:{head:pre.head,finalized:pre.finalized,checkedAt:pre.checkedAt,exportRequestedAt:pre.exportRequestedAt}}:{})};
 }
 /** Structural validation above is NOT an RPC attestation. Consumers/qualifiers call this IO verifier. */
 export async function verifyEventFirstExportWithSample(value:unknown,p:Policy,reader:EventFirstReader,signal=AbortSignal.timeout(30000),now=Date.now()){

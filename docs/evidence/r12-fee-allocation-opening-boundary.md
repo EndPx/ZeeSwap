@@ -57,3 +57,24 @@ refused actual SQL freshness after the Main observer pause; the authoritative
 local ext4 and Windows attempt directories remained empty. These results establish
 a bounded metadata publication and subsequent ordinary observation, not service
 activation, browser admission or a completed swap.
+
+The subsequent R14 preparation uses a separate `ROOT_R14_ORDINARY_FRONTIER`
+purpose. Root authorized one read-only SQL and sealed-journal inspection after
+another ordinary-observer gap refusal. It found checkpoint 51729878/xmin 88358,
+289 retained Base headers and the same 72-row financial digest, paused control
+235/xmin 43503, zero authorizations and zero rows in all four service-policy
+tables. Every R13 retained header remained present; the three additional headers
+were ordinary finality anchors. The sealed admission had no hints and matched
+the SQL checkpoint/hash and original R13 scope.
+
+The R14 branch binds archival committed R13 XID 87135, the existing pinned
+financial audit and policy, unchanged financial books and control, all 286 R13
+headers, the exact 289-row current witness and sealed-admission raw hash. It
+requires both RPCs to verify the three added anchors. It neither replays allocation
+62058 nor permits another balance or ledger change. The original R11 allocation
+transition and default prior-opening path remain unchanged. The new historical
+gap remains explicit; no backfill or historical-coverage claim is introduced.
+Local synthetic tests cover successful unchanged-book progression and refusals
+for financial, parent-XID, retained-header, scope, witness and proof-pin mutations.
+These are preparation checks; no R14 collection or publication was executed by
+the implementation agent.

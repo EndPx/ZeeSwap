@@ -48,3 +48,21 @@ The coding agent performed no VPS mutation. Root must keep Main running, qualify
 the actual new listener and current Source/SQL proof after rollout, and restore
 the original exporter configuration if the new instance fails startup. No live
 availability, latency improvement, activation or payment is claimed here.
+
+## Actual export-only rollout
+
+Root executed the reviewed Source-only rollout in **5.649 seconds**, reusing the
+same image and preserving Source profile, store incarnation, generation, token,
+source endpoint and schema. Only the published server overlay from
+`6d5ff7a77bf1d57f7680fd01095f73cbdcd7d708` replaced that one server file; the other
+27 public pins remain their original versions. The new exporter container is
+`ad8829269f073e13742bae6e976019882c5252ae8c87536002807736e6e6139e`,
+with descriptor SHA-256
+`1168d77ee6326c7303f0f462c769e6f881272cd869bd817e31c5cdac8913e106`.
+
+Main's existing **failed** state was explicitly preserved: the rollout did not
+start, pause or restart it. The TCP listener on 8099 was confirmed; no Source HTTP
+proof or financial action was performed by this rollout. This establishes the
+export-only process/listener deployment, not Main readiness, a qualified Source
+sample, policy activation or a browser payment. Engine and PostgreSQL were not
+restarted, and original exporter configuration/state remains preserved.
