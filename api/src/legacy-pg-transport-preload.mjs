@@ -8,7 +8,7 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import {dirname} from 'node:path';
 import {isMainThread} from 'node:worker_threads';
 import {createLegacyPgAdapters,installLegacyPgAdapters,legacyConnectionMapper} from './legacy-pg-transport-adapter.mjs';
-import {validateLegacyPreloadManifest,ORIGIN_PROFILE_SHA,requireLegacyFileEntryArguments} from './legacy-pg-transport-manifest.mjs';
+import {validateLegacyPreloadManifest,ORIGIN_PROFILE_SHA,requireLegacyFileEntryArguments,legacyPreloadParentAllowed,validateLegacyCodeAmendment} from './legacy-pg-transport-manifest.mjs';
 const need=(v,c)=>{if(!v)throw Error('LEGACY_MAIN_PG_PRELOAD_'+c);};
 const sha=b=>createHash('sha256').update(b).digest('hex');
 async function pinned(p,secret=false){
@@ -16,7 +16,7 @@ async function pinned(p,secret=false){
   const mask=secret===true?0o077:secret==='shared'?0o027:0o022;
   const s=await lstat(p.path);need(s.isFile()&&!s.isSymbolicLink()&&s.uid===0&&(s.mode&mask)===0&&s.size<=16000000&&await realpath(p.path)===p.path,'FILE');
   for(let directory=dirname(p.path);directory.startsWith('/opt/zeeswap-testnet');directory=dirname(directory)){
-    const d=await lstat(directory);need(d.isDirectory()&&!d.isSymbolicLink()&&d.uid===0&&(d.mode&0o022)===0&&await realpath(directory)===directory,'DIRECTORY');
+    const d=await lstat(directory);need(legacyPreloadParentAllowed(directory,d,await realpath(directory)),'DIRECTORY');
     if(directory==='/opt/zeeswap-testnet')break;
   }
   const bytes=await readFile(p.path);need(sha(bytes)===p.sha256,'PIN_CHANGED');return bytes;
@@ -26,7 +26,8 @@ try {
   need(process.env.ZEESWAP_DATABASE_RUNTIME_MODE==='VPS_PRIMARY_REQUIRED','PRIMARY_MODE_REQUIRED');
   need(!process.env.NODE_PG_FORCE_NATIVE,'NATIVE_DRIVER_ENV_REFUSED');
   const selector={path:process.env.ZEESWAP_LEGACY_PG_PRELOAD_MANIFEST,sha256:process.env.ZEESWAP_LEGACY_PG_PRELOAD_SHA256};
-  need(selector.path==='/opt/zeeswap-testnet/state/database-relocation/legacy-pg-preload.private.json','EXPLICIT_MANIFEST');
+  const amendment={path:process.env.ZEESWAP_LEGACY_PG_PRELOAD_AMENDMENT,sha256:process.env.ZEESWAP_LEGACY_PG_PRELOAD_AMENDMENT_SHA256};
+  need(selector.path==='/opt/zeeswap-testnet/state/database-relocation/legacy-pg-preload.private.json'||amendment.path&&/^\/opt\/zeeswap-testnet\/state\/database-relocation\/legacy-pg-preload-[a-f0-9]{12}\.private\.json$/.test(selector.path??''),'EXPLICIT_MANIFEST');
   const m=JSON.parse((await pinned(selector,'shared')).toString()),self=await realpath(fileURLToPath(import.meta.url)),checked=validateLegacyPreloadManifest(m,self);
   for(const pin of checked.files.values())await pinned(pin);
   const profile=JSON.parse((await pinned(m.operatorProfile,'shared')).toString());
@@ -34,7 +35,9 @@ try {
   const origin=JSON.parse((await pinned(m.originRuntime,'shared')).toString());
   const kernel=await import(pathToFileURL(checked.app+'/api/src/main-database-relocation.ts').href);
   const loaded=await kernel.loadMainDatabaseTransport(origin,{operatorProfileSha256:ORIGIN_PROFILE_SHA,runtimeSha256:m.originRuntime.sha256}),context=loaded.transport;
-  need(context&&context.receipt.executionOverlay.path===selector.path&&context.receipt.executionOverlay.sha256===selector.sha256,'OVERLAY_RECEIPT_PIN');
+  need(context,'TRANSPORT_REQUIRED');
+  if(amendment.path||amendment.sha256){need(/^\/opt\/zeeswap-testnet\/state\/database-relocation\/legacy-pg-code-amendment-[a-f0-9]{12}\.private\.json$/.test(amendment.path??''),'EXPLICIT_CODE_AMENDMENT');validateLegacyCodeAmendment(JSON.parse((await pinned(amendment,'shared')).toString()),m,selector,context);}
+  else need(context.receipt.executionOverlay.path===selector.path&&context.receipt.executionOverlay.sha256===selector.sha256,'OVERLAY_RECEIPT_PIN');
   let entry;
   if(isMainThread){requireLegacyFileEntryArguments(process.execArgv);need(process.argv[1],'EXPLICIT_ENTRY');const actual=await realpath(process.argv[1]);entry=checked.entries.find(e=>e.path===actual);need(entry,'ENTRY_NOT_ALLOWED');await pinned(entry);}
   const require=createRequire(m.legacyPg.packageJson),pgJson=JSON.parse((await pinned(checked.files.get(m.legacyPg.packageJson))).toString());
@@ -47,7 +50,7 @@ try {
     installLegacyPgAdapters(pg,{Client:DeniedClient,Pool:DeniedClient});
   }else if(entry.kind==='legacy'){
     const pg=require('pg'),mapping=legacyConnectionMapper(context,entry.roles);
-    const recheck=async()=>{await pinned(selector,'shared');await pinned(entry);await pinned(m.originRuntime,'shared');
+    const recheck=async()=>{await pinned(selector,'shared');if(amendment.path)await pinned(amendment,'shared');await pinned(entry);await pinned(m.originRuntime,'shared');
       const current=(await kernel.loadMainDatabaseTransport(origin,{operatorProfileSha256:ORIGIN_PROFILE_SHA,runtimeSha256:m.originRuntime.sha256})).transport;
       need(current?.proof.sha256===context.proof.sha256&&current.caPem===context.caPem,'TRANSPORT_CHANGED');};
     const adapters=createLegacyPgAdapters(pg,{...mapping,recheck,verify:async(client,role,raw)=>{

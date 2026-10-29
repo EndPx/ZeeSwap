@@ -3,7 +3,7 @@ import {EventEmitter} from 'node:events';import {createRequire} from 'node:modul
 import {mkdir,mkdtemp,writeFile} from 'node:fs/promises';import {fileURLToPath,pathToFileURL} from 'node:url';
 import {resolve,dirname} from 'node:path';import {execFile} from 'node:child_process';import {promisify} from 'node:util';
 import {createLegacyPgAdapters,legacyConnectionMapper,rejectLegacyOriginXidQuery} from '../src/legacy-pg-transport-adapter.mjs';
-import {validateLegacyPreloadManifest,LEGACY_APP,LEGACY_GUARDS,ORIGIN_PROFILE_SHA,requireLegacyFileEntryArguments} from '../src/legacy-pg-transport-manifest.mjs';
+import {validateLegacyPreloadManifest,LEGACY_APP,LEGACY_GUARDS,ORIGIN_PROFILE_SHA,requireLegacyFileEntryArguments,legacyPreloadParentAllowed,validateLegacyCodeAmendment,FINANCIAL_EXECUTION_ROOT,FINANCIAL_WORKER_SHA} from '../src/legacy-pg-transport-manifest.mjs';
 const require=createRequire(import.meta.url),realPg=require('pg');
 const role='zee_app_worker_20261023',host='ep-red-thunder-aosp0w70.c-2.ap-southeast-1.aws.neon.tech',db='zee_app_20261023';
 function context(){return{originRuntime:{workerUrl:`postgresql://${role}:origin-fixture@${host}/${db}?sslmode=require`},credentials:{workerUrl:`postgresql://${role}:destination-fixture@127.0.0.1:55435/${db}?sslmode=verify-full`},caPem:'fixture-CA',receipt:{origin:{host,database:db},destination:{database:db},tls:{serverName:'127.0.0.1'}}};}
@@ -65,6 +65,20 @@ test('manifest permits only exact pinned worker passthrough and two original wor
  for(const mutate of[x=>x.entries[1].roles=['zee_app_admin_20261023'],x=>x.entries[1].path=LEGACY_APP+'/api/scripts/arbitrary.ts',x=>x.entries[0].path='/tmp/work-linux-testnet-policy.ts',x=>x.files.pop(),x=>x.files.push(x.files[0]),x=>x.operatorProfile.sha256='c'.repeat(64)]){const bad=structuredClone(m);mutate(bad);assert.throws(()=>validateLegacyPreloadManifest(bad,self),/MANIFEST_/);}
  requireLegacyFileEntryArguments(['--import','file:///pinned/tsx/loader.mjs']);
  for(const flag of['--eval','--eval=0','-e0','--print','--input-type=module'])assert.throws(()=>requireLegacyFileEntryArguments([flag]),/FILE_ENTRY_REQUIRED/);
+});
+test('only the exact service-owned state parent is accepted; symlinks, other owners/modes and other service directories refuse',()=>{
+ const state='/opt/zeeswap-testnet/state',dir={uid:986,gid:978,mode:0o40700,isDirectory:()=>true,isSymbolicLink:()=>false};
+ assert.equal(legacyPreloadParentAllowed(state,dir,state),true);assert.equal(legacyPreloadParentAllowed(state,{...dir,uid:0,mode:0o40750},state),true);
+ for(const change of[{uid:985},{gid:977},{mode:0o40750},{mode:0o40777},{isSymbolicLink:()=>true}])assert.equal(legacyPreloadParentAllowed(state,{...dir,...change},state),false);
+ assert.equal(legacyPreloadParentAllowed(state+'/database-relocation',dir,state+'/database-relocation'),false);assert.equal(legacyPreloadParentAllowed(state,dir,state+'-other'),false);
+});
+test('separate shim can bind only immutable6ebb worker through a Root code-only amendment, preserving original receipt/overlay',()=>{
+ const{m,self}=manifest(),old=structuredClone(m);validateLegacyPreloadManifest(old,self);
+ m.financialExecutionRoot=FINANCIAL_EXECUTION_ROOT;const before=m.entries[0].path;m.entries[0]={kind:'passthrough',path:FINANCIAL_EXECUTION_ROOT+'/api/scripts/work-linux-testnet-policy.ts',sha256:FINANCIAL_WORKER_SHA};m.files=m.files.filter(f=>f.path!==before);m.files.push({...m.entries[0]});validateLegacyPreloadManifest(m,self);
+ const pin=(path,sha256='a'.repeat(64))=>({path,sha256}),context={proof:pin('/opt/zeeswap-testnet/state/database-relocation/main-primary.private.json'),receipt:{executionOverlay:pin('/opt/zeeswap-testnet/state/database-relocation/legacy-pg-preload.private.json'),destination:{systemIdentifier:'7701863382450487342'}}},selector=pin('/opt/zeeswap-testnet/state/database-relocation/legacy-pg-preload-bbbbbbbbbbbb.private.json','c'.repeat(64));
+ const a={version:1,purpose:'ROOT_LEGACY_MAIN_PG_CODE_ONLY_AMENDMENT',financialAuthorityChanged:false,mainTransportProof:context.proof,originalExecutionOverlay:context.receipt.executionOverlay,newExecutionOverlay:selector,shimPublicCommit:m.publicCommit,operatorProfileSha256:ORIGIN_PROFILE_SHA,databaseSystemIdentifier:context.receipt.destination.systemIdentifier,financialExecutionRoot:FINANCIAL_EXECUTION_ROOT,financialWorker:m.entries[0],roles:[role]};validateLegacyCodeAmendment(a,m,selector,context);
+ for(const change of[x=>{x.financialAuthorityChanged=true;},x=>{x.roles=['zee_app_admin_20261023'];},x=>{x.mainTransportProof={...x.mainTransportProof,sha256:'d'.repeat(64)};},x=>{x.financialWorker={...x.financialWorker,sha256:'d'.repeat(64)};}]){const bad=structuredClone(a);change(bad);assert.throws(()=>validateLegacyCodeAmendment(bad,m,selector,context),/AMENDMENT_/);}
+ const bad=structuredClone(m);bad.entries[0].sha256='d'.repeat(64);bad.files.find(f=>f.path===bad.entries[0].path).sha256='d'.repeat(64);assert.throws(()=>validateLegacyPreloadManifest(bad,self),/PASSTHROUGH/);
 });
 
 test('Node24 NODE_OPTIONS plus actual tsx loader preserves patched CJS/ESM exports and denies loader-thread database constructors',async()=>{

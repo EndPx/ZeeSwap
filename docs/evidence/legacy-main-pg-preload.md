@@ -153,3 +153,36 @@ API TypeScript checking, module syntax checks and native Node 24 import of the
 shared kernel passed. Actual private-file permissions, production preload dispatch
 and VPS TLS/database behavior remain unperformed by this coding task. No VPS
 mutation, credential logging, policy activation, signing or broadcast occurred.
+
+## Separate code-only worker shim
+
+Root's actual current-source activation committed as transaction99985 at
+epoch236. The worker then stopped during preload, before business SQL, with
+`LEGACY_MAIN_PG_PRELOAD_DIRECTORY`: the existing state parent is owned by
+service UID986/GID978 with mode0700. Activation is not repeated for this fix.
+
+The preload now accepts only the exact existing service-owned state parent
+`/opt/zeeswap-testnet/state` with UID986, GID978 and mode0700. Symlinks, other
+service-owned directories, changed modes and leaf ownership/hash changes refuse.
+All other parent-directory checks remain Root-owned and non-writable.
+
+A separate versioned shim may explicitly bind the unchanged6ebb financial worker
+and its exact reviewed entry hash. A Root-pinned code-only amendment binds the
+original Main transport proof and fixed f0 overlay to the new manifest/shim,
+original profile, actual database incarnation and worker role. It carries no
+financial authority and no expiry that could erase accepted liabilities. The
+original Main proof and fixed f0 bytes remain unchanged because the transport
+kernel independently rehashes the original overlay. Default co-located manifests
+retain their original behavior.
+
+Two focused local tests passed for the directory exception and separate-shim
+amendment boundaries. They include wrong owners/modes/symlinks, substituted
+proofs or worker hash and admin-role rejection. No live worker startup or SQL
+operation is claimed by these tests.
+
+Root preparation creates a new versioned11-file shim manifest, its separately
+pinned code-only amendment and a worker-only environment file. The existing
+failed worker unit may load that environment while retaining its6ebb command,
+execution manifest, c2 configuration, policy and original transport/f0 proof.
+Actual worker readiness and the subsequent API resume remain operator checks;
+they are not inferred from manifest creation or unit startup.
