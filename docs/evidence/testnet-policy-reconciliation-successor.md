@@ -69,3 +69,24 @@ ordering and scope; the existing quota, expiry and atomic-publication tests are
 retained. The R2 intent is not replayed. Any R3 attempt requires separate review,
 fresh proof authority and the corrected migration under a new operator commit,
 while retaining the same candidate policy, audit, expiry and carried counters.
+
+Root then ran a separate rollback-only DDL validation before collecting more
+fresh proof. At validation XID 191942, PostgreSQL refused creation of the new
+scope trigger because the migration had already reduced the new table owner's
+privileges to SELECT/INSERT. The validation transaction rolled back; it created
+no successor or activation. The migration now creates both triggers before
+reducing the owner ACL, with the same final SELECT/INSERT owner privilege and
+read-only worker/reader grants. The focused ordering regression covers this
+dependency. Root validates the pinned SQL candidate in a rollback-only context
+before the next fresh-proof publication attempt.
+
+The second actual rollback-only validation passed at XID 192413 using SQL raw
+SHA256 `b97f8761a8b22d2f0e8e4f5dabeb9ba7ddfb248b5a67a11474e0591b2af69011`.
+Root verified identical financial/control/policy/runtime state and raw ACLs before
+and after, absence of the new table after rollback, and final transaction status
+`aborted`. The local validation receipt SHA256 is
+`5a4450926107c95f10a1f7884bd061912f85117fd268580420e1dd81caf63ceb`.
+This proves DDL compatibility in the actual restricted administrator context;
+it neither publishes a successor nor enables admission. R3 still requires fresh
+Source/capital evidence, a reviewed new operator manifest and its own original
+publication journal.

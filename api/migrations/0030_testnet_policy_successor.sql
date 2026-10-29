@@ -27,9 +27,6 @@ BEGIN
 END $$;
 CREATE TRIGGER policy_predecessor_immutable BEFORE UPDATE OR DELETE ON zee.testnet_policy_predecessors FOR EACH ROW EXECUTE FUNCTION zee.immutable();
 REVOKE ALL ON zee.testnet_policy_predecessors FROM PUBLIC,zeeswap_api,zeeswap_worker,zeeswap_reader;
-REVOKE ALL ON zee.testnet_policy_predecessors FROM CURRENT_USER;
-GRANT SELECT,INSERT ON zee.testnet_policy_predecessors TO CURRENT_USER;
-GRANT SELECT ON zee.testnet_policy_predecessors TO zeeswap_worker,zeeswap_reader;
 CREATE FUNCTION zee.testnet_policy_lineage(p_policy zee.digest) RETURNS SETOF zee.digest
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,zee AS $$
  WITH RECURSIVE ancestors(sha) AS(SELECT p_policy::bytea UNION SELECT p.predecessor_sha256::bytea FROM zee.testnet_policy_predecessors p JOIN ancestors a ON p.policy_sha256=a.sha)
@@ -59,6 +56,9 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION zee.check_testnet_policy_predecessor() FROM PUBLIC;
 CREATE TRIGGER policy_predecessor_scope BEFORE INSERT ON zee.testnet_policy_predecessors FOR EACH ROW EXECUTE FUNCTION zee.check_testnet_policy_predecessor();
+REVOKE ALL ON zee.testnet_policy_predecessors FROM CURRENT_USER;
+GRANT SELECT,INSERT ON zee.testnet_policy_predecessors TO CURRENT_USER;
+GRANT SELECT ON zee.testnet_policy_predecessors TO zeeswap_worker,zeeswap_reader;
 CREATE OR REPLACE FUNCTION zee.bind_testnet_policy_quote(p_id uuid,p_policy zee.digest,p_owner zee.digest) RETURNS uuid
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,zee AS $$
 DECLARE q zee.quotes;b zee.testnet_policy_quotes;p zee.root_testnet_service_policies;
