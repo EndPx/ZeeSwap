@@ -11,7 +11,7 @@ const hash=(v:unknown)=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v)&&v!=='0'.r
 function need(v:unknown,c:string):asserts v{if(!v)throw Error('OPERATOR_OPENING_'+c);}
 export type OperatorOpeningApproval={version:1;status:'ROOT_BASE_OPERATOR_SCOPE_OPENING_APPROVED';metadataOnly:true;financialAction:false;
  explicitHistoricalCoverageAmendment:true;profileSha256:string;registrySha256:string;handoffSha256:string;openingProofSha256:string;
- publicCommit:string;operator:string;evidenceSha256:string;archiveManifestSha256:string;retainedRowsSha256:string;financialDigest:string;
+ publicCommit:string;collectorPublicCommit?:string;operator:string;evidenceSha256:string;archiveManifestSha256:string;retainedRowsSha256:string;financialDigest:string;
  control:CampaignControl;before:CampaignCheckpoint;after:Omit<CampaignCheckpoint,'xmin'>;originalAdmissionSha256:string;
  generation:string;projectionDigest:string;unverifiedHistoricalInterval:{from:number;through:number};verifiedAt:string;expiresAt:string};
 export type OperatorOpeningAdmission={version:4;kind:'OPERATOR_SCOPE_OPENING';hints:FundingHint[];checkpoint:{height:number;hash:string;generation:string;projectionDigest:string};
@@ -20,6 +20,7 @@ export function validOperatorOpeningEpoch(v:unknown):v is string{return typeof v
 export function validateOperatorOpeningApproval(a:OperatorOpeningApproval,now=Date.now()){
  need(a?.version===1&&a.status==='ROOT_BASE_OPERATOR_SCOPE_OPENING_APPROVED'&&a.metadataOnly===true&&a.financialAction===false&&a.explicitHistoricalCoverageAmendment===true,'EXPLICIT_AMENDMENT');
  need([a.profileSha256,a.registrySha256,a.handoffSha256,a.openingProofSha256,a.evidenceSha256,a.archiveManifestSha256,a.retainedRowsSha256,a.financialDigest,a.originalAdmissionSha256,a.projectionDigest].every(hash)&&/^[a-f0-9]{40}$/.test(a.publicCommit),'PINS');
+ need(a.collectorPublicCommit===undefined||/^[a-f0-9]{40}$/.test(a.collectorPublicCommit),'COLLECTOR_PIN');
  need(a.profileSha256==='76711023c2313cf7e1e30382ea1591f5ff7721b56f68b3094ad7dd0f92ff8251'&&a.registrySha256==='56072db2d7b7f40b183257d07ac5384179dcff357c50610ce79feeebd13a3e69'&&a.handoffSha256==='394b2f41bafe98a7e165a8e33ce94232ad8726e160852deaf4e1e877b4d13b57'&&a.openingProofSha256==='9e2141e85105d881c82710a7f859545b6d8702666086bddeb247e71f887ab3c3','CURRENT_MAIN_PROFILE');
  need(a.operator==='0x24faff408e7bb3c0ab076aecc8fd3c00bd8b3087'&&a.generation.length>0&&validOperatorOpeningEpoch(a.control.epoch)&&!a.control.accepting_orders&&!a.control.dispatch_enabled&&a.control.reconciliation_required===true&&/^[1-9][0-9]*$/.test(a.control.xmin),'SCOPE');
  const at=Date.parse(a.verifiedAt),expires=Date.parse(a.expiresAt);need(Number.isFinite(at)&&at<=now+5000&&now<expires&&expires>at&&expires-at<=300000,'APPROVAL_CLOCK');
@@ -38,6 +39,40 @@ export function operatorOpeningAdmission(a:OperatorOpeningApproval,approvalSha25
  need(hash(approvalSha256),'APPROVAL_PIN');return {version:4,kind:'OPERATOR_SCOPE_OPENING',hints:[],checkpoint:{height:a.after.height,hash:'0x'+a.after.hash,generation:a.generation,projectionDigest:a.projectionDigest},scope:{operator:a.operator,openingHeight:a.after.height,approvalSha256,evidenceSha256:a.evidenceSha256,archiveManifestSha256:a.archiveManifestSha256,retainedRowsSha256:a.retainedRowsSha256,unverifiedHistoricalInterval:a.unverifiedHistoricalInterval}};
 }
 export type OperatorOpeningIntent={version:1;purpose:'BASE_OPERATOR_SCOPE_OPENING_METADATA';databaseSystemIdentifier?:string;approvalSha256:string;approval:OperatorOpeningApproval;transactionId:string;expectedXmin:string;before:ClosedSnapshot;after:CampaignCheckpoint;afterRows:ClosedRows;candidateAdmissionSha256:string;candidateAdmissionBase64:string};
+type PriorPin={path:string;sha256:string};
+export type PriorControlTransition={version:1;purpose:'ROOT_PRIOR_OPERATOR_OPENING_PAUSED_CONTROL_TRANSITION';status:'ROOT_PAUSED_CONTROL_TRANSITION_APPROVED';
+ databaseSystemIdentifier:string;priorTransactionId:string;priorOpening:{approval:PriorPin;intent:PriorPin;completed:PriorPin;evidence:PriorPin};
+ fromControl:CampaignControl;toControl:CampaignControl;controlTransactionId:string;financialDigest:string;financialRows:70;retainedRowsSha256:string;
+ noRepair:PriorPin;fatalDiagnostic:PriorPin;reconciliationOutcome:'ACKNOWLEDGED';verifiedAt:string;expiresAt:string};
+export type PriorControlTransitionEvidence={certificate:PriorControlTransition;noRepair:any;fatalDiagnostic:any;controlTransactionStatus:string;
+ priorOpening:{approval:PriorPin;intent:PriorPin;completed:PriorPin;evidence:PriorPin}};
+/** One explicit Root acknowledgement may account for this known paused-control
+ * change. It cannot replace a checkpoint, retained row, financial row or XID. */
+export function validatePriorControlTransition(t:PriorControlTransitionEvidence,i:OperatorOpeningIntent,a:OperatorOpeningApproval,current:ClosedSnapshot,now=Date.now()){
+ const c=t.certificate,n=t.noRepair,d=t.fatalDiagnostic,at=Date.parse(c?.verifiedAt),expires=Date.parse(c?.expiresAt);
+ need(c?.version===1&&c.purpose==='ROOT_PRIOR_OPERATOR_OPENING_PAUSED_CONTROL_TRANSITION'&&c.status==='ROOT_PAUSED_CONTROL_TRANSITION_APPROVED'
+  &&c.databaseSystemIdentifier==='7701863382450487342'&&i.databaseSystemIdentifier===c.databaseSystemIdentifier&&c.priorTransactionId==='25793'&&i.transactionId===c.priorTransactionId,'PRIOR_CONTROL_CERTIFICATE');
+ need(Number.isFinite(at)&&at<=now+5000&&now<expires&&expires>at&&expires-at<=300000,'PRIOR_CONTROL_CLOCK');
+ need(stable(c.priorOpening)===stable(t.priorOpening)&&Object.values(c.priorOpening).every(p=>p.path.startsWith('/opt/zeeswap-testnet/state/service-policy/opening-primary-20261029-r3/')&&hash(p.sha256))
+  &&c.priorOpening.approval.sha256===i.approvalSha256&&c.priorOpening.evidence.sha256===a.evidenceSha256,'PRIOR_CONTROL_PINS');
+ need(stable(c.fromControl)===stable(i.before.control)&&c.fromControl.epoch==='233'&&c.fromControl.xmin==='1327'
+  &&stable(c.toControl)===stable(current.control)&&c.toControl.epoch==='234'&&c.toControl.xmin==='27890'
+  &&c.toControl.accepting_orders===false&&c.toControl.dispatch_enabled===false&&c.toControl.reconciliation_required===true
+  &&c.controlTransactionId==='27890'&&t.controlTransactionStatus==='committed'&&c.reconciliationOutcome==='ACKNOWLEDGED','PRIOR_CONTROL_ACKNOWLEDGEMENT');
+ need(c.financialDigest===a.financialDigest&&c.financialRows===70&&Object.values(current.books).reduce((total,rows)=>total+rows.length,0)===70
+  &&current.rows.length===269&&c.retainedRowsSha256===continuationDigest(current.rows)&&current.authorizationRows===0
+  &&classifyOperatorOpening('committed',{...current,control:i.before.control},i)==='COMMITTED_EXACT','PRIOR_CONTROL_ONLY_CHANGE');
+ need(hash(c.noRepair?.sha256)&&hash(c.fatalDiagnostic?.sha256)&&n?.version===1&&n.status==='ROOT_NATIVE_NO_REPAIR_RESTART_VERIFIED'
+  &&stable(n.control)===stable({epoch:c.toControl.epoch,xmin:c.toControl.xmin})&&n.financialDigest===c.financialDigest
+  &&n.allPersistedCanonical===true&&Number.isSafeInteger(n.verifiedPersistedHeaders)&&n.verifiedPersistedHeaders>0
+  &&hash(n.cursorSha256)&&hash(n.persistedStateDigest)&&n.cursor?.processedThrough===4553218&&hash(n.cursor.tipHash)
+  &&n.sqlMutation===false&&n.cursorMutation===false&&n.restartPerformed===false,'PRIOR_CONTROL_NO_REPAIR');
+ need(d?.code==='CANONICAL_CHECKPOINT_MISMATCH'&&d.phase==='TRAVERSE'&&d.publicationAttempted===false
+  &&d.checkpointMismatch?.expectedCore?.height===4553220&&d.checkpointMismatch.actualHeader?.height===4553220
+  &&d.checkpointMismatch.freshCanonicalHeader?.height===4553220&&!d.checkpointMismatch.freshCanonicalFailure
+  &&stable(d.checkpointMismatch.actualHeader)===stable(d.checkpointMismatch.freshCanonicalHeader)
+  &&d.checkpointMismatch.recheckFailure?.message==='CHEF_CANONICAL_HEADER_FAILED','PRIOR_CONTROL_FATAL_BEFORE_PUBLICATION');
+}
 export function classifyOperatorOpening(status:string,s:ClosedSnapshot,i:OperatorOpeningIntent){
  need(i?.version===1&&i.purpose==='BASE_OPERATOR_SCOPE_OPENING_METADATA'&&hash(i.approvalSha256),'INTENT_PURPOSE');
  if(stable(s.control)!==stable(i.before.control)||continuationDigest(s.books)!==i.approval.financialDigest||s.authorizationRows!==0)return'UNKNOWN_OR_INTERVENED_NO_REPLAY';
@@ -73,12 +108,13 @@ export function validateOperatorOpeningReceipt(r:any,i:OperatorOpeningIntent,a:O
 /** An already committed scoped opening may supply its own archived finalized
  * anchor when that metadata-only operation intentionally inserted no SQL header.
  * It cannot justify changed control, books, checkpoint, rows or a nonterminal XID. */
-export function validatePriorOperatorOpening(r:any,i:OperatorOpeningIntent,a:OperatorOpeningApproval,approvalSha256:string,e:any,status:string,current:ClosedSnapshot,archivedOrigin?:{scope:string;originClassificationSha256?:string;destinationSystemIdentifier?:string|null},relocation:MainDatabaseRelocationReceipt|undefined=currentMainDatabaseProvenance()?.receipt,restoredBaseline:MainRestoredBaseline|undefined=currentMainDatabaseProvenance()?.restoredBaseline):Header{
+export function validatePriorOperatorOpening(r:any,i:OperatorOpeningIntent,a:OperatorOpeningApproval,approvalSha256:string,e:any,status:string,current:ClosedSnapshot,archivedOrigin?:{scope:string;originClassificationSha256?:string;destinationSystemIdentifier?:string|null},relocation:MainDatabaseRelocationReceipt|undefined=currentMainDatabaseProvenance()?.receipt,restoredBaseline:MainRestoredBaseline|undefined=currentMainDatabaseProvenance()?.restoredBaseline,transition?:PriorControlTransitionEvidence):Header{
  validateOperatorOpeningReceipt(r,i,a,approvalSha256);
  if(archivedOrigin?.scope==='ARCHIVED_ORIGIN_CLUSTER'){
   const withoutXmin=(v:Record<string,unknown>)=>Object.fromEntries(Object.entries(v).filter(([key])=>key!=='xmin'));
   need(relocation&&restoredBaseline&&archivedOrigin.originClassificationSha256===relocation.origin.originClassificationSha256&&archivedOrigin.destinationSystemIdentifier===relocation.destination.systemIdentifier&&status==='committed'&&current.database==='zee_app_20261023'&&current.authorizationRows===0&&continuationDigest(current.books)===a.financialDigest&&a.financialDigest===restoredBaseline.financialDigest&&continuationDigest(current.rows)===restoredBaseline.retainedBaseRowsSha256&&stable(current.rows)===stable(i.afterRows)&&stable(current.control)===stable(restoredBaseline.control)&&stable(current.checkpoint)===stable(restoredBaseline.baseCheckpoint)&&stable(withoutXmin(current.checkpoint))===stable(withoutXmin(i.after)),'PRIOR_RELOCATED_ORIGIN_STATE');
- }else need(status==='committed'&&classifyOperatorOpening(status,current,i)==='COMMITTED_EXACT','PRIOR_EXACT_COMMITTED_STATE');
+ }else if(transition){need(status==='committed','PRIOR_EXACT_COMMITTED_STATE');validatePriorControlTransition(transition,i,a,current);}
+ else need(status==='committed'&&classifyOperatorOpening(status,current,i)==='COMMITTED_EXACT','PRIOR_EXACT_COMMITTED_STATE');
  need(e?.version===1&&e.status==='ROOT_BASE_OPERATOR_SCOPE_OPENING_COLLECTED'&&e.profileSha256===a.profileSha256&&e.registrySha256===a.registrySha256&&e.operator===a.operator&&e.financialDigest===a.financialDigest&&e.retainedRowsSha256===a.retainedRowsSha256&&e.archiveManifestSha256===a.archiveManifestSha256&&stable(e.before)===stable(i.before)&&stable(e.after)===stable(a.after),'PRIOR_EVIDENCE_BINDING');
  const F=parseHeader(e.selection?.independentSample?.finalized??e.selection?.selection?.verification?.finalized,'eip155:84532');
  if(e.selection?.independentSample)need(e.selection.independentSample.sourceId===e.selection.producerCanonical?.sourceId,'PRIOR_INDEPENDENT_PROVIDER');

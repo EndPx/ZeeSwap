@@ -276,3 +276,37 @@ verify complete quiet-range log coverage and refusal on an event, wrong
 generation, stale/beyond-bound source, changed canonical data, insufficient actual
 finality or cancellation. No live retry or publication was performed for these
 tests.
+
+## Explicit paused-control lineage after an above-cursor Native stop
+
+The Native observer stopped before publication when Chef's unpersisted candidate
+at height 4553220 differed from the independent canonical header. Its fresh
+independent reread succeeded; the subsequent persisted-history verification
+failed with `CHEF_CANONICAL_HEADER_FAILED`. The existing fatal gate acknowledged
+reconciliation and changed the paused control from epoch233 to234. Independent
+read-only checks found the retained SQL/private cursor at4553218 and finalized
+anchor4553209 unchanged and canonical. A separate Root no-repair check later
+verified all4554 retained Native headers and financial anchors, unchanged SQL,
+cursor and configuration. These observations do not establish the cause of the
+earlier opaque child-process failure.
+
+A new optional Root certificate accounts only for this exact destination-cluster
+control transition, from233/xmin1327 to234/xmin27890, after committed scoped
+opening transaction25793. The collector pins and archives the original four R3
+documents, no-repair proof and immutable failure diagnostic, and independently
+requires the current control transaction to be committed. The certificate cannot
+account for any changed Base checkpoint/xmin,269 retained Base rows,70 financial
+rows, financial digest, authorization count or control flags. Without the
+certificate, the original strict prior-opening classifier still refuses a
+changed control. No SQL write or cursor repair is added by this path.
+
+The financial release remains identified by `publicCommit`; a separate optional
+`collectorPublicCommit` is bound through configuration, evidence and approval.
+Existing receipt fields and service-policy validation remain compatible.
+
+Verification: eight focused opening/control-transition tests and API TypeScript
+passed. Negative cases cover missing/uncertain original transactions, changed
+incarnation, stale approval, incomplete canonical proof, possible publication,
+cursor movement, changed books/headers/checkpoint/control and authorizations.
+These tests are synthetic; the Root no-repair observation is separate live
+read-only evidence. No new opening or financial activation is claimed here.
