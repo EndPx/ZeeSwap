@@ -55,3 +55,24 @@ must preserve existing private recovery access locally and restore the same
 order; no capability is published in this record. The coding agent did not
 navigate/reload the user's tab, call its real wallet, extend the order or change
 backend/worker processes.
+
+## Actual deployment outcome
+
+Root deployed the reviewed API at
+`/opt/zeeswap-testnet/releases/api-noir-height-3cf484b-r1/app`, changing only the
+API working directory and restarting that API; its health check passed. The
+financial worker and Source services were not restarted. The static artifact
+was deployed at `/opt/zeeswap-testnet/web/noir-3cf484b-r1`; Nginx validation and
+reload passed. External HTTPS returned the exact entry HTML SHA-256
+`5018e4aec843f8156d332a879abb86bcd3583ad41d6808a4aa2aad9bb78b5150`
+and `/assets/index-Dh4jmouC.js`.
+
+The original unfunded order reached `EXPIRED_UNFUNDED` after its unchanged
+cutoff 4554480; scanner height was 4554498 and deposits remained 0. The user was
+instructed not to fund that expired order and to preserve private recovery access
+before reloading. At 13:30:42 UTC, public availability reported ready, zero active
+orders, one remaining forward admission, two reverse admissions and 31 quote
+slots. These are dated service observations, not proof of a new accepted order,
+Noir approval, broadcast or settlement. Root performed the deployment; the
+coding agent ran no additional probes, tests, restarts or real wallet requests
+for this evidence update.
