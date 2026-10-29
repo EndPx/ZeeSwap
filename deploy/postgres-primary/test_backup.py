@@ -48,6 +48,14 @@ class BackupBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'VERSION_OR_IDENTITY'):
             validate_preflight(changed, row['database'], row['role'])
 
+    def test_neon_verify_full_and_verify_ca_use_pg18_system_trust_without_downgrade(self):
+        for mode in ['verify-full', 'verify-ca']:
+            service, _ = connection_files('postgresql://zee_bridge_runtime_20261029:fixture@ep-bridge.neon.tech/zee_bridge_20261029?sslmode=' + mode,
+                'zee_bridge_20261029', 'zee_bridge_runtime_20261029', 'bridge')
+            self.assertIn('sslrootcert=system', service)
+            self.assertIn('sslmode=verify-full', service)
+            self.assertNotIn('sslmode=disable', service)
+
 
 if __name__ == '__main__':
     unittest.main()

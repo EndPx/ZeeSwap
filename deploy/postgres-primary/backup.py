@@ -44,8 +44,10 @@ def connection_files(url, database, user, scope='main', expected_host=None):
     allowed_ssl = (['require'], ['verify-ca'], ['verify-full'])
     if scope == 'sdk' and not p.hostname.endswith('.neon.tech'):
         allowed_ssl += (['disable'], ['prefer'])
-    need(set(q) <= {'sslmode', 'channel_binding', 'connect_timeout'} and
+    need(set(q) <= {'sslmode', 'sslrootcert', 'channel_binding', 'connect_timeout'} and
          q.get('sslmode') in allowed_ssl, 'TLS_REQUIRED')
+    need('sslrootcert' not in q or p.hostname.endswith('.neon.tech') and q['sslrootcert'] == ['system'],
+         'SYSTEM_SOURCE_CA_ONLY')
     need('channel_binding' not in q or q['channel_binding'] in (['require'], ['prefer'], ['disable']),
          'INVALID_CHANNEL_BINDING')
     need('connect_timeout' not in q or len(q['connect_timeout']) == 1 and
@@ -54,9 +56,14 @@ def connection_files(url, database, user, scope='main', expected_host=None):
     values = [p.hostname, str(p.port or 5432), database, user, password]
     need(password and all(not any(c in v for c in '\r\n\0') for v in values), 'INVALID_CONNECTION_FIELD')
     escape = lambda v: v.replace('\\', '\\\\').replace(':', '\\:')
+    # PG18's system trust option requires verify-full. Upgrade verify-ca rather
+    # than weakening authentication or expecting a nonexistent container root.crt.
+    system_ca = p.hostname.endswith('.neon.tech') and (q['sslmode'][0] in ('verify-ca', 'verify-full') or 'sslrootcert' in q)
+    sslmode = 'verify-full' if system_ca else q['sslmode'][0]
     service = '[zeeswap_source]\n' + '\n'.join([
         'host=' + p.hostname, 'port=' + str(p.port or 5432), 'dbname=' + database,
-        'user=' + user, 'sslmode=' + q['sslmode'][0], 'connect_timeout=10',
+        'user=' + user, 'sslmode=' + sslmode, 'connect_timeout=10',
+        *(['sslrootcert=system'] if system_ca else []),
         *(['channel_binding=' + q['channel_binding'][0]] if 'channel_binding' in q else []),
     ]) + '\n'
     return service, ':'.join(escape(v) for v in values) + '\n'
