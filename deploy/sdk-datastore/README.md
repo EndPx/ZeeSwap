@@ -178,6 +178,11 @@ does not assert complete origin history. The archival helper returns
    pinned `source-combined-ca.pem` containing the original public system trust
    bundle and the destination trust certificate. The wrapper verifies both are
    present, retaining PublicNode HTTPS trust and destination database trust.
+   Set `NODE_EXTRA_CA_CERTS` to that exact fixed bundle path in the new engine
+   environment. The wrapper permits only this path and requires it to match the
+   pinned primary `systemCa`; legacy descriptors cannot adopt an unproven extra
+   trust bundle. Children receive it before their Node startup. Neither database
+   hostname verification nor RPC certificate verification is disabled.
    Do not embed the completed SDK receipt's raw hash in this engine environment
    or the effective export profile: the receipt itself pins those files. The
    wrapper injects the receipt selectors from its later descriptor, avoiding a

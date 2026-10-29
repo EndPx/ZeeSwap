@@ -93,3 +93,17 @@ bounded source-freshness/resource window. Container uptime or health alone does
 not close the first-commit or independent application canonicality gate. No live
 Docker source rollout, application recovery, financial readiness or settlement
 is claimed by this preparation milestone.
+
+## Primary database trust bundle (29 October 2026)
+
+The primary-datastore engine descriptor now requires `NODE_EXTRA_CA_CERTS` to
+match its pinned combined public trust bundle. The parser accepts only the
+fixed SDK-primary bundle path; legacy descriptors refuse this extra trust
+setting. The Node child and native child retain certificate and hostname
+verification for their respective RPC and PostgreSQL connections.
+
+Validation: `node --test deploy/envio-docker/runtime.test.mjs` passed 19 tests;
+four Linux process-group cases were skipped on Windows. The focused assertions
+reject missing or substituted extra-CA paths, disabled PostgreSQL TLS and a
+source-host fallback. Scoped `git diff --check` passed. These checks verify the
+wrapper contract; they do not establish live source readiness or admission.
