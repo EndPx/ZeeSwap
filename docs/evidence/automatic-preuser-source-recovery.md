@@ -88,3 +88,72 @@ read failure or a qualified no-recovery-needed result. It preserves the marker
 for a pending or ambiguous original operation and manual review. Completion
 reconciliation verifies and reuses an existing exact durable receipt, rather
 than overwriting it when an acknowledgement was lost.
+
+## First actual supervised recovery
+
+Root deployed published code
+`7b9c8e87203c1f4df95e3e12f2851a4492a357a6`. The timer's first run began at
+`2026-10-30T17:11:48Z` (31 October 2026, 00:11:48 WIB). Its actual recovery
+completed at `2026-10-30T17:12:37Z` (31 October 2026, 00:12:37 WIB): 32 packets
+covered Base blocks 52,261,702 through 52,292,369. Every raw SDK event query and
+independent contract-log query returned no events.
+
+The automatic recovery runner reconciled the original transaction ID `428473`
+and received the exact metadata acknowledgement; Root observed its receipt. The protected completed receipt has SHA256
+`13bdd24e7a0d53178820cd085cc58109a8f3ea65e6d9bc5717a457007cf458b0`.
+The recovery-active marker was removed only after that acknowledgement.
+
+By `2026-10-30T17:12:51Z` (31 October 2026, 00:12:51 WIB), the Native consumer,
+Base consumer and financial worker were automatically active. Root did not
+manually start the financial worker. The availability snapshot at that time
+still reported `worker_unavailable` while the financial worker initialized;
+these observations do not establish financial readiness or a stability window.
+Further worker readiness and timer-cycle observations remain separate evidence.
+
+The run retained control epoch 242 and its existing policy, expiry and quotas.
+It created no new policy, payment or financial action. Its protected configuration
+and authorization remain outside Git. An earlier configuration-preparation
+attempt refused release-file mode 0664 before any RPC or SQL call, leaving only
+an orphan static authorization. Root preserved that artifact, corrected the
+released file permissions and used a new case. This did not reset financial
+authority or reuse a publication intent.
+
+The worker then emitted its first actual `POLICY_IDLE_CAPITAL_VERIFIED` message
+at `2026-10-30T17:13:18Z`. Root's public availability read at
+`2026-10-30T17:13:21.485124Z` (31 October 2026, 00:13:21 WIB) reported `ready`
+with both directions available, the same current policy and control epoch 242,
+the existing expiry, one forward attempt, two reverse attempts, 31 quotes and
+zero active orders.
+
+An intervening timer inspection at `2026-10-30T17:13:07Z` had reported
+`WATCHDOG_MANUAL_OR_INELIGIBLE` while the worker initialized and its runtime backend PID
+was still old; it took no actor action. The later readiness read is a bounded
+observation after initialization. It does not establish sustained availability,
+a customer transaction, payment or settlement.
+
+One healthy follow-up timer cycle was observed at `2026-10-30T17:13:44Z`:
+`WATCHDOG_WAIT_EXISTING_WORKER`, with `actorAction` false. The same financial
+worker process remained running, and both ordinary consumers continued their
+approximately 12-second cycles. Root's subsequent public read at
+`2026-10-30T17:13:49.238955Z` again returned `ready` with both directions
+available and unchanged quotas. No user quote or funds were created. This is
+one observed follow-up cycle, not evidence of indefinite availability.
+
+A second healthy timer cycle at `2026-10-30T17:14:17Z` again reported
+`WATCHDOG_WAIT_EXISTING_WORKER` with no actor action. The worker subsequently
+exited with code 78 and a generic `ROOT_REVIEW` result at
+`2026-10-30T17:14:33Z`. The available log redacts the underlying cause, so these
+observations do not establish why it exited.
+
+Systemd automatically scheduled its restart at `2026-10-30T17:15:03Z`. The
+fresh-Source idle ExecCondition passed at `2026-10-30T17:15:06Z`, and the new
+worker emitted actual `POLICY_IDLE_CAPITAL_VERIFIED` evidence at
+`2026-10-30T17:15:26Z`. Root's public availability read at
+`2026-10-30T17:15:30.822278Z` again returned `ready`, with both directions
+available, unchanged policy and quotas, and zero active orders. Root performed
+no manual worker start, and this restart required no new Source recovery.
+
+This natural exit and restart demonstrate one actual automatic pre-user retry.
+They also demonstrate the practical limit: intermittent worker startup
+unavailability remains possible. The observed recoveries and readiness samples
+do not establish continuous financial readiness or explain the redacted exit.
