@@ -69,3 +69,23 @@ arrays. Root runs `prepare`, reviews the pinned authority, runs `recover`,
 reviews complete coverage, and then explicitly runs `publish`. If an original
 publication intent exists, only `reconcile` is permitted. A failed or ambiguous
 operation retains its original files and marker; it does not start a new case.
+
+## Historical wallet snapshot handoff correction
+
+Root's first live prepared case failed with `INVALID_RANGE` before any chunk
+proof, SQL intent or publication. The adapter returned a historical witness,
+but the new CLI omitted it when calling the wallet snapshot bridge. The ordinary
+range validator therefore rejected the actual current undo floor above the
+selected historical chunk. This was a caller integration bug; the failed case
+and immutable deployed release are retained unchanged.
+
+The shared traversal used for both initial chunks and the final suffix now
+passes the adapter's actual witness and project to `ChefWalletBridge.snapshot`,
+with the actual current validation clock. It does not manufacture a witness or
+rewrite coverage timestamps. A regression executes this production handoff
+through the real wallet bridge with the undo floor above the chunk: an ordinary
+call and a missing witness refuse, the real witness succeeds with unchanged
+observation time, and a wrong project refuses. Six new current-catchup cases
+and 19 existing linked cases passed (25 total), alongside API typechecking and
+`git diff --check`. This correction is not evidence of successful live catchup.
+Root must prepare a separate case with the corrected entry pin.

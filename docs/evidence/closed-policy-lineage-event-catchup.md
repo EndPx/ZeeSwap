@@ -22,14 +22,21 @@ reverse attempts and 31 quotes. The exact original successor receipt and its
 committed transaction are checked separately from current paused control.
 
 Collection covers every interval from the retained checkpoint overlap through
-one actual SDK target, with a 50,000-block ceiling. Each interval queries raw SDK
+an initial actual SDK target, followed by one fresh SDK final-tail selection,
+with a 250,000-block total ceiling and a 15-minute collection deadline. Each interval queries raw SDK
 events and independent unfiltered settlement-contract logs. The independent
 1,000-block query uses the existing batch of five contiguous 200-block requests.
 Any event refuses publication and requires a separately reviewed explanation;
 this implementation has no event allowlist and drops no event. Dual canonical
 boundaries, packet seams, retained receipt anchors, actual SDK generation,
-original processor clock and finality remain required. No observation time is
-replaced with local time to make the source fresh.
+actual per-packet processor clocks and finality remain required. Historical
+coverage ends immediately before the initial target. A separate actual fresh SDK
+selection then defines the final contiguous tail of 1 to 5,000 blocks; it uses the
+same raw SDK and independent log checks in intervals of at most 1,000 blocks.
+The published observation timestamp must equal that final selection's actual
+processor timestamp. The initial state remains recorded with its original
+clock, even when historical collection makes that clock too old for admission.
+No observation time is replaced with local time to make the source fresh.
 
 Publication changes only Base observation anchors, its checkpoint and the
 corresponding sealed admission frontier. It takes the existing operator,
@@ -44,14 +51,28 @@ operation and financial activation remain separate operator actions.
 Local verification passed:
 
 - API TypeScript check (`tsc --noEmit`).
-- Thirteen tests across the original empty-policy recovery and the new closed
+- Sixteen tests across the original empty-policy recovery and the new closed
   lineage recovery. These cover complete intervals, unexpected SDK/log events,
   changed books/leases, canonical forks, incomplete proofs, finality regression,
   exact R15 scope, original-XID intent-before-CAS ordering, lifetime/expiry/link
-  rejection and Native-state reconciliation.
+  rejection and Native-state reconciliation. Added tests cover a 155,032-block
+  historical proof, a retained old initial clock with an actual fresh final
+  selection, a fabricated publication timestamp, a missing or nonempty final
+  tail, oversized history or tail, changed generation, and an advancing final SDK
+  target with three contiguous tail packets.
 
 Private Root helpers are intentionally outside Git. Preparation reads protected
 selectors and creates a seed configuration; the CLI `prepare` reads actual SQL
 state and returns a pinned configuration without Source RPC requests. The
 reviewed run helper collects and publishes once, then leaves observer restart
 to Root. Root must record any actual execution result separately.
+
+Root reported the first actual collection refused `FIXED_COMPLETE_RANGE` before
+proof or intent creation: the observed gap was approximately 155,000 blocks,
+exceeding the initial 50,000 assumption. The R2 resource amendment increases only
+the historical read bound to 250,000 and separates historical clocks from the
+actual fresh final-tail clock. It changes no financial cap, lifetime counter,
+expiry, policy, paused control or payment authority. A new Root preparation is
+required after the independently reconciled Native catch-up; the refused R1
+baseline and any partial artifacts remain retained. This record does not claim
+R2 live execution or source readiness.
