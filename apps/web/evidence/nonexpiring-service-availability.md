@@ -55,3 +55,36 @@ branch can retain a localhost literal in bundled source; actual production
 selection uses the production flag and page origin. Runtime request destinations
 must be checked during deployment. No browser, wallet, RPC, VPS or API restart
 was performed for this correction; live verification belongs to Root.
+
+## Root deployment and actual browser verification
+
+Root published the origin correction as
+`bb302ecb54c0863077579eda2b511b8c2ce276f5` and verified the original problem
+with actual headless Chrome: the previous page requested localhost port 3031
+`/health` and `/availability`, neither returned a response, and the amount
+remained `0.01`. The harness blocked these localhost requests.
+
+The corrected production build explicitly used
+`VITE_API_BASE_URL=https://zeeswap.endpx.cloud` and the deployment-registry
+`VITE_USDC_FAUCET_ADDRESS=0xdb5B315695B40945643EB409ebfE0116700e6BD2`
+for Base Sepolia chain 84532. Root deployed it as
+`/web/origin-fix-bb302ec-r1`, publishing both new JavaScript assets before the
+HTML compare-and-swap. Assets are `index-DyIQjILh.js`,
+`browser-BsAmJ_M6.js`, and unchanged `index-CyPRyvJS.css`.
+The deployed HTML SHA256 is
+`e028fc2e99953f4766d4292f369646cc9ff1a7daf6c3dc2ae7e2b870f0e551b4`.
+Nginx configuration validation and reload passed. No API, financial worker or
+source worker was restarted, and no SQL state changed during this correction.
+
+After deployment, actual headless Chrome requested the public HTTPS `/health`
+and `/availability` endpoints and received HTTP 200 from both. The amount was
+`0.001`, the Review swap dialog was visible, the Preview-only count was zero,
+and no JavaScript errors were observed. The browser showed the forward
+capacity notice with zero remaining admissions. Service availability retained
+its existing version-three nonexpiring authorization and unchanged consumed
+capacity; this does not claim every route is available.
+
+The verification harness blocked every POST and every localhost request.
+No quote creation, wallet operation or payment occurred. This establishes
+actual headless-browser connectivity and rendering, with no human GUI wallet
+approval, signing or payment proof claimed.
