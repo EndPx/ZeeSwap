@@ -126,3 +126,21 @@ ordinary consumer. The target retains its real header time and the snapshot
 retains its real independent sample timestamp. Eight focused current-catchup
 tests and API typechecking passed, including actual Core hash and parent-fork
 refusals in mature target selection.
+
+## Lease identity across publication connections
+
+Root's third case reached publication validation but stopped before an SQL
+intent with `CLOSED_STATE_CHANGED`. The actual baseline diff was empty. The
+private coverage connection held the supervisor lease while the second pool
+connection performed publication checks; excluding the querying backend PID
+mistook the operation's own lease for another worker.
+
+The entry now captures and validates the lease connection's backend PID and
+excludes only that exact PID when checking for other worker leases, including
+from the publication connection. Each fence verifies that the original lease
+connection still has that PID and still owns the advisory lock. A lost lease or
+any other worker remains a refusal. A focused two-connection regression checks
+both connections against the same owner and confirms another worker is still
+detected. Nine focused current-catchup tests, API typechecking and
+`git diff --check` passed. No failed-case artifact, deployed release, Core or
+Envio code was changed by this correction.
