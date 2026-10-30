@@ -242,3 +242,33 @@ owners/groups, broader permissions and service ownership at other paths are
 refused. No directory was moved or chmodded. This compatibility correction and
 its pure ownership tests do not themselves establish a live waiting-order gate
 pass or authorize a financial start without the remaining checks.
+
+## Later unsigned waiting-order recovery
+
+The later waiting-order interruption exposed two distinct blockers, each retained
+with its own evidence: [automatic unsigned Source metadata recovery](automatic-unsigned-source-recovery.md)
+closed the ordinary Base consumer gap without changing actual financial books;
+[same-proof timestamp compatibility](capital-timestamp-compatibility.md) corrected
+the exact legacy microsecond transport regression without refreshing old capital
+authority. Neither operation reset the accepted order or its reservations.
+
+After the Source recovery ACK, the consumers and original financial service were
+started automatically. The first financial starts exposed the timestamp error;
+after the reviewed function-only correction, the ordinary supervisor started the
+original worker at **30 October 2026, 22:01:29 UTC**. Its condition passed at
+**22:01:30 UTC**, and `POLICY_MEMBER_STEP` was recorded at **22:01:34 UTC**.
+The original `AWAITING_FUNDS` order then naturally became `EXPIRED_UNFUNDED`,
+with no deposit, no operation and zero held reservations. Root used no manual
+expiry SQL, order reset, additional funds or signed retry.
+
+The public checkpoint at **22:03:52.51513 UTC** (**31 October, 05:03:52 WIB**)
+reported version 4 `ready`, both directions true, zero active orders and
+**2 forward / 2 reverse / 28 quotes** remaining. The original policy, lifetime
+authorization and reuse authorization stayed selected. Capital verification was
+observed separately at 22:02:28 and 22:03:16 UTC. The static manual-wallet
+frontend release is a separate surface and grants no financial permissions.
+
+These are bounded observations of automatic metadata recovery, ordinary worker
+resumption and safe unfunded expiry. They do not prove an always-available SLA,
+new funded payment, settlement or unrestricted recovery of signed orders. Final
+headless UI results remain separate until verified and recorded.

@@ -63,3 +63,35 @@ This document records implementation, local tests and the disposable SQL
 fixture. Root's actual function publication, preserved Main row digests,
 successful ordinary heartbeat and subsequent live order outcome remain separate
 operator results until recorded. No live payment or settlement is claimed here.
+
+## Actual function publication and ordinary runtime result
+
+Root published compatibility implementation commit
+`ab042a11c7de4009a84d9437ff2a74f9eb103751`, then applied only the
+function replacement in original transaction **490196**. Publication committed
+exactly and original-XID reconciliation passed without replay. The function's
+original owner, ACL and security scope were preserved. Every Zee table had the
+same before/after row digest:
+`d951f82c3448fdaeb79e58337e94968257524946cafdc99dd41f4bb7305c3566`.
+No stored capital observation was freshened, and the DDL publication itself did
+not restart a financial worker.
+
+At **30 October 2026, 22:01:29 UTC**, the watchdog/ordinary service automatically
+started the original financial worker. ExecCondition passed at **22:01:30 UTC**;
+the original 6ebb release and financial configuration ran as PID **1538172**.
+At **22:01:34 UTC** the worker logged `POLICY_MEMBER_STEP`. Its existing logic
+then naturally expired the original unfunded waiting order. The actual order
+became `EXPIRED_UNFUNDED`, with no deposit, no operation and zero held
+reservations. Root did not issue manual expiry SQL or reset the order.
+
+Real capital verification was subsequently recorded at **22:02:28 UTC** and
+**22:03:16 UTC**. A timer check at **22:02:05 UTC** reported `WAIT_EXISTING` and
+took no action. These fresh observations were ordinary captures; they were not
+created by the timestamp normalization branch.
+
+At **22:03:52.51513 UTC** (**31 October, 05:03:52 WIB**), the public API reported
+version 4 `ready`, both directions available, zero active orders and remaining
+capacity **two forward, two reverse and 28 quotes**. The same policy and
+lifetime/reuse authorizations remained selected. This is a bounded verified
+runtime recovery and availability checkpoint, not an SLA or a completed funded
+swap. Final headless browser verification is recorded separately when available.

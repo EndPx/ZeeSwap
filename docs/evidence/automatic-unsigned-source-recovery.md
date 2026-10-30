@@ -65,3 +65,50 @@ metadata commit and ordinary consumer/worker recovery are separate operator
 results. This document does not yet claim that the live Base gap has closed,
 the waiting order expired or any payment settled. Old authority files, source
 cases and original transaction history must remain intact.
+
+## Actual automatic recovery
+
+Root published version 2 source implementation commit
+`b674845a7ae030e520ed3c5b0b9a3b468adb20c3` and prepared a new
+protected authority with SHA256
+`9809dbeaca820b3310ac7f63f581c12424eb64f71a8b815ce0bd1b5576383f97`
+and source configuration SHA256
+`c49427444b3a051286c57295146036feee5f43dfa15608da1998b56e118096c5`.
+The original finite authority and old source case remained untouched. Actual
+default inspection passed for the unsigned waiting order, with no funds or
+financial operations, and correctly reported stale Base observation. The
+watchdog used protected configuration SHA256
+`1f52d8b82b48c1632f2816d342fdc3d60178ade07f14c60af4b87c6010fa7ff2`.
+
+The timer began recovery automatically at **30 October 2026, 21:49:36 UTC**.
+Eleven packets covered **52365913 through 52375639**, with zero raw SDK events
+and zero independent logs. The actual final SDK observation timestamp was
+**21:49:57.252 UTC**. Original source transaction **487476** committed exactly;
+its receipt SHA256 is
+`d44c81bb1afaf7044631ef43696af4ec47b7d503711d17f69a98aa5702168b22`.
+The shared recovery marker was removed only after the exact ACK. Actual financial
+books and the waiting order's three held reservations remained unchanged during
+this metadata publication.
+
+Both ZeeSwap consumers resumed automatically. At **21:50:13 UTC**, the supervisor
+also requested the original financial worker start. Root did not manually run
+Source recovery or manually start that worker for this event. Core/indexer engine
+code remained unchanged. The subsequent financial worker failure was independently
+identified in PostgreSQL as `SERVICE_CAPITAL_PROOF_REGRESSION` on three starts;
+it was not presented as another RPC/source failure. The stored capital timestamp
+`20:54:55.491420Z` lost 420 microseconds in legacy Date transport. The separate
+[timestamp compatibility evidence](capital-timestamp-compatibility.md) records
+that correction and its later ordinary runtime outcome.
+
+These results establish one bounded automatic empty-event metadata recovery and
+consumer resumption. They do not establish uninterrupted service, an SLA,
+arbitrary funded-state recovery or completed customer payments.
+
+At **22:06:26.001299 UTC** (**31 October, 05:06:26 WIB**), an actual public
+headless browser check returned `LIVE_MANUAL_ZINGO_QUOTE_READY`: availability
+version 4 was ready in both directions with two admissions each, and **Get exact
+testnet quote** was enabled. Removed-provider getter reads were zero, no Noir
+display mentions or page errors were observed. POST and localhost requests were
+blocked, so this check created no quote, acceptance, wallet request or payment.
+The screenshot remains private. This verifies the bounded live interface and
+readiness contract; it does not claim a human wallet journey or funded payout.
