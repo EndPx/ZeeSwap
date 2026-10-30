@@ -3,7 +3,7 @@ import type { PrivateData } from "../../private-data.ts";
 import { ingestSnapshot, observerCheckHeights,validateSnapshot,type Snapshot } from "../../observer.ts";
 import { ChefAdapter, ChefCanonicalHeadChanged, SourceCheckpointMismatch, requireChefCanonicalHead, type ChefConfig } from "./chef.ts";
 import { ChefWalletBridge } from "./chef-wallet-bridge.ts";
-import { height, requireThat,parseHeader,stable,type ReplaceRange,type Header } from "./types.ts";
+import { height, requireThat,parseHeader,stable,ObservationError,type ReplaceRange,type Header } from "./types.ts";
 
 // Only the completed anchor-verification phase can issue this witness. A
 // constructed error or a failed persisted-range read cannot manufacture it.
@@ -88,7 +88,11 @@ export async function readChefPersistedState(db:Pick<pg.Pool,'query'>):Promise<C
 }
 /** A wait is permitted only after independently checking every persisted hash,
  * then rereading the exact captured state. Failure never becomes a wait. */
-export async function chefHeadChangeCanWait(error:unknown,publicationAttempted:boolean,before:ChefPersistedState,cursor:{processedThrough:number;tipHash:string},canonical:ChefConfig['canonical']&{prefetchPersisted?:(heights:number[],signal:AbortSignal)=>Promise<void>},unchanged:()=>Promise<boolean>,signal:AbortSignal,cyclePhase?:string,verifiedDiagnostic?:()=>Promise<void>){
+export async function chefSourceRecheck<T>(unchangedState:()=>Promise<boolean>,readSource:()=>Promise<T>,matches:(source:T)=>boolean):Promise<boolean|'SOURCE_UNREADY'>{
+ if(!await unchangedState())return false;
+ try{return matches(await readSource());}catch(error){if(error instanceof ObservationError&&['WAIT_SOURCE_UNREADY','WAIT_SOURCE_UNAVAILABLE','STALE_SOURCE','CHEF_HTTP_ERROR'].includes(error.code))return'SOURCE_UNREADY';throw error;}
+}
+export async function chefHeadChangeCanWait(error:unknown,publicationAttempted:boolean,before:ChefPersistedState,cursor:{processedThrough:number;tipHash:string},canonical:ChefConfig['canonical']&{prefetchPersisted?:(heights:number[],signal:AbortSignal)=>Promise<void>},unchanged:()=>Promise<boolean|'SOURCE_UNREADY'>,signal:AbortSignal,cyclePhase?:string,verifiedDiagnostic?:()=>Promise<void>){
  const headChange=error instanceof ChefCanonicalHeadChanged,checkpointChange=error instanceof SourceCheckpointMismatch;
  if(publicationAttempted||!headChange&&!checkpointChange||!before.checkpoint)return false;
  const expectedHeight=headChange?error.expected.height:error.expectedCore.height,actualHeight=headChange?error.actual.height:error.actualHeader.height;
@@ -120,7 +124,7 @@ export async function chefHeadChangeCanWait(error:unknown,publicationAttempted:b
  await canonical.prefetchPersisted?.([...headers.keys()],signal);
  for(const [h,hash]of headers){signal.throwIfAborted();const current=await canonical.header(h,signal);if(current.height!==h||current.hash!==hash)return false;}
  }
- signal.throwIfAborted();let onAbort:()=>void=()=>{};const aborted=new Promise<never>((_,reject)=>{onAbort=()=>reject(signal.reason);signal.addEventListener('abort',onAbort,{once:true});});try{const result=await Promise.race([unchanged(),aborted]);signal.throwIfAborted();if(result&&(verifiedDiagnostic||sibling)){await verifiedDiagnostic?.();signal.throwIfAborted();const final=await Promise.race([unchanged(),aborted]);signal.throwIfAborted();return final;}return result;}finally{signal.removeEventListener('abort',onAbort);}
+ signal.throwIfAborted();let onAbort:()=>void=()=>{};const aborted=new Promise<never>((_,reject)=>{onAbort=()=>reject(signal.reason);signal.addEventListener('abort',onAbort,{once:true});});try{const result=await Promise.race([unchanged(),aborted]);signal.throwIfAborted();if(result==='SOURCE_UNREADY')return'DEFERRED_SOURCE_UNREADY' as const;if(result&&(verifiedDiagnostic||sibling)){await verifiedDiagnostic?.();signal.throwIfAborted();const final=await Promise.race([unchanged(),aborted]);signal.throwIfAborted();return final==='SOURCE_UNREADY'?'DEFERRED_SOURCE_UNREADY' as const:final;}return result;}finally{signal.removeEventListener('abort',onAbort);}
  }catch(recheckFailure){error.recheckFailure=recheckFailure;throw error;}
 }
 export const chefDiagnosticCodes=['CANONICAL_HEAD_CHANGED','OBSERVER_EPOCH_CHANGED','CHEF_LIVE_CURSOR_REORG','CHEF_LIVE_GENERATION_CHANGED','CHEF_RECOVERY_TARGET_REORG','CHEF_RECOVERY_OVERLAP_REORG','CHEF_LIVE_CURSOR_IDENTITY','CHEF_LIVE_SOURCE_REGRESSION','CHEF_RECOVERY_IDENTITY_CHANGED','CANONICAL_CHECKPOINT_MISMATCH','HEADER_GAP_OR_FORK','CANONICAL_NOTE_MISMATCH','CHEF_HTTP_ERROR','CHEF_CANONICAL_HEADER_FAILED','CANONICAL_RPC_HTTP_ERROR','CHEF_PERSISTED_STATE_BOUND'] as const;
