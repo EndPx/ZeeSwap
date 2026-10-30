@@ -46,7 +46,7 @@ and config SHA supplied by Root:
 StartLimitIntervalSec=300
 StartLimitBurst=4
 [Service]
-ExecCondition=/usr/bin/env -u NODE_OPTIONS /usr/bin/node --import TSX_LOADER NEW_GATE_ENTRY /opt/zeeswap-testnet/secrets/testnet-policy-worker.private.json CURRENT_CONFIG_SHA
+ExecCondition=/usr/bin/env -u NODE_OPTIONS -u ZEESWAP_LEGACY_PG_PRELOAD_MANIFEST -u ZEESWAP_LEGACY_PG_PRELOAD_MANIFEST_SHA256 -u ZEESWAP_LEGACY_PG_PRELOAD_AMENDMENT -u ZEESWAP_LEGACY_PG_PRELOAD_AMENDMENT_SHA256 /usr/bin/node --import TSX_LOADER NEW_GATE_ENTRY /opt/zeeswap-testnet/secrets/testnet-policy-worker.private.json CURRENT_CONFIG_SHA
 Restart=on-failure
 RestartPreventExitStatus=
 RestartForceExitStatus=78
@@ -80,3 +80,64 @@ passed, including mode-0640 F0 acceptance with secret/write/owner refusals and
 bounded local lineage with cycle/branch failures. API typechecking and
 `git diff --check` passed. The earlier refusal remains preserved; no automatic
 selector switch or service restart was performed by the coding agent.
+
+## Fresh-source condition and single operational watchdog
+
+The condition now also reads both actual SQL scanner checkpoints and the
+database clock. Both Native and Base observations must be no older than 60
+seconds, no more than five seconds in the future, and have scanned height at
+least finalized height. Missing or malformed checkpoints refuse startup. This
+prevents repeatedly starting the unchanged worker when its Source guard will
+immediately fail. Eight idle-gate tests passed, including stale-to-fresh and
+missing/future/finality failures, alongside API typechecking.
+
+The fixed Root-owned recovery marker
+`/opt/zeeswap-testnet/state/service-policy/preuser-source-recovery-active.private.json`
+also blocks the financial condition, checked before loading configuration and
+again immediately before success. The watchdog fsyncs it before stopping
+consumers; the automatic Source entry uses the same marker through SQL intent,
+commit and original file acknowledgement. Only exact acknowledgement or a
+verified no-intent/no-mutation retry outcome may remove it. Manual review,
+unknown operations and pending publication retain the block even if the SQL
+checkpoint has become fresh. Nine idle-gate cases passed, including a marker
+that refuses financial startup despite otherwise fresh SQL and initial books.
+
+`deploy/linux/preuser-service-watchdog.py` is a separate Root operation that
+defaults to inspection. Its one-shot service/timer checks every 30 seconds after
+the preceding invocation finishes, preventing overlapping recovery runs. It
+uses the separately pinned automatic Source recovery entry's SQL-only inspector
+and original-intent reconciliation contract. Closed-state and policy checks
+must pass before actor actions. An active or transitioning financial worker is
+never stopped, signalled or restarted; the watchdog waits for its own exit.
+
+When the financial worker is inactive and closed-state inspection permits
+recovery, the watchdog stops only the ZeeSwap Native and Base consumers, never
+the Core indexers. The exact Base unit is
+`zeeswap-testnet-envio-observer.service`. It invokes metadata recovery explicitly
+and resumes ordinary consumers only after exact acknowledgement or confirmed
+absence of a pending publication. An ambiguous original intent or manual-review
+halt keeps consumers stopped for Root review. It never erases an attempt or
+replays unknown publication SQL.
+
+Starting the financial worker requires the full fresh idle gate again, no
+pending publication, and an inactive worker. Its failed state is reset only
+after these checks pass. A private fsynced start history limits requests to four
+per 300 seconds; expiry of that window permits a later eligible retry instead
+of permanent start-limit lockout. The worker's installed ExecCondition repeats
+the same gate immediately before its unchanged financial ExecStart. Once any
+current-policy quote, funding or uncertain financial state exists, automatic
+financial restart remains unavailable. The watchdog never changes policy,
+quota, expiry, control, balances, wallet state or API selectors.
+
+The Root-only watchdog configuration pins the worker config, gate and Source
+entries, Source config, loader and transport environment file. Worker and Source
+policy files must have identical pinned bytes, even if their protected paths
+differ. The provided service enables explicit execution only when Root installs
+it with the reviewed environment; the standalone command remains inspect-only
+unless `--execute` is supplied. Ten Python tests passed in WSL Ubuntu, covering
+inspection-only behavior, no active-worker restart, stale gate refusal, exact
+metadata ACK ordering, ambiguous intent refusal, no-intent read failure recovery,
+closed guard/backoff failures, finite retry history, unknown-exception marker
+retention and exact consumer unit
+restrictions. `git diff --check` passed. No unit was installed or run, and no
+live Source/database/service action was performed by the coding agent.

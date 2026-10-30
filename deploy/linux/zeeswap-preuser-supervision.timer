@@ -1,0 +1,11 @@
+[Unit]
+Description=Check ZeeSwap pre-user Source recovery and idle worker every 30 seconds
+
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=30s
+AccuracySec=1s
+Unit=zeeswap-preuser-supervision.service
+
+[Install]
+WantedBy=timers.target

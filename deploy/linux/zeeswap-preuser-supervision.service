@@ -1,0 +1,17 @@
+[Unit]
+Description=ZeeSwap pre-user closed-state Source and idle worker supervision
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/zeeswap-testnet
+EnvironmentFile=/opt/zeeswap-testnet/secrets/preuser-supervision.env
+UnsetEnvironment=NODE_OPTIONS
+ExecStart=/usr/bin/python3 ${ZEESWAP_SUPERVISION_SCRIPT} --config ${ZEESWAP_SUPERVISION_CONFIG} --config-sha256 ${ZEESWAP_SUPERVISION_CONFIG_SHA256} --execute
+TimeoutStartSec=1200
+UMask=0077
+Restart=no

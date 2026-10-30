@@ -6,6 +6,8 @@ import{requireThat}from'./integrations/observation/types.ts';
 import type{ServiceLaunchState}from'./testnet-service-launch.ts';
 const need=(v:unknown,c:string)=>requireThat(v,'POLICY_IDLE_RESTART_'+c);
 const policySha=(r:any)=>decodePgJsonbBytea(r.policy_sha256,32).toString('hex');
+export const PREUSER_SOURCE_RECOVERY_MARKER='/opt/zeeswap-testnet/state/service-policy/preuser-source-recovery-active.private.json';
+export const PREUSER_SOURCE_RECOVERY_PURPOSE='ROOT_PREUSER_SOURCE_RECOVERY_ACTIVE';
 export type IdleRestartState=ServiceLaunchState&{lineage:string[];workerLease:boolean};
 export function requireIdleRestartPinPermissions(uid:number,mode:number,secret:boolean){need(uid===0&&(mode&(secret?0o077:0o022))===0,'PIN_FILE');}
 export function idleRestartLineage(current:string,links:Array<{policy:string;predecessor:string}>){
@@ -13,6 +15,10 @@ export function idleRestartLineage(current:string,links:Array<{policy:string;pre
  const lineage:string[]=[],seen=new Set<string>();let next:string|undefined=current;
  while(next){need(!seen.has(next)&&lineage.length<4,'LINEAGE_CYCLE_OR_BOUND');seen.add(next);lineage.push(next);const parents=links.filter(r=>r.policy===next);need(parents.length<=1,'LINEAGE_AMBIGUOUS_PARENT');next=parents[0]?.predecessor;}
  return lineage;
+}
+export function requireIdleRestartFreshSources(checkpoints:Array<{network:string;scanned_height:string;finalized_height:string;observed_at:string|Date}>,checkedAt:string|Date){
+ const now=new Date(checkedAt).getTime();need(Number.isFinite(now)&&checkpoints.length===2&&new Set(checkpoints.map(r=>r.network)).size===2&&['zcash-testnet','base-sepolia'].every(n=>checkpoints.some(r=>r.network===n)),'SOURCE_CHECKPOINTS');
+ for(const row of checkpoints){const observed=new Date(row.observed_at).getTime(),age=now-observed;need(/^(0|[1-9][0-9]*)$/.test(row.scanned_height)&&/^(0|[1-9][0-9]*)$/.test(row.finalized_height)&&BigInt(row.scanned_height)>=BigInt(row.finalized_height)&&Number.isFinite(age)&&age>=-5000&&age<=60000,'SOURCE_STALE');}
 }
 export function requirePreUserIdleRestart(p:ServicePolicyApproval,sha256:string,s:IdleRestartState,now=Date.now()){
  validateServicePolicy(p);need(p.publicCommit==='6ebb11da0fdaa70ccdd35d0c04e5abfe0b256ecc'&&Date.parse(p.verifiedAt)<=now+5000&&Date.parse(p.expiresAt)>now,'UNEXPIRED_FINANCIAL_POLICY');
