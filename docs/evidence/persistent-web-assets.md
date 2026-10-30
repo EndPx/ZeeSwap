@@ -51,9 +51,40 @@ store without changing its permissions, and the Nginx missing-asset/cache/header
 python3 -m unittest test_publish_web_assets -v
 ```
 
-`git diff --check` passed. No live service was changed by this code task. Root
-will publish the explicit reviewed assets, patch only the live static blocks,
-run `nginx -t`, reload gracefully, and verify that the retained JavaScript
-returns JavaScript while a nonexistent asset returns 404. Browser recovery,
+`git diff --check` passed. At code freeze, no live service had been changed by
+the coding task. Root's subsequent deployment is recorded below. Browser recovery,
 financial readiness and settlement require their own actual evidence. No
 storage clearing, wallet recovery changes or asset deletion is part of this fix.
+
+## Actual static deployment and HTTP checks
+
+Root deployed the reviewed fix from public commit prefix `ab58`. The publisher
+processed 103 inputs and retained 34 unique assets totaling 4,747,768 bytes.
+Its inventory SHA-256 was
+`a910ebe7a32cb0d9f777f54035558bd08afc516c8e5f5da09e4820a116841672`.
+The live Nginx configuration changed from SHA-256
+`92164bdc76e2e3020bb3d96d4c4f3b52733734e2a52c06357ff201bb9251a69f`
+to `71d66c357284acdd3497d32d673f562f6c9362cbdfccd874106c4f457bd0a4c0`.
+Root verified that all nonstatic configuration text, the current web root and
+proxy routes were preserved exactly. `nginx -t` passed, followed by a graceful
+reload. No financial worker, API or Source service was restarted.
+
+Root's public HTTP checks from Windows verified:
+
+| Request | Actual response |
+| --- | --- |
+| `/` | HTTP 200 HTML with `no-store`; root HTML bytes unchanged |
+| `/assets/index-CZqQiF_T.js` | HTTP 200 JavaScript, 405,693 bytes, immutable cache |
+| `/assets/index-Dh4jmouC.js` | HTTP 200 JavaScript, 406,429 bytes, immutable cache |
+| A nonexistent `.js` asset | HTTP 404 with `no-store` and `nosniff` |
+| `/health` | HTTP 200 JSON |
+
+The retained older JavaScript SHA-256 was
+`ff0fb09ae6e4f58300a2d39f31acb4a5f3da06cc446f61e44203decedec571c5`;
+the current JavaScript SHA-256 was
+`4b2e2b6223f2dc812373f960c526354693d469e4b06eb8f8751a74587985d39a`.
+These checks establish the corrected public asset-serving behavior. Actual
+recovery of the user's second browser was not GUI-verified in this turn because
+computer use was unavailable. The user was instructed to try Ctrl+Shift+R;
+that instruction is not evidence of a successful reload, wallet payment or
+settlement.
