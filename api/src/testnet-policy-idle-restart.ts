@@ -7,6 +7,13 @@ import type{ServiceLaunchState}from'./testnet-service-launch.ts';
 const need=(v:unknown,c:string)=>requireThat(v,'POLICY_IDLE_RESTART_'+c);
 const policySha=(r:any)=>decodePgJsonbBytea(r.policy_sha256,32).toString('hex');
 export type IdleRestartState=ServiceLaunchState&{lineage:string[];workerLease:boolean};
+export function requireIdleRestartPinPermissions(uid:number,mode:number,secret:boolean){need(uid===0&&(mode&(secret?0o077:0o022))===0,'PIN_FILE');}
+export function idleRestartLineage(current:string,links:Array<{policy:string;predecessor:string}>){
+ const hash=(v:unknown)=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);need(hash(current)&&links.length<=16&&links.every(r=>hash(r.policy)&&hash(r.predecessor)),'LINEAGE_ROWS');
+ const lineage:string[]=[],seen=new Set<string>();let next:string|undefined=current;
+ while(next){need(!seen.has(next)&&lineage.length<4,'LINEAGE_CYCLE_OR_BOUND');seen.add(next);lineage.push(next);const parents=links.filter(r=>r.policy===next);need(parents.length<=1,'LINEAGE_AMBIGUOUS_PARENT');next=parents[0]?.predecessor;}
+ return lineage;
+}
 export function requirePreUserIdleRestart(p:ServicePolicyApproval,sha256:string,s:IdleRestartState,now=Date.now()){
  validateServicePolicy(p);need(p.publicCommit==='6ebb11da0fdaa70ccdd35d0c04e5abfe0b256ecc'&&Date.parse(p.verifiedAt)<=now+5000&&Date.parse(p.expiresAt)>now,'UNEXPIRED_FINANCIAL_POLICY');
  need(s.control.epoch===p.activeEpoch&&s.control.accepting_orders===true&&s.control.dispatch_enabled===true&&s.control.reconciliation_required===false&&!s.workerLease&&!s.globalBusy&&s.authorizationRows===0,'ACTIVE_IDLE_CONTROL');

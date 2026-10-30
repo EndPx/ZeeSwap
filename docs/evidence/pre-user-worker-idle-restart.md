@@ -63,3 +63,20 @@ rows, new financial mutations, new current-policy interactions or repeated
 attempts, inactive/reconciling control and lease/expiry guards, and unresolved
 legacy operations or ancestor funding. API typechecking and `git diff --check`
 passed. These are local checks, not live restart or financial settlement proof.
+
+Root's first live condition refused before starting the new financial worker:
+the original F0 transport manifest is Root-owned mode 0640, while the first gate
+incorrectly requested secret-only permissions. F0 now uses the existing public
+pin rule: Root ownership, no group/world writes, unchanged raw SHA and unchanged
+symlink/parent protection. Fixed worker config and A70 still require secret
+permissions. No live permission or financial file is changed.
+
+Root also confirmed that the worker can SELECT immutable predecessor rows but
+cannot directly EXECUTE `testnet_policy_lineage`. The condition now reads those
+rows in its existing read-only transaction and derives the current lineage
+locally, with at most four policies, cycle detection, ambiguous-parent refusal
+and a bounded input query. It requests no database grant. Seven focused tests
+passed, including mode-0640 F0 acceptance with secret/write/owner refusals and
+bounded local lineage with cycle/branch failures. API typechecking and
+`git diff --check` passed. The earlier refusal remains preserved; no automatic
+selector switch or service restart was performed by the coding agent.
