@@ -214,7 +214,7 @@ protections, fresh source checks, original execution/configuration pins and the
 recovery marker checks remain enforced. A funded, confirming, ready, signed or
 frozen operation is outside this permission.
 
-API typecheck and **15/15** idle qualification tests passed. Tests include the
+API typecheck and **16/16** idle qualification tests passed. Tests include the
 original finite and expired-only defaults, unsigned waiting with both numeric
 and string accounting representations, quote-only acceptance, malformed and
 unbound quotes, deposit references, funded/signed states, changed inventory,
@@ -230,3 +230,15 @@ compares its lowercase value to the policy, matching the existing SQL semantics.
 The snapshot's original text remains unchanged for exact book reconstruction.
 A regression confirms mixed-case acceptance, rejection of a different address
 and preservation of the original snapshot. No accepted-order field was rewritten.
+
+The first actual unsigned read-only gate refused the Base journal directory
+before reaching the waiting-order projection. Root verified that the original
+runtime owns exactly `/opt/zeeswap-testnet/state` and its `base-signer-journal`
+directory as UID 986 / GID 978 with private 0700 permissions; their protected
+ancestors are Root-owned. The checker now accepts this exact pinned service
+ownership at those two paths only, while requiring symlink-free canonical
+directories, private service permissions and protected Root ancestors. Wrong
+owners/groups, broader permissions and service ownership at other paths are
+refused. No directory was moved or chmodded. This compatibility correction and
+its pure ownership tests do not themselves establish a live waiting-order gate
+pass or authorize a financial start without the remaining checks.

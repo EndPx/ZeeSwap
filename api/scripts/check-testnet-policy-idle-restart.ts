@@ -10,7 +10,7 @@ import{decodePgJsonbBytea}from'../src/pg-jsonb-bytea.ts';
 import{workerExecutionPins}from'../src/testnet-policy-execution.ts';
 import{loadServicePolicyApi}from'../src/testnet-service-policy.ts';
 import{readServiceLaunchState}from'../src/testnet-service-launch.ts';
-import{requirePreUserIdleRestart,requireReuseQualifiedUnsignedRestart,requireIdleRestartPinPermissions,idleRestartLineage,requireIdleRestartFreshSources,PREUSER_SOURCE_RECOVERY_MARKER}from'../src/testnet-policy-idle-restart.ts';
+import{requirePreUserIdleRestart,requireReuseQualifiedUnsignedRestart,requireIdleRestartPinPermissions,requireIdleBaseJournalDirectoryOwner,idleRestartLineage,requireIdleRestartFreshSources,PREUSER_SOURCE_RECOVERY_MARKER}from'../src/testnet-policy-idle-restart.ts';
 import{requireThat}from'../src/integrations/observation/types.ts';
 const ROOT='/opt/zeeswap-testnet',COMMIT='6ebb11da0fdaa70ccdd35d0c04e5abfe0b256ecc',A70='a70f41da956f0551caf62c0e922d57d99ab7a3d8b3a3dc337021f16855fe6cd6',F0='f0bff786787f692707f02e842562ada922ef9035380f09fbf796bf5502873c53';
 const sha=(b:Buffer)=>createHash('sha256').update(b).digest('hex'),need=(v:unknown,c:string)=>requireThat(v,'POLICY_IDLE_RESTART_'+c);
@@ -22,7 +22,7 @@ export async function requireNoCurrentPolicyProcesses(directory:string){
 }
 export async function requireNoBaseOrderJournal(directory:string,settlementId:string){
  need(/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(settlementId),'SETTLEMENT_ID');
- for(let path=directory;path.startsWith(ROOT);path=dirname(path)){const s=await lstat(path);need(s.isDirectory()&&!s.isSymbolicLink()&&s.uid===0&&(s.mode&0o022)===0&&await realpath(path)===path,'BASE_JOURNAL_DIRECTORY');}
+ for(let path=directory;path.startsWith(ROOT);path=dirname(path)){const s=await lstat(path);need(s.isDirectory()&&!s.isSymbolicLink()&&await realpath(path)===path,'BASE_JOURNAL_DIRECTORY');requireIdleBaseJournalDirectoryOwner(path,s.uid,s.gid,s.mode);}
  const identifier=sha(Buffer.from(publicSettlementId(settlementId))),names=await readdir(directory);need(names.length<=512&&!names.some(name=>name.startsWith(identifier+'.')),'CURRENT_BASE_SIGNER_JOURNAL');
 }
 export async function checkPolicyIdleRestart(configPath:string,configSha256:string){

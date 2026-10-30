@@ -65,3 +65,25 @@ existing availability browser cases also passed. The final source scan finds
 only the historical storage-key literal in the read-only compatibility reader.
 Root still needs to publish the correctly configured production build and verify
 the real page; none of these checks creates a live payment or confirms settlement.
+
+## Actual static release check
+
+Root published implementation commit
+`e25f76fbef7ae99b9d694bc30718fff3417d0539` with the public HTTPS API and the
+verified Base Sepolia faucet address. Assets were published before the HTML
+switch; Nginx validation and reload passed. The served HTML SHA256 was
+`df332156134ef262adac599d7ad111e167e65d2a21262c5d428bd28497b5bbcb`,
+with entry `index-D_DBQqjb.js`.
+
+A real public-page headless Chrome check opened the wallet dialog and How it
+works. The injected removed-provider getter was never read; neither dialog
+mentioned Noir. Base wallet instructions remained visible, the official Zingo
+link resolved to the expected release page, and both swap-direction headings
+were visible. Public health and availability requests returned HTTP 200, with
+zero page JavaScript errors. All POST requests were blocked by the test harness;
+no quote, acceptance, wallet request, payment or settlement was created.
+
+This static release does not qualify financial service readiness. At the same
+operator checkpoint, both observation consumers were active and fresh, while
+an inactive financial worker was being separately qualified for unsigned-order
+recovery. That runtime outcome belongs to the worker recovery evidence.

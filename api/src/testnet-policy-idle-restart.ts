@@ -10,6 +10,11 @@ export const PREUSER_SOURCE_RECOVERY_MARKER='/opt/zeeswap-testnet/state/service-
 export const PREUSER_SOURCE_RECOVERY_PURPOSE='ROOT_PREUSER_SOURCE_RECOVERY_ACTIVE';
 export type IdleRestartState=ServiceLaunchState&{lineage:string[];workerLease:boolean};
 export function requireIdleRestartPinPermissions(uid:number,mode:number,secret:boolean){need(uid===0&&(mode&(secret?0o077:0o022))===0,'PIN_FILE');}
+/** Original pinned Linux runtime owns its two private state directories. */
+export function requireIdleBaseJournalDirectoryOwner(path:string,uid:number,gid:number,mode:number){
+ const privateState=path==='/opt/zeeswap-testnet/state'||path==='/opt/zeeswap-testnet/state/base-signer-journal';
+ need(uid===0?(mode&0o022)===0:privateState&&uid===986&&gid===978&&(mode&0o777)===0o700,'BASE_JOURNAL_DIRECTORY_OWNER');
+}
 export function idleRestartLineage(current:string,links:Array<{policy:string;predecessor:string}>){
  const hash=(v:unknown)=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);need(hash(current)&&links.length<=16&&links.every(r=>hash(r.policy)&&hash(r.predecessor)),'LINEAGE_ROWS');
  const lineage:string[]=[],seen=new Set<string>();let next:string|undefined=current;
