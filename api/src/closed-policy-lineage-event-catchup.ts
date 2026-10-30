@@ -1,5 +1,6 @@
 /** Separate paused current-policy lineage catch-up. Original empty-pilot guard is unchanged. */
 import type pg from 'pg';
+import {validatePolicyRenewalAuthorization,type PolicyRenewalAuthorization}from'./testnet-policy-renewal-authorization.ts';
 import{createHash}from'node:crypto';
 import {continuationTables,continuationDigest as digest}from'./native-circle-continuation.ts';
 import {stable,fresh,type Header}from'./integrations/observation/types.ts';
@@ -9,6 +10,13 @@ const need=(v:unknown,c:string)=>{if(!v)throw Error('CLOSED_POLICY_LINEAGE_CATCH
 export const CLOSED_POLICY_SHA='d6998cc7c70205938b1cf97e5b3e40ab90346d3a91f5f5a3e5ae0c0d4ee3509c';
 export const LINEAGE_PREDECESSOR_SHA='10f877f468032e3c54b748748825dab5e7fe17e5a50d2ec78710392222417dae';
 export const LINEAGE_ORIGINAL_EXPIRY='2026-10-30T08:13:20.732Z';
+/** Expired-parent exception authorizes closed metadata only; it never changes a policy expiry. */
+export function requireLineageMetadataExpiry(expiresAt:string,authorization?:PolicyRenewalAuthorization,now=Date.now()){
+ need(Number.isFinite(Date.parse(expiresAt)),'PARENT_EXPIRY');
+ if(authorization!==undefined)validatePolicyRenewalAuthorization(authorization,now);
+ need(Date.parse(expiresAt)>now||authorization!==undefined,'POLICY_EXPIRED_REQUIRES_ROOT_RENEWAL_AUTHORIZATION');
+}
+
 export type ActivePilotClosedSnapshot=Omit<ClosedSnapshot,'control'>&{control:{epoch:string;xmin:string;accepting_orders:boolean;dispatch_enabled:boolean;reconciliation_required:boolean}};
 export type ClosedPilotLineageState={closed:ActivePilotClosedSnapshot;policies:number;quotes:number;admissions:number;runtime:number;busy:boolean;workerLease:boolean;policySha256:string;approvedBooksSha256:string;lineage:Record<string,any[]>;approvedLineageSha256:string;nativeCheckpoint:unknown;newDeposits:number;activeOrders:number};
 export function requireClosedPilotLineage(s:ClosedPilotLineageState){const c=s.closed;

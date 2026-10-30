@@ -51,7 +51,7 @@ operation and financial activation remain separate operator actions.
 Local verification passed:
 
 - API TypeScript check (`tsc --noEmit`).
-- Sixteen tests across the original empty-policy recovery and the new closed
+- Seventeen tests across the original empty-policy recovery and the new closed
   lineage recovery. These cover complete intervals, unexpected SDK/log events,
   changed books/leases, canonical forks, incomplete proofs, finality regression,
   exact R15 scope, original-XID intent-before-CAS ordering, lifetime/expiry/link
@@ -76,3 +76,22 @@ expiry, policy, paused control or payment authority. A new Root preparation is
 required after the independently reconciled Native catch-up; the refused R1
 baseline and any partial artifacts remain retained. This record does not claim
 R2 live execution or source readiness.
+
+The user subsequently authorized a new 24-hour policy with the same remaining
+one forward attempt, two reverse attempts and 31 quotes. This metadata CLI may
+prepare and publish against the already expired d699 parent only when its config
+pins a fresh Root-owned mode-0600 authorization validated by the shared
+`ROOT_RENEW_EXPIRED_POLICY_24H_SAME_QUOTA` validator. It rechecks that raw pin,
+finite authorization window, exact paused control and metadata-only permission
+at state reads and publication fences. Without that authorization, the original
+expired-parent refusal remains. This exception writes no policy or predecessor,
+changes no original expiry, and enables no financial admission. A separate
+reviewed policy-renewal commitment remains necessary for financial availability.
+The added test rejects absent/stale authority, reset quota, financial permission,
+wrong control/parent and duration changes; successful validation preserves the
+original expired policy and authorization unchanged.
+
+The historical resource ceiling remains 250,000 total blocks. Root must stop only
+the ZeeSwap Native consumer while taking the new baseline and collecting and
+publishing Base coverage, then reconcile exact publication acknowledgements
+before resuming both ordinary consumers. Core Chef and Envio are unchanged.

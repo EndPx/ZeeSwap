@@ -1,0 +1,35 @@
+/** systemd ExecCondition only: zero Source/wallet calls and zero database writes. */
+import{readFile,lstat,realpath,readdir}from'node:fs/promises';
+import{createHash}from'node:crypto';
+import{dirname,resolve}from'node:path';
+import{pathToFileURL}from'node:url';
+import{loadLinuxForward}from'../src/linux-forward-dispatch.ts';
+import{connect}from'../src/db.ts';
+import{workerExecutionPins}from'../src/testnet-policy-execution.ts';
+import{loadServicePolicyApi}from'../src/testnet-service-policy.ts';
+import{readServiceLaunchState}from'../src/testnet-service-launch.ts';
+import{requirePreUserIdleRestart}from'../src/testnet-policy-idle-restart.ts';
+import{requireThat}from'../src/integrations/observation/types.ts';
+const ROOT='/opt/zeeswap-testnet',COMMIT='6ebb11da0fdaa70ccdd35d0c04e5abfe0b256ecc',A70='a70f41da956f0551caf62c0e922d57d99ab7a3d8b3a3dc337021f16855fe6cd6',F0='f0bff786787f692707f02e842562ada922ef9035380f09fbf796bf5502873c53';
+const sha=(b:Buffer)=>createHash('sha256').update(b).digest('hex'),need=(v:unknown,c:string)=>requireThat(v,'POLICY_IDLE_RESTART_'+c);
+async function pinned(pin:{path:string;sha256:string},secret=false){need(pin.path.startsWith(ROOT+'/')&&resolve(pin.path)===pin.path,'PIN_PATH');for(let p=dirname(pin.path);p.startsWith(ROOT);p=dirname(p)){const s=await lstat(p);need(s.isDirectory()&&!s.isSymbolicLink()&&(s.mode&0o022)===0,'PIN_DIRECTORY');}const s=await lstat(pin.path);need(s.isFile()&&!s.isSymbolicLink()&&s.uid===0&&(s.mode&(secret?0o077:0o022))===0&&s.size<=16000000&&await realpath(pin.path)===pin.path,'PIN_FILE');const b=await readFile(pin.path);need(sha(b)===pin.sha256,'PIN_BYTES');return b;}
+export async function requireNoCurrentPolicyProcesses(directory:string){
+ for(let p=directory;p.startsWith(ROOT);p=dirname(p)){try{const s=await lstat(p);need(s.isDirectory()&&!s.isSymbolicLink()&&(s.mode&0o022)===0&&await realpath(p)===p,'PROCESS_DIRECTORY');}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}}
+ try{need((await readdir(directory)).length===0,'CURRENT_PROCESS_JOURNAL_EXISTS');}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
+}
+export async function checkPolicyIdleRestart(configPath:string,configSha256:string){
+ need(process.platform==='linux'&&process.getuid?.()===0&&process.env.NODE_OPTIONS===undefined&&configPath===ROOT+'/secrets/testnet-policy-worker.private.json'&&/^[a-f0-9]{64}$/.test(configSha256),'ROOT_EXEC_CONDITION');
+ const raw=await pinned({path:configPath,sha256:configSha256},true),c=JSON.parse(raw.toString());
+ need(c.version===1&&c.mode==='ROOT_BOUNDED_TESTNET_SERVICE_WORKER'&&c.enabled===true&&c.pollSeconds===5&&c.publicCommit===COMMIT&&c.executionRoot===ROOT+'/releases/vps-primary-6ebb11d-r1/app'&&c.executionManifest.path===ROOT+'/state/service-policy/execution-manifest-6ebb-primary.private.json'&&c.executionManifest.sha256===A70,'ORIGINAL_EXECUTION');
+ const manifest=JSON.parse((await pinned(c.executionManifest,true)).toString());for(const pin of workerExecutionPins(manifest,c.executionRoot,COMMIT))await pinned(pin);
+ await pinned({path:ROOT+'/state/database-relocation/legacy-pg-preload.private.json',sha256:F0},true);
+ const forward=await loadLinuxForward(ROOT+'/secrets/forward-profile.private.json'),v=forward.verified,p=v.profile,processRoot=p.roots.state+'/testnet-policy/'+c.policy.sha256+'/orders';
+ need(/^[a-f0-9]{64}$/.test(c.policy.sha256),'POLICY_PIN');await pinned(c.policy);await requireNoCurrentPolicyProcesses(processRoot);
+ const pool=connect(v.runtime.workerUrl,1),client=await pool.connect();
+ try{await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');await client.query("SET LOCAL statement_timeout='10s'");const identity=(await client.query('SELECT current_database() db,current_user role,(pg_control_system()).system_identifier::text system')).rows[0];need(identity?.db==='zee_app_20261023'&&identity.role==='zee_app_worker_20261023'&&identity.system==='7701863382450487342','DATABASE_IDENTITY');
+ const policy=await loadServicePolicyApi({ZEESWAP_TESTNET_SERVICE_POLICY_PROOF:c.policy.path,ZEESWAP_TESTNET_SERVICE_POLICY_SHA256:c.policy.sha256},{profileSha256:v.profileSha256,handoffSha256:sha(await readFile(forward.c.handoffProof)),openingProofSha256:p.immutable.openingProof.sha256,settlementContract:v.registry.contracts.ZeeSwapSettlement.address,tokenContract:v.registry.contracts.MockUSDC.address},client);need(policy,'POLICY_REQUIRED');if(!policy)throw Error('POLICY_IDLE_RESTART_POLICY_REQUIRED');await policy.recheck();
+ const s=await readServiceLaunchState(client),lineage=(await client.query("SELECT encode(x,'hex') policy FROM zee.testnet_policy_lineage($1) x",[Buffer.from(c.policy.sha256,'hex')])).rows.map(r=>r.policy),workerLease=(await client.query("SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND classid=84532 AND objid=20261026 AND granted) busy")).rows[0]?.busy;
+ requirePreUserIdleRestart(policy.approval,c.policy.sha256,{...s,lineage,workerLease});await requireNoCurrentPolicyProcesses(processRoot);need((await pinned({path:configPath,sha256:configSha256},true)).equals(raw),'CONFIG_CHANGED');await policy.recheck();await client.query('ROLLBACK');return{status:'POLICY_PRE_USER_IDLE_RESTART_ALLOWED',financialAction:false};
+ }finally{await client.query('ROLLBACK').catch(()=>{});client.release();await pool.end();}
+}
+if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href){const[path,sha256]=process.argv.slice(2);try{need(path&&sha256&&process.argv.length===4,'ARGUMENTS');console.log(JSON.stringify(await checkPolicyIdleRestart(path!,sha256!)));}catch(e){console.error(JSON.stringify({status:'POLICY_IDLE_RESTART_REFUSED_MANUAL_REVIEW',code:(e as any)?.code??'PRIVATE_GATE_FAILURE',financialAction:false}));process.exitCode=1;}}

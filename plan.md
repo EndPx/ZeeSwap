@@ -2,6 +2,23 @@
 
 Last updated: 2026-10-29 (Asia/Jakarta), for the isolated Linux testnet deployment. Execution evidence below retains its recorded dates.
 
+Expired pilot permit renewal (30 October, explicit user approval): the user chose
+"Perpanjang 24 jam, kuota tetap". This authorizes a new immutable policy with an
+expiry exactly 24 hours after its new verification time. Keep the expired parent,
+all predecessor links, ledger rows, runtime history and original-XID evidence.
+Carry the consumed quote and forward admission across the full lineage: remaining
+capacity stays **one forward admission, two reverse admissions and 31 quotes**.
+Do not allocate more capital or reset any budget, fee or concurrency limit.
+
+A protected, finite Root authorization may also qualify metadata-only Base
+closed-state recovery under the expired parent while control remains paused at
+239 and reconciliation remains required. It cannot enable admission, dispatch,
+signing or payment. A separate atomic renewal publication requires fresh current
+Source, Native and Base capital evidence, the original committed reconciliation,
+a durable original-XID journal, exact closed books, and a reviewed explicit SQL
+exception for the new expiry. The old exact-expiry successor purposes remain
+unchanged. This approval does not claim metadata recovery or renewal has executed.
+
 User hosting decision (29 October, supersedes the Neon runtime choice):
 PostgreSQL in Docker on the existing VPS becomes the primary datastore for
 ZeeSwap Main, its Envio projection, Chef consumer and bridge. Docker remains
