@@ -144,3 +144,29 @@ both connections against the same owner and confirms another worker is still
 detected. Nine focused current-catchup tests, API typechecking and
 `git diff --check` passed. No failed-case artifact, deployed release, Core or
 Envio code was changed by this correction.
+
+## Actual guarded recovery
+
+Root retained the failed unpublished cases and retired only their exact shared
+markers after verifying absence of publication intents/completions, stopped
+writers, unchanged cursor bytes, identical persisted state and the complete
+closed financial baseline. Private coverage files and approvals were preserved.
+
+The corrected fourth case committed and acknowledged Native metadata at original
+XID `332169`. Its completion receipt SHA-256 is
+`a5f5914441e9cd5f1db6e95f19d5f4546c2c3f80ae1716b18515594bbf428772`.
+The checkpoint advanced from 4556142 to 4557966, finalized through 4557957;
+the original observation timestamp is `2026-10-30T08:18:13.051Z`.
+No financial row, policy, quota or runtime-control value was changed.
+
+Root then started the upgraded ZeeSwap Native consumer while retaining the
+original 08c transport and protected proof. Ordinary observations reached
+4557979 and reported zero outputs, eligible operations and quarantines.
+This is actual consumer recovery, not a change to Zeer Core or Envio.
+
+The separate Base metadata preparation refused `POLICY_EXPIRED`. At
+`2026-10-30T08:21:31.35703Z`, public availability also returned `policy_expired`:
+the original policy ended at 15:13:20.732 WIB on 30 October. Remaining usage was
+one forward attempt, two reverse attempts and 31 quotes, with zero active orders.
+No second successor or time extension was published. Base recovery and renewed
+financial admission are not established by this Native completion receipt.

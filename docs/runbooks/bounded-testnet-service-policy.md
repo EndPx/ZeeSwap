@@ -23,6 +23,13 @@ quotes, with zero active orders. The original expiry remains 30 October 2026,
 This timestamped observation does not replace a fresh availability read before
 funding and does not establish a customer payment or settlement.
 
+Later status: at 30 October 2026, 15:21:31 WIB, public availability returned
+`policy_expired`; the original 15:13:20.732 WIB deadline was preserved. The Native
+consumer recovery has a separate exact committed receipt, but it does not renew
+the policy or enable admission. One forward attempt, two reverse attempts and
+31 quotes remained. A new testing window requires an explicit reviewed renewal;
+do not edit immutable old permits, reset usage or reuse an expired activation.
+
 All commands below are explicit operator actions. Root supplies actual absolute
 paths and SHA256 values. Configuration files and every downloaded proof remain
 outside Git. Refusal or a lost response requires inspecting the original intent
