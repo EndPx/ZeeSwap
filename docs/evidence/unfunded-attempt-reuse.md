@@ -85,3 +85,41 @@ The protected publication CLI is
 `api/scripts/administer-unfunded-reuse-local.ts <context> publish|reconcile`.
 The Root-only context and authorization must be reviewed before publication;
 implementation and fixture evidence do not themselves grant live authority.
+
+## Safe idle restart after a verified unfunded attempt
+
+After SQL reuse publication the original worker had already exited naturally.
+Its original preuser ExecCondition correctly refused the changed financial-book
+baseline. A separate read-only qualification now handles this exact case without
+changing the worker entry, execution pins or original finite default gate.
+
+The new qualification requires actual SQL nonexpiring and reuse authorizations,
+no worker lease or global unresolved state, exact current-policy quote/admission
+correspondence, and a current positive strict SQL reusable proof for every such
+admission. Each order must have no process directory under the current policy,
+reverse or refund paths; parent directory protections and the original whole
+current-policy journal-directory check remain enforced. Pending or unaccepted
+quotes cannot inherit this permission.
+
+It reconstructs the original baseline in memory by removing only the proven
+current attempt IDs from quotes, orders, reservations, ledger entries, events
+and policy quote/admission rows. Deposits, operations, bindings, inventory and
+all other tables remain untouched. The resulting financial digest must equal
+exactly the original policy's initial books, and the original ancestor,
+lineage, control, source freshness, Root files and recovery-marker guards must
+still pass. No database row is changed. Effective service lifetime comes from
+verified SQL authorization at the actual wall clock; no fabricated clock or
+policy expiry is used.
+
+API typecheck and all **11** idle qualification tests passed, including the nine
+original default-gate checks. New checks cover exact reconstruction without
+mutating the snapshot, missing authorization/proof, changed original inventory,
+pending quotes, deposits, funded state, signed operations and an existing lease.
+This authorizes only a verified idle restart; an active or financially signed
+attempt still requires its separate original-process review. Actual Root gate
+execution and any subsequent worker start are separate operator results.
+
+The successful gate status retains `POLICY_PRE_USER_IDLE_RESTART_ALLOWED` for
+compatibility with the installed watchdog. Under the explicit SQL reuse grant,
+that status includes the strict reconstructed safe-unfunded qualification above;
+it does not imply the policy has never had a user interaction.

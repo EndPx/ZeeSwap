@@ -20,8 +20,8 @@ export function requireIdleRestartFreshSources(checkpoints:Array<{network:string
  const now=new Date(checkedAt).getTime();need(Number.isFinite(now)&&checkpoints.length===2&&new Set(checkpoints.map(r=>r.network)).size===2&&['zcash-testnet','base-sepolia'].every(n=>checkpoints.some(r=>r.network===n)),'SOURCE_CHECKPOINTS');
  for(const row of checkpoints){const observed=new Date(row.observed_at).getTime(),age=now-observed;need(/^(0|[1-9][0-9]*)$/.test(row.scanned_height)&&/^(0|[1-9][0-9]*)$/.test(row.finalized_height)&&BigInt(row.scanned_height)>=BigInt(row.finalized_height)&&Number.isFinite(age)&&age>=-5000&&age<=60000,'SOURCE_STALE');}
 }
-export function requirePreUserIdleRestart(p:ServicePolicyApproval,sha256:string,s:IdleRestartState,now=Date.now()){
- validateServicePolicy(p);need(p.publicCommit==='6ebb11da0fdaa70ccdd35d0c04e5abfe0b256ecc'&&Date.parse(p.verifiedAt)<=now+5000&&Date.parse(p.expiresAt)>now,'UNEXPIRED_FINANCIAL_POLICY');
+function requireIdleBaseline(p:ServicePolicyApproval,sha256:string,s:IdleRestartState,now:number,verifiedNonexpiring=false){
+ validateServicePolicy(p);need(p.publicCommit==='6ebb11da0fdaa70ccdd35d0c04e5abfe0b256ecc'&&Date.parse(p.verifiedAt)<=now+5000&&(verifiedNonexpiring||Date.parse(p.expiresAt)>now),'UNEXPIRED_FINANCIAL_POLICY');
  need(s.control.epoch===p.activeEpoch&&s.control.accepting_orders===true&&s.control.dispatch_enabled===true&&s.control.reconciliation_required===false&&!s.workerLease&&!s.globalBusy&&s.authorizationRows===0,'ACTIVE_IDLE_CONTROL');
  need(serviceFinancialDigest(s.snapshot)===p.initialBooksSha256,'ORIGINAL_FINANCIAL_BOOKS');
  const lineage=new Set(s.lineage);need(lineage.size===s.lineage.length&&lineage.has(sha256)&&lineage.has('10f877f468032e3c54b748748825dab5e7fe17e5a50d2ec78710392222417dae')&&lineage.size<=4,'CURRENT_LINEAGE');
@@ -31,4 +31,17 @@ export function requirePreUserIdleRestart(p:ServicePolicyApproval,sha256:string,
  const m=members[0],order=s.snapshot.orders!.find(r=>r.id===m.order_id),quote=s.snapshot.quotes!.find(r=>r.id===m.order_id);
  need(m.direction==='ZCASH_TO_BASE'&&order?.state==='EXPIRED_UNFUNDED'&&order.primary_deposit===null&&quote&&boundQuotes[0].quote_id===order.id&&quote.deposit_reference_hash&&!s.snapshot.deposits!.some(r=>r.order_id===order.id||r.reference_hash===quote.deposit_reference_hash),'ANCESTOR_UNFUNDED');
  need(s.snapshot.orders!.every(r=>['SETTLED','REFUNDED','EXPIRED_UNFUNDED'].includes(r.state))&&s.snapshot.obligations!.every(r=>r.state==='DISCHARGED')&&s.snapshot.operations!.every(r=>r.state==='CONFIRMED')&&s.snapshot.chain_transactions!.every(r=>['CONFIRMED','REVERTED','EXPIRED'].includes(r.state))&&s.snapshot.outbox_jobs!.every(r=>r.status==='DONE'),'NO_GLOBAL_UNRESOLVED_FINANCE');
+}
+
+export function requirePreUserIdleRestart(p:ServicePolicyApproval,sha256:string,s:IdleRestartState,now=Date.now()){requireIdleBaseline(p,sha256,s,now);}
+export type ReuseIdleAuthority={nonexpiring:boolean;reuseEnabled:boolean;members:{orderId:string;reusable:boolean}[]};
+/** Read-only reconstruction; accepted/funded/signed history can never inherit idle permission. */
+export function requireReuseQualifiedIdleRestart(p:ServicePolicyApproval,sha256:string,s:IdleRestartState,authority:ReuseIdleAuthority,now=Date.now()){
+ need(authority.nonexpiring===true&&authority.reuseEnabled===true,'SQL_REUSE_LIFETIME_AUTHORITY');
+ const admissions=s.snapshot.testnet_policy_admissions!.filter(r=>policySha(r)===sha256),quotes=s.snapshot.testnet_policy_quotes!.filter(r=>policySha(r)===sha256),ids=new Set(admissions.map(r=>r.order_id));
+ need(ids.size===admissions.length&&ids.size<=32&&quotes.length===ids.size&&quotes.every(r=>ids.has(r.quote_id))&&new Set(quotes.map(r=>r.quote_id)).size===ids.size,'EXACT_CURRENT_QUOTE_ADMISSION_SET');
+ need(authority.members.length===ids.size&&new Set(authority.members.map(r=>r.orderId)).size===ids.size&&authority.members.every(r=>ids.has(r.orderId)&&r.reusable===true),'CURRENT_ATTEMPTS_SQL_REUSABLE');
+ for(const id of ids){const order=s.snapshot.orders!.filter(r=>r.id===id),quote=s.snapshot.quotes!.filter(r=>r.id===id);need(order.length===1&&order[0].state==='EXPIRED_UNFUNDED'&&order[0].primary_deposit===null&&quote.length===1&&!s.snapshot.deposits!.some(r=>r.order_id===id||r.reference_hash===quote[0].deposit_reference_hash),'CURRENT_ATTEMPTS_UNFUNDED');}
+ const snapshot=Object.fromEntries(Object.entries(s.snapshot).map(([table,rows])=>[table,['quotes','orders'].includes(table)?rows.filter(r=>!ids.has(r.id)):['reservations','ledger_entries','order_events'].includes(table)?rows.filter(r=>!ids.has(r.order_id)):table==='testnet_policy_quotes'?rows.filter(r=>!ids.has(r.quote_id)):table==='testnet_policy_admissions'?rows.filter(r=>!ids.has(r.order_id)):rows]));
+ requireIdleBaseline(p,sha256,{...s,snapshot},now,true);
 }

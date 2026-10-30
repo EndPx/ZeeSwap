@@ -41,7 +41,29 @@ def next_start_budget(starts, now):
 def supervise(effects, execute=False):
     before = effects.inspect()
     if not eligible(before):
-        return {'status': 'WATCHDOG_MANUAL_OR_INELIGIBLE', 'actorAction': False}
+        # A source inspector cannot authorize financial recovery. Only the full
+        # pinned idle gate may qualify a closed-unfunded history for worker start.
+        if (before.get('status') != 'AUTO_SOURCE_NOT_ELIGIBLE'
+                or before.get('manualReview') is not False
+                or before.get('pendingPublication') is not False):
+            return {'status': 'WATCHDOG_MANUAL_OR_INELIGIBLE', 'actorAction': False}
+        if not inactive(effects.state(WORKER)):
+            return {'status': 'WATCHDOG_WAIT_EXISTING_WORKER', 'actorAction': False}
+        if 'financialWorkerLease' in before and before['financialWorkerLease'] is not False:
+            return {'status': 'WATCHDOG_UNKNOWN_WORKER_LEASE', 'actorAction': False}
+        # NOT_ELIGIBLE may omit the lease; the mandatory full SQL gate below
+        # independently refuses any actual financial worker lease.
+        if not execute or effects.recovery_marker_present():
+            return {'status': 'WATCHDOG_MANUAL_OR_INELIGIBLE', 'actorAction': False}
+        if not effects.gate():
+            return {'status': 'WATCHDOG_WAIT_FRESH_IDLE_GATE', 'actorAction': False}
+        if effects.recovery_marker_present() or not inactive(effects.state(WORKER)):
+            return {'status': 'WATCHDOG_CHANGED_BEFORE_START', 'actorAction': False}
+        if not effects.consume_start_budget():
+            return {'status': 'WATCHDOG_START_BACKOFF', 'actorAction': False}
+        effects.reset_failed(WORKER)
+        effects.start(WORKER)
+        return {'status': 'WATCHDOG_VERIFIED_IDLE_WORKER_START_REQUESTED', 'actorAction': True}
     # Never signal an active financial process, even when its last SQL state was idle.
     if not inactive(effects.state(WORKER)):
         return {'status': 'WATCHDOG_WAIT_EXISTING_WORKER', 'actorAction': False}
@@ -180,6 +202,9 @@ class RootEffects:
     def recover(self):
         pin = self.c['sourceConfig']
         return self.run_entry('sourceEntry', ['--config', pin['path'], '--config-sha256', pin['sha256'], '--execute'], 1100)[1]
+
+    def recovery_marker_present(self):
+        return RECOVERY_MARKER.exists() or RECOVERY_MARKER.is_symlink()
 
     def gate(self):
         pin = self.c['workerConfig']

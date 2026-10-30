@@ -44,6 +44,9 @@ class Effects:
         self.value['sourceFresh'] = self.result['status'] == 'AUTO_SOURCE_METADATA_COMMITTED_EXACT'
         return self.result
 
+    def recovery_marker_present(self):
+        return self.marker
+
     def gate(self):
         self.events.append('fresh-financial-gate')
         return self.gate_pass
@@ -132,7 +135,7 @@ class SupervisionTests(unittest.TestCase):
 
     def test_closed_guard_or_budget_failure_performs_no_financial_action(self):
         e = Effects()
-        e.value.update(status='AUTO_SOURCE_NOT_ELIGIBLE', safeToGracefullyStop=False)
+        e.value.update(status='AUTO_SOURCE_NOT_ELIGIBLE', safeToGracefullyStop=False, manualReview=True)
         self.assertFalse(watchdog.supervise(e, True)['actorAction'])
         self.assertEqual(e.events, ['inspect'])
         e = Effects()
@@ -140,6 +143,58 @@ class SupervisionTests(unittest.TestCase):
         self.assertEqual(watchdog.supervise(e, True)['status'], 'WATCHDOG_START_BACKOFF')
         self.assertNotIn(('reset-failed', watchdog.WORKER), e.events)
         self.assertNotIn(('start', watchdog.WORKER), e.events)
+
+    def test_ineligible_closed_history_requires_execute_and_full_gate_before_worker_only_start(self):
+        e = Effects()
+        e.value.update(status='AUTO_SOURCE_NOT_ELIGIBLE', safeToGracefullyStop=False)
+        self.assertFalse(watchdog.supervise(e)['actorAction'])
+        self.assertEqual(e.events, ['inspect'])
+        e.events.clear()
+        result = watchdog.supervise(e, True)
+        self.assertEqual(result['status'], 'WATCHDOG_VERIFIED_IDLE_WORKER_START_REQUESTED')
+        self.assertTrue(result['actorAction'])
+        self.assertEqual(e.events, ['inspect', 'fresh-financial-gate', 'budget',
+                                  ('reset-failed', watchdog.WORKER), ('start', watchdog.WORKER)])
+
+    def test_ineligible_manual_pending_marker_active_or_lease_never_restarts_any_actor(self):
+        for change in ('manual', 'pending', 'marker', 'active', 'lease', 'unknown'):
+            with self.subTest(change=change):
+                e = Effects()
+                e.value.update(status='AUTO_SOURCE_NOT_ELIGIBLE', safeToGracefullyStop=False)
+                if change == 'manual': e.value['manualReview'] = True
+                if change == 'pending': e.value['pendingPublication'] = True
+                if change == 'marker': e.marker = True
+                if change == 'active': e.states[watchdog.WORKER] = {'ActiveState': 'active', 'MainPID': '123'}
+                if change == 'lease': e.value['financialWorkerLease'] = True
+                if change == 'unknown': e.value['status'] = 'UNKNOWN'
+                self.assertFalse(watchdog.supervise(e, True)['actorAction'])
+                self.assertEqual(e.events, ['inspect'])
+
+    def test_ineligible_actual_runner_missing_lease_requires_full_sql_gate(self):
+        for gate in (True, False):
+            with self.subTest(gate=gate):
+                e = Effects(gate=gate)
+                e.value.update(status='AUTO_SOURCE_NOT_ELIGIBLE', safeToGracefullyStop=False)
+                del e.value['financialWorkerLease']
+                result = watchdog.supervise(e, True)
+                self.assertEqual(result['actorAction'], gate)
+                self.assertIn('fresh-financial-gate', e.events)
+                self.assertEqual(('start', watchdog.WORKER) in e.events, gate)
+        e = Effects()
+        e.value.update(status='AUTO_SOURCE_NOT_ELIGIBLE', financialWorkerLease='false')
+        self.assertFalse(watchdog.supervise(e, True)['actorAction'])
+        self.assertEqual(e.events, ['inspect'])
+
+    def test_ineligible_gate_refusal_or_four_start_budget_never_resets_failed(self):
+        for gate, budget in ((False, True), (True, False)):
+            e = Effects(gate=gate)
+            e.value.update(status='AUTO_SOURCE_NOT_ELIGIBLE', safeToGracefullyStop=False)
+            e.budget = budget
+            result = watchdog.supervise(e, True)
+            self.assertEqual(result['status'], 'WATCHDOG_START_BACKOFF' if gate else 'WATCHDOG_WAIT_FRESH_IDLE_GATE')
+            self.assertFalse(result['actorAction'])
+            self.assertFalse(any(isinstance(x, tuple) for x in e.events))
+            self.assertNotIn('recover-original', e.events)
 
     def test_start_budget_is_finite_and_recovers_after_window_without_permanent_lockout(self):
         starts = []
