@@ -10,7 +10,7 @@ import { useNoir } from './useNoir.ts';
 import { NOIR_INSTALL, noirPayment, noirStorage, payWithNoir, readNoirAttempt, type NoirAttempt } from './noir.ts';
 import { FundingQr } from './FundingQr.tsx';
 import { OrderRequestFence, readPrivateSession, writePrivateSession } from './session.ts';
-import {availabilityCopy,serviceCanQuote,type ServiceAvailability} from './availability.ts';
+import {availabilityCopy,serviceCanQuote,servicePolicyIsCurrent,type ServiceAvailability} from './availability.ts';
 
 type Modal='wallet'|'tokens'|'details'|'order'|'help'|'settings'|'restore'|'faucet'|null;
 interface Entry {access:PrivateOrder;view?:OrderView;body?:QuoteBody;error?:string;}
@@ -45,7 +45,7 @@ export default function App(){
   const policy=liveAvailability?.policy;
   const fixedInput=(policy&&'inputAmountAtomic'in policy?policy.inputAmountAtomic:undefined)??quoteBounds?.inputAmountAtomic;
   const estimate=indicativeOutput(amount,direction);
-  const canQuote=connection==='online'&&liveAvailability?.version===1&&serviceCanQuote(availability,direction,availabilityClock)&&!Object.values(acceptUncertain).some(Boolean);
+  const canQuote=connection==='online'&&(liveAvailability?.version===1||liveAvailability?.version===3)&&serviceCanQuote(availability,direction,availabilityClock)&&!Object.values(acceptUncertain).some(Boolean);
   const serviceMessage=liveAvailability?.version===2?'Fixed-rate service not enabled':liveAvailability?.status==='ready'&&!policy?.availableByDirection[direction]?'This direction has no remaining pilot capacity.':availabilityCopy(liveAvailability);
   const directionLimit=policy?.maxAcceptedByDirection[direction]??(quoteBounds?('maxAcceptedPerDirection'in quoteBounds?quoteBounds.maxAcceptedPerDirection:quoteBounds.maxAcceptedByDirection[direction]):undefined);
   useEffect(()=>{if(!fixedInput)return;const asset=assets[pair(direction)[0]],next=formatUnits(fixedInput,asset.decimals);if(amount!==next){setAmountAdjustment(`Pilot amount updated from ${amount} ${asset.symbol} to ${next} ${asset.symbol}.`);setAmount(next);}},[fixedInput,direction,amount]);
@@ -84,7 +84,7 @@ export default function App(){
   const payNoir=async()=>{if(!active||!order||!noir.provider||!noir.address||busyRef.current||noirAttempt)return;const id=order.id;busyRef.current=true;setBusy(true);setError('');try{
     await payWithNoir(noir.provider,noir.address,async()=>{
       const readiness=await api.availability(AbortSignal.timeout(4500));
-      const now=Date.now();if(!['ready','busy'].includes(readiness.status)||!readiness.policy||now-Date.parse(readiness.checkedAt)>60000||Date.parse(readiness.checkedAt)-now>5000||Date.parse(readiness.policy.expiresAt)<=now)throw Error('Funding is paused or service readiness is stale. Refresh the original order before paying.');
+      const now=Date.now();if(!['ready','busy'].includes(readiness.status)||!readiness.policy||now-Date.parse(readiness.checkedAt)>60000||Date.parse(readiness.checkedAt)-now>5000||!servicePolicyIsCurrent(readiness,now))throw Error('Funding is paused or service readiness is stale. Refresh the original order before paying.');
       const latest=await api.order(active.access);update(active.access,latest);
       if(latest.direction!==order.direction||latest.inputAmount!==order.inputAmount||latest.executionMode!==order.executionMode||JSON.stringify(latest.funding)!==JSON.stringify(order.funding))throw Error('The original funding instructions changed. Review the refreshed order before any payment.');
       return latest;

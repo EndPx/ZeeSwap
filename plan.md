@@ -2,6 +2,20 @@
 
 Last updated: 2026-10-29 (Asia/Jakarta), for the isolated Linux testnet deployment. Execution evidence below retains its recorded dates.
 
+Persistent service lifetime (31 October, explicit user decision): the user
+requested that ZeeSwap stay open without a service expiry. This supersedes the
+24-hour service lifetime only. Preserve the current immutable policy and its
+recorded expiry, financial release, active epoch, original activation XID,
+predecessor history, consumed admissions/quotes, original budgets and caps.
+A separate immutable `ROOT_TESTNET_SERVICE_NO_EXPIRY` authorization grants an
+actual null effective service expiry for that exact current policy. Its Root
+publication window remains finite. Quote, funding, capital, source, lease and
+recovery-authority time limits remain finite; caps and available capital still
+govern admission. Preserve any active accepted order and financial worker lease.
+Publish this metadata atomically without restarting the active financial worker.
+See `docs/evidence/persistent-service-lifetime.md` for verification and deployment
+boundaries; implementation alone does not claim live publication.
+
 Expired pilot permit renewal (30 October, explicit user approval): the user chose
 "Perpanjang 24 jam, kuota tetap". This authorizes a new immutable policy with an
 expiry exactly 24 hours after its new verification time. Keep the expired parent,
