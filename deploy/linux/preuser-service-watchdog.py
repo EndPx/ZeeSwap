@@ -270,6 +270,11 @@ class RootEffects:
     def reset_failed(self, unit):
         if unit != WORKER:
             raise ValueError('WATCHDOG_UNIT')
+        current = self.state(unit)
+        if not inactive(current):
+            raise ValueError('WATCHDOG_WORKER_NOT_INACTIVE')
+        if current['ActiveState'] == 'inactive':
+            return
         subprocess.run(['systemctl', 'reset-failed', unit], check=True, timeout=10)
 
     def consume_start_budget(self):

@@ -1,6 +1,7 @@
 import importlib.util
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 SPEC = importlib.util.spec_from_file_location('watchdog', Path(__file__).with_name('preuser-service-watchdog.py'))
 watchdog = importlib.util.module_from_spec(SPEC)
@@ -204,6 +205,28 @@ class SupervisionTests(unittest.TestCase):
         self.assertEqual(watchdog.next_start_budget(starts, 1300), [1030, 1060, 1090, 1300])
         with self.assertRaisesRegex(ValueError, 'START_HISTORY'):
             watchdog.next_start_budget([float('nan')], 1300)
+
+    def test_root_reset_failed_skips_inactive_gc_unit_and_only_resets_failed_pid_zero(self):
+        e = watchdog.RootEffects.__new__(watchdog.RootEffects)
+        for state, should_reset in (('inactive', False), ('failed', True)):
+            with self.subTest(state=state):
+                e.state = lambda unit, state=state: {'ActiveState': state, 'MainPID': '0'}
+                with patch.object(watchdog.subprocess, 'run') as run:
+                    e.reset_failed(watchdog.WORKER)
+                    if should_reset:
+                        run.assert_called_once_with(['systemctl', 'reset-failed', watchdog.WORKER], check=True, timeout=10)
+                    else:
+                        run.assert_not_called()
+
+    def test_root_reset_failed_refuses_active_transition_or_nonzero_pid(self):
+        e = watchdog.RootEffects.__new__(watchdog.RootEffects)
+        for state, pid in (('active', '123'), ('activating', '0'), ('deactivating', '0'), ('failed', '123')):
+            with self.subTest(state=state, pid=pid):
+                e.state = lambda unit, state=state, pid=pid: {'ActiveState': state, 'MainPID': pid}
+                with patch.object(watchdog.subprocess, 'run') as run:
+                    with self.assertRaisesRegex(ValueError, 'WORKER_NOT_INACTIVE'):
+                        e.reset_failed(watchdog.WORKER)
+                    run.assert_not_called()
 
     def test_operational_units_never_target_core_or_stop_financial(self):
         self.assertEqual(watchdog.BASE, 'zeeswap-testnet-envio-observer.service')

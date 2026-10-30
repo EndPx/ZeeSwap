@@ -123,3 +123,54 @@ The successful gate status retains `POLICY_PRE_USER_IDLE_RESTART_ALLOWED` for
 compatibility with the installed watchdog. Under the explicit SQL reuse grant,
 that status includes the strict reconstructed safe-unfunded qualification above;
 it does not imply the policy has never had a user interaction.
+
+## Live publication and guarded worker start
+
+Implementation commit `a219afcd4f28a49cbe2093213d48ee9e5853f32c` and strict
+idle-qualification commit `4e378e3445f651a9e1718175cfbaee1fbfc79e87` were
+published. Root committed migration 0033 and its reviewed reuse authorization in
+original transaction **460474**, then reconciled that original XID without
+replaying publication. Reuse authorization SHA256:
+`d9b6bca29247491fc8bf64d958068dc2e333f1e72e4e50cc84476cd220555c76`.
+The before/after digest of all existing Zee tables was identical:
+`30ef2abf8c15a5d1d873749ebb3ce59398c88793ec7d055c4fd53dc85bf23706`.
+Only the newly inserted authorization table was excluded. The current policy,
+control epoch **242** and xmin **388504**, original A70 execution manifest,
+financial configuration, limits and complete history were preserved. No quota,
+order or financial ledger reset and no Source/Core change occurred.
+
+The API and web release `unfunded-reuse-a219afc-r1` serves
+`index-BpoCQfGs.js` and `browser-BAxKxRR_.js`. Served HTML SHA256:
+`d865ac0f8c7eba5be0a8ac0ef6c55ffba7a7ca7213fe8db6a6ee876d17f6e688`.
+The production API uses the same-origin HTTPS endpoint and the published faucet
+address registry. New assets were published before switching HTML; older assets
+remain available. The two disposable SQL fixture databases were cleaned up after
+the tests.
+
+The initial live version 4 response correctly restored **two forward and two
+reverse admissions**, but reported `worker_unavailable`: the original worker
+had exited naturally at 19:36 UTC, before this deployment, and the old preuser
+baseline check refused the now changed books. Root did not stop that worker for
+the SQL publication. At 19:46 UTC the new strict read-only qualification passed,
+and Root installed the reviewed ExecCondition with matching watchdog pins.
+
+An initial timer fallback passed the guard but encountered an inactive,
+garbage-collected systemd unit when attempting `reset-failed`, so it did not
+start a financial actor. The timer correction distinguishes inactive from failed
+units and skips that reset for an inactive unit. At **19:48:55 UTC**, after the
+actual guard passed, Root issued one normal `systemctl start`. ExecCondition
+passed again at **19:48:56 UTC** and the original 6ebb worker became active as
+PID **1331954**. Its financial release, entry and configuration remained
+unchanged. This was one explicitly guarded operator start; the worker was not
+left continuously running throughout deployment. Activity alone does not prove
+a fresh capital tick or a completed financial operation.
+
+At **30 October 2026, 19:49:41 UTC** (**31 October, 02:49:41 WIB**), an actual
+headless Chrome run observed version **4**, status `ready`, both directions
+available and remaining capacity **2 / 2**. The source amount displayed **0.001**
+and **Get exact testnet quote** was enabled. The run observed no Preview Only
+state, no exhausted-capacity notice and no page errors; health and availability
+requests returned HTTP 200. All POST requests and localhost requests were blocked
+during this verification. Therefore it created **no live quote, acceptance,
+wallet request, payment or settlement**. The screenshot is retained privately;
+no address or private mapping is included in this public evidence.
