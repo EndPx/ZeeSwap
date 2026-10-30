@@ -89,3 +89,40 @@ observation time, and a wrong project refuses. Six new current-catchup cases
 and 19 existing linked cases passed (25 total), alongside API typechecking and
 `git diff --check`. This correction is not evidence of successful live catchup.
 Root must prepare a separate case with the corrected entry pin.
+
+## Bounded final Source advancement
+
+Root's second live case completed three private coverage chunks, then stopped
+before an SQL intent because Core advanced while the final history audit ran.
+The decoded target and SQL/cursor baseline remained unchanged. Exact equality
+between the final Core height and decoded target was unnecessarily restrictive
+for this observation-only handoff.
+
+The final reread now permits Core to be at the decoded target or at most six
+blocks ahead. Project and generation must remain unchanged. An independent
+bounded canonical reader checks every header and parent link from the decoded
+target through the reported current Core tip, including its exact tip hash.
+The decoded target must remain canonical, with another uncached target check
+before snapshot construction. Regressed, malformed or more distant Core
+checkpoints, identity changes, missing headers, broken parent links and changed
+target/tip hashes still refuse publication. The checkpoint remains the fully
+decoded target; newer receipts belong to the next ordinary observation cycle.
+The snapshot retains the actual independent sample timestamp.
+
+Seven current-catchup focused tests passed, including the new production final
+tail verification with six-block advancement and identity, regression, bound,
+malformed-height, tip-hash, parent-fork and target-change failures. API
+typechecking and `git diff --check` passed. The previous case's private proofs
+and marker are preserved for Root's separately guarded prepublication retirement;
+this patch does not retire them or claim a live publication succeeded.
+
+Initial and final recovery target selection now matches the ordinary consumer's
+two-block mature tail: decode through Core checkpoint height minus two. Before
+selecting that header, the independent reader verifies all three headers and
+parent links through the actual Core checkpoint and requires its exact reported
+hash. The final up-to-six-block Source advancement check remains intact. No
+receipt at or below the mature target is skipped; the newer tail belongs to the
+ordinary consumer. The target retains its real header time and the snapshot
+retains its real independent sample timestamp. Eight focused current-catchup
+tests and API typechecking passed, including actual Core hash and parent-fork
+refusals in mature target selection.
