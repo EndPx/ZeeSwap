@@ -88,3 +88,30 @@ The verification harness blocked every POST and every localhost request.
 No quote creation, wallet operation or payment occurred. This establishes
 actual headless-browser connectivity and rendering, with no human GUI wallet
 approval, signing or payment proof claimed.
+
+## Explicit funded-or-active capacity availability
+
+The frontend now accepts a separately qualified fixed-rate version-four
+availability policy. It retains the exact version-three fields, including null
+service expiry and lifetime authorization, and requires
+`capacityBasis: "funded-or-active"` plus a nonzero lowercase 64-character
+`capacityAuthorizationSha256`. Version three rejects these extra fields;
+version four rejects missing, malformed or mismatched capacity authority.
+
+The UI accepts fixed-rate versions one, three and four. Only version four uses
+available-swaps wording and the one-active-swap limit instead of a lifetime
+accepted-order banner. Its amount hint says swap size. Exhausted directions
+report no funded capacity available. The frontend never derives reusable
+capacity from historical order status; it displays the backend's qualified
+remaining counters. The two-order per-direction bound, exact fixed amount,
+quote counter, concurrency, source readiness, finite observation freshness and
+all original quote/order/funding deadlines remain enforced.
+
+Local checks after this change: TypeScript typecheck passed; all 91 web unit
+tests passed with zero failures and zero skips. Added v4 cases cover separate
+authority qualification, unchanged consumed quote counts, eligible and exhausted
+routes, malformed fields, stale/future observations, concurrency and cap limits,
+and source/worker/capital/paused states. The production environment build and
+actual read-only browser verification remain Root's steps. No browser, wallet,
+RPC, VPS, API restart, live quote, order acceptance or financial action was
+performed for this frontend patch.

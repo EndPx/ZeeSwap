@@ -2,6 +2,24 @@
 
 Last updated: 2026-10-29 (Asia/Jakarta), for the isolated Linux testnet deployment. Execution evidence below retains its recorded dates.
 
+Safe unfunded retries (31 October, explicit user decision): a wallet attempt
+that expires without receiving funds must not consume one of the two funded or
+active admissions per direction. This supersedes historical attempt-counting
+only for an explicit Root `ROOT_TESTNET_UNFUNDED_REUSE` grant. Preserve every
+original quote, admission, order, funding cutoff and predecessor link. Reuse
+requires current full SQL proof that the expired attempt has no deposit by order
+or reference, no financial operation/binding, and completely released exact
+reservations and zero-net ledger buckets. Root also reviews protected signer
+journals before publication. Recheck the proof whenever capacity is counted.
+Keep both principal budgets, all fee ceilings, two chargeable admissions per
+direction, one global active order, 32 historical quotes and finite funding and
+freshness gates. Late receipts restore chargeability and liabilities. A retired
+attempt receiving funds requires separate Root recovery; it cannot automatically
+spend fees after its reservations were released. Excess observed late exposure
+fences new admissions and financial membership until reviewed. No order/history
+reset, capital increase, worker restart or indexer/Core change is authorized.
+See `docs/evidence/unfunded-attempt-reuse.md` for exact verification status.
+
 Persistent service lifetime (31 October, explicit user decision): the user
 requested that ZeeSwap stay open without a service expiry. This supersedes the
 24-hour service lifetime only. Preserve the current immutable policy and its

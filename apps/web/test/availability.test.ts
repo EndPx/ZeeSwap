@@ -32,3 +32,21 @@ test('v3 preserves stale, source, worker, budget, concurrency and directional re
  for(const mutate of [(a:any)=>a.checkedAt=new Date(now-60001).toISOString(),(a:any)=>a.checkedAt=new Date(now+5001).toISOString(),(a:any)=>a.policy.remainingQuotes=0,(a:any)=>a.policy.activeOrders=1,(a:any)=>a.policy.maxConcurrent=2,(a:any)=>a.policy.maxAcceptedByDirection.BASE_TO_ZCASH=3,(a:any)=>a.policy.remainingByDirection.BASE_TO_ZCASH=0]){const a=nonexpiring(now);mutate(a);assert.throws(()=>decodeAvailability(a,now));}
  const disabled={version:3,status:'disabled',checkedAt:new Date(now).toISOString(),policy:null};assert.equal(serviceCanQuote(decodeAvailability(disabled,now),'ZCASH_TO_BASE',now),false);assert.throws(()=>decodeAvailability({...disabled,status:'ready'},now));
 });
+
+function fundedCapacity(now:number){const a=nonexpiring(now);return {...a,version:4,policy:{...a.policy,capacityBasis:'funded-or-active',capacityAuthorizationSha256:'c'.repeat(64)}};}
+test('v4 funded-or-active capacity permits only fresh authorized remaining routes with unchanged quote count',()=>{
+ const now=Date.now(),payload=fundedCapacity(now);payload.policy.remainingQuotes=30;
+ const a=decodeAvailability(payload,now);assert.equal(serviceCanQuote(a,'ZCASH_TO_BASE',now),true);assert.equal(a.policy!.remainingQuotes,30);assert.equal(servicePolicyIsCurrent(a,now+365*86400000),true);assert.equal(serviceCanQuote(a,'ZCASH_TO_BASE',now+60001),false);
+ payload.policy.remainingByDirection.ZCASH_TO_BASE=0;payload.policy.availableByDirection.ZCASH_TO_BASE=false;
+ const noForward=decodeAvailability(payload,now);assert.equal(serviceCanQuote(noForward,'ZCASH_TO_BASE',now),false);assert.equal(serviceCanQuote(noForward,'BASE_TO_ZCASH',now),true);
+});
+test('v4 requires exact separate lifetime and capacity authorization without accepting legacy or leaked fields',()=>{
+ const now=Date.now();
+ for(const mutate of [(a:any)=>delete a.policy.capacityBasis,(a:any)=>a.policy.capacityBasis='all-accepted',(a:any)=>delete a.policy.capacityAuthorizationSha256,(a:any)=>a.policy.capacityAuthorizationSha256='0'.repeat(64),(a:any)=>a.policy.capacityAuthorizationSha256='C'.repeat(64),(a:any)=>a.policy.capacityAuthorizationSha256='c'.repeat(63),(a:any)=>delete a.policy.lifetimeAuthorizationSha256,(a:any)=>a.policy.lifetimeAuthorizationSha256='0'.repeat(64),(a:any)=>a.version=3,(a:any)=>a.policy.expiresAt=new Date(now+60000).toISOString(),(a:any)=>a.policy.closedOrders=['private']]){const a=fundedCapacity(now);mutate(a);assert.throws(()=>decodeAvailability(a,now));}
+ const a:any=fundedCapacity(now);delete a.policy.capacityAuthorizationSha256;assert.equal(servicePolicyIsCurrent(a,now),false);assert.equal(serviceCanQuote(a,'ZCASH_TO_BASE',now),false);
+});
+test('v4 keeps finite readiness, concurrency, quote and two-order direction capacity guards',()=>{
+ const now=Date.now();
+ for(const mutate of [(a:any)=>a.checkedAt=new Date(now-60001).toISOString(),(a:any)=>a.checkedAt=new Date(now+5001).toISOString(),(a:any)=>a.policy.activeOrders=1,(a:any)=>a.policy.maxConcurrent=2,(a:any)=>a.policy.remainingQuotes=0,(a:any)=>a.policy.remainingByDirection.ZCASH_TO_BASE=3,(a:any)=>a.policy.maxAcceptedByDirection.ZCASH_TO_BASE=3,(a:any)=>a.policy.remainingByDirection.ZCASH_TO_BASE=0]){const a=fundedCapacity(now);mutate(a);assert.throws(()=>decodeAvailability(a,now));}
+ for(const status of ['source_unavailable','worker_unavailable','capital_unavailable','paused','busy','reconciling','policy_exhausted']){const a=fundedCapacity(now);a.status=status;a.policy.availableByDirection={ZCASH_TO_BASE:false,BASE_TO_ZCASH:false};assert.equal(serviceCanQuote(decodeAvailability(a,now),'ZCASH_TO_BASE',now),false);}
+});

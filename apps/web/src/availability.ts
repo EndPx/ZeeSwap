@@ -2,14 +2,14 @@ import type {Direction} from './protocol.ts';
 export type AvailabilityStatus='ready'|'paused'|'reconciling'|'source_unavailable'|'worker_unavailable'|'capital_unavailable'|'policy_expired'|'policy_exhausted'|'busy'|'disabled';
 interface CommonPolicy {id:string;sha256:string;maxAcceptedByDirection:Record<Direction,2>;remainingByDirection:Record<Direction,number>;maxConcurrent:1;activeOrders:number;remainingQuotes:number;availableByDirection:Record<Direction,boolean>;}
 export interface MarketBounds {min:string;max:string;decimals:6|8;default?:string;}
-export type ServiceAvailability={version:1;status:AvailabilityStatus;checkedAt:string;policy:null|(CommonPolicy&{expiresAt:string;inputAmountAtomic:'100000'})}|{version:2;status:AvailabilityStatus;checkedAt:string;pricingMode:'market-reference';policy:null|(CommonPolicy&{expiresAt:string;pricingMode:'market-reference';inputBoundsByDirection:Record<Direction,MarketBounds&{default:string}>;outputBoundsByDirection:Record<Direction,MarketBounds>})}|{version:3;status:AvailabilityStatus;checkedAt:string;policy:null|(CommonPolicy&{expiresAt:null;inputAmountAtomic:'100000';lifetime:'nonexpiring';lifetimeAuthorizationSha256:string})};
+export type ServiceAvailability={version:1;status:AvailabilityStatus;checkedAt:string;policy:null|(CommonPolicy&{expiresAt:string;inputAmountAtomic:'100000'})}|{version:2;status:AvailabilityStatus;checkedAt:string;pricingMode:'market-reference';policy:null|(CommonPolicy&{expiresAt:string;pricingMode:'market-reference';inputBoundsByDirection:Record<Direction,MarketBounds&{default:string}>;outputBoundsByDirection:Record<Direction,MarketBounds>})}|{version:3;status:AvailabilityStatus;checkedAt:string;policy:null|(CommonPolicy&{expiresAt:null;inputAmountAtomic:'100000';lifetime:'nonexpiring';lifetimeAuthorizationSha256:string})}|{version:4;status:AvailabilityStatus;checkedAt:string;policy:null|(CommonPolicy&{expiresAt:null;inputAmountAtomic:'100000';lifetime:'nonexpiring';lifetimeAuthorizationSha256:string;capacityBasis:'funded-or-active';capacityAuthorizationSha256:string})};
 const statuses:AvailabilityStatus[]=['ready','paused','reconciling','source_unavailable','worker_unavailable','capital_unavailable','policy_expired','policy_exhausted','busy','disabled'];
 function object(v:unknown):v is Record<string,unknown>{return !!v&&typeof v==='object'&&!Array.isArray(v);}
 const exact=(v:Record<string,unknown>,k:string[])=>Object.keys(v).sort().join(',')===k.sort().join(',');
 const directions=['ZCASH_TO_BASE','BASE_TO_ZCASH'] as const;
 function need(v:unknown):asserts v{if(!v)throw Error('Invalid service availability response.');}
 export function decodeAvailability(v:unknown,now=Date.now()):ServiceAvailability{
- if(object(v)&&v.version===3)return decodeNonexpiringAvailability(v,now);
+ if(object(v)&&(v.version===3||v.version===4))return decodeNonexpiringAvailability(v,now);
  if(object(v)&&v.version===2)return decodeMarketAvailability(v,now);
  need(object(v)&&exact(v,['version','status','checkedAt','policy'])&&v.version===1&&statuses.includes(v.status as AvailabilityStatus)&&typeof v.checkedAt==='string');
  const at=Date.parse(v.checkedAt);need(Number.isFinite(at)&&now-at>=-5000&&now-at<=60000);
@@ -31,13 +31,15 @@ function decodeNonexpiringAvailability(v:Record<string,unknown>,now:number):Serv
  const at=Date.parse(v.checkedAt);need(Number.isFinite(at)&&now-at>=-5000&&now-at<=60000);
  if(v.policy===null){need(v.status==='disabled');return v as unknown as ServiceAvailability;}
  const p=v.policy;
- need(object(p)&&exact(p,['id','sha256','expiresAt','inputAmountAtomic','maxAcceptedByDirection','remainingByDirection','maxConcurrent','activeOrders','remainingQuotes','availableByDirection','lifetime','lifetimeAuthorizationSha256'])&&p.expiresAt===null&&p.lifetime==='nonexpiring'&&typeof p.lifetimeAuthorizationSha256==='string'&&/^[a-f0-9]{64}$/.test(p.lifetimeAuthorizationSha256)&&p.lifetimeAuthorizationSha256!=='0'.repeat(64));
+ need(object(p)&&exact(p,['id','sha256','expiresAt','inputAmountAtomic','maxAcceptedByDirection','remainingByDirection','maxConcurrent','activeOrders','remainingQuotes','availableByDirection','lifetime','lifetimeAuthorizationSha256',...(v.version===4?['capacityBasis','capacityAuthorizationSha256']:[])])&&p.expiresAt===null&&p.lifetime==='nonexpiring'&&typeof p.lifetimeAuthorizationSha256==='string'&&/^[a-f0-9]{64}$/.test(p.lifetimeAuthorizationSha256)&&p.lifetimeAuthorizationSha256!=='0'.repeat(64));
+ if(v.version===4)need(p.capacityBasis==='funded-or-active'&&typeof p.capacityAuthorizationSha256==='string'&&/^[a-f0-9]{64}$/.test(p.capacityAuthorizationSha256)&&p.capacityAuthorizationSha256!=='0'.repeat(64));
  validateFixedPolicy(p,v.status as AvailabilityStatus);
  return v as unknown as ServiceAvailability;
 }
 export function servicePolicyIsCurrent(a:ServiceAvailability,now=Date.now()):boolean {
  const p=a.policy;if(!p)return false;
- if(a.version===3)return p.expiresAt===null&&'lifetime'in p&&p.lifetime==='nonexpiring'&&'lifetimeAuthorizationSha256'in p&&/^[a-f0-9]{64}$/.test(p.lifetimeAuthorizationSha256)&&p.lifetimeAuthorizationSha256!=='0'.repeat(64);
+ if(a.version===4&&(!('capacityBasis'in p)||p.capacityBasis!=='funded-or-active'||!('capacityAuthorizationSha256'in p)||!/^[a-f0-9]{64}$/.test(p.capacityAuthorizationSha256)||p.capacityAuthorizationSha256==='0'.repeat(64)))return false;
+ if(a.version===3||a.version===4)return p.expiresAt===null&&'lifetime'in p&&p.lifetime==='nonexpiring'&&'lifetimeAuthorizationSha256'in p&&/^[a-f0-9]{64}$/.test(p.lifetimeAuthorizationSha256)&&p.lifetimeAuthorizationSha256!=='0'.repeat(64);
  return typeof p.expiresAt==='string'&&Date.parse(p.expiresAt)>now;
 }
 function decodeMarketAvailability(v:Record<string,unknown>,now:number):ServiceAvailability {
