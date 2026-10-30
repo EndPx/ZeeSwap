@@ -209,3 +209,49 @@ approved TAZ fee-account balance, and appends two balanced ledger rows:70→72.
 Activation adds its permit row to the separate23-table snapshot. Do not report
 the postlaunch database as an unchanged70-row snapshot. No actual live launch
 is demonstrated by the fixture tests in the evidence document.
+
+
+## Expired-policy renewal and observed live selector
+
+On 30 October the user explicitly approved a new 24-hour permit with the same
+remaining quota. This is the separate renewal purpose in
+[the execution evidence](../evidence/testnet-policy-expired-renewal.md). The old
+first- and second-successor paths retain their exact-parent-expiry checks. Do not
+reuse the original installation, allocation or activation sequence above to
+renew an expired policy or replay a completed renewal intent.
+
+Root reconciled renewal XID **372136** as COMMITTED_EXACT, with control
+**240 / xmin 372136** and policy SHA-256
+`7013874ad978170f500684f5d78e32c6796111d79d4f730146935aafa018a38d`.
+The new expiry is **31 October 2026, 11:48:23.898 UTC / 18:48:23.898 WIB**.
+The old parent expiry, ledger, runtime history and consumed attempts remain
+retained. Renewal itself created no payment and no capital allocation.
+
+For this renewal purpose, preserve the protected finite Root authorization,
+exact human-approval hash, parent/ancestor and original-XID pins. Verify installed
+0030 before the atomic 0031/auth/policy/link/control transaction and the strict
+renewal installation afterward. Retain the fresh current Source, Native capital,
+Base capital and SQL clocks. Use a new immutable preparation case after a refused
+preparation; preserve its old directory and evidence. An existing original intent
+requires reconciliation, never another publication attempt.
+
+The postcommit selector must verify the committed receipt and actual renewal
+authorization row. Compare PostgreSQL Date values through `new Date(value).getTime()`
+to preserve milliseconds. Inspect the effective systemd ExecStart and environment
+ordering: an old later-sorting drop-in can select the parent despite a newer
+configuration file. The actual corrected worker configuration SHA-256 is
+`9bae93567ecdcef8379b31731192ebc186e4b3d8fc7770ab6583ea226c10491f`.
+Only its policy pin changed; retain financial release `6ebb11da0fdaa70ccdd35d0c04e5abfe0b256ecc`,
+the original execution manifest and datastore preload. Keep the old worker
+configuration archive. The read-only ExecCondition must pass before financial
+worker startup; retain the 30-second restart delay, four-attempt burst limit and
+protected proof-file read permissions. No new Root function grant is needed.
+
+Root observed direct SQL READY at **12:06:41 UTC** and public API READY at
+**12:07:10.899668 UTC on 30 October 2026** after switching the API to the same new
+policy. Both directions were available with zero active orders and remaining
+capacity **1 forward / 2 reverse / 31 quotes**. The startup 502 was transient and
+resolved. These are recorded observations, not a promise of continuous readiness
+or evidence of a customer transaction. The live application may now have an
+active customer order: do not restart actors, pause sources, replay a publication
+or assume the recorded counters remain current merely to refresh documentation.

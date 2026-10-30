@@ -58,6 +58,58 @@ Local verification on 30 October 2026:
   altered API privileges and changed migration bytes.
 - Four private Python operator helpers parsed successfully.
 
-These are local implementation checks. No renewal publication, new policy expiry,
-worker readiness, customer payment or cross-chain settlement is claimed here.
-Root must record actual execution and reconcile its original XID separately.
+The checks above are local implementation evidence. The following execution
+record is supplied by Root's actual operator observations and protected receipts;
+it does not extend those observations into a full stability-window claim.
+
+## Actual renewal and public readiness, 30 October 2026
+
+Root first validated migration 0031 against Main through the local administrative
+TLS transport in a rollback-only transaction. Original XID **368546** was aborted
+and the exact old state, ACLs and installed 0030 were restored; the renewal table
+was absent afterward. Its protected receipt SHA-256 is
+`74968babd9fe5b91e5b2616ef343e41ddec1809880036f99b70c852d9c2f40ce`.
+
+Before renewal, Root completed the authorized closed Base metadata recovery:
+XID **369272** covered heights **51,959,950 through 52,191,234**, with 232 empty
+bounded packets. A later closed catchup covered **52,191,203 through 52,194,666**
+in five packets. These were metadata-only transitions under paused control 239;
+they did not reset quotas, enable admission or create a payment. Native and Base
+Sources subsequently satisfied the fresh current-source renewal proof.
+
+The actual renewal committed and was classified **COMMITTED_EXACT** under original
+XID **372136**, producing control **240 / xmin 372136**. The new policy is
+`b68130cf-4666-4d6b-9ef6-f4dbc515ce76`, SHA-256
+`7013874ad978170f500684f5d78e32c6796111d79d4f730146935aafa018a38d`.
+Its expiry is **31 October 2026 at 11:48:23.898 UTC / 18:48:23.898 WIB**, exactly
+24 hours after its verification time. The completed receipt SHA-256 is
+`77291fff25ebc30a6d8cf5942299cef03dc79604967870185bccb5797b1da0e2`.
+The old parent expiry remains unchanged. Carried usage is one quote, one forward
+admission and zero reverse admissions; remaining capacity is one forward, two
+reverse and 31 quotes. Renewal created **zero payments**.
+
+Root corrected two postcommit selector issues before reporting readiness. The
+private receipt gate now compares PostgreSQL Date values with `getTime()` so
+millisecond precision is retained. A later-sorting old worker ExecStart drop-in
+initially selected the expired parent; its mismatch stopped before wallet work.
+Root installed the reviewed higher-priority ExecStart for the new configuration.
+Only the worker configuration's policy pin changed: its new raw SHA-256 is
+`9bae93567ecdcef8379b31731192ebc186e4b3d8fc7770ab6583ea226c10491f`;
+the old configuration remains archived. Financial release `6ebb11da0fdaa70ccdd35d0c04e5abfe0b256ecc`,
+its execution manifest and datastore preload pins remain unchanged.
+
+The reviewed read-only startup gate passed and was installed as an ExecCondition,
+with a 30-second restart delay and four-attempt burst limit. The protected service
+proof retains its 0640 read rule; no additional Root function privileges were
+granted. Root verified the new financial worker running and direct SQL policy
+availability **READY** at **12:06:41 UTC**. It then installed the higher-priority
+new-policy API selector and restarted only the API. Its initial startup 502
+resolved.
+
+At **2026-10-30T12:07:10.899668Z**, Root's public GET returned **READY**, the new
+policy SHA above, both directions available, **zero active orders**, and remaining
+capacity **1 forward / 2 reverse / 31 quotes**. This is a timestamped readiness
+observation. It does not establish a customer broadcast, funded order,
+cross-chain settlement or complete historical/stability audit. A later customer's
+transaction can change these counts; this documentation update performs no live
+probe or actor action.
