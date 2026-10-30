@@ -105,5 +105,46 @@ runner did not write Main or execute a financial actor, payment or settlement.
    paused or capital-unavailable status remains valid and must not be relabelled
    ready. Record the actual outcome and public commit remote SHA separately.
 
-This evidence initially records implementation and local checks. Live grant
-publication and independent financial settlement are separate operator results.
+## Live publication verified
+
+Implementation commit `9e56cf14de008b17c402ed1f595d78f1f7c46962` was published
+before the API and frontend release. Root installed exactly migration 0032 and
+the reviewed lifetime grant in original transaction **444578**. The transaction
+committed exactly and Root subsequently reconciled that original XID without
+replaying publication. Authorization SHA256:
+`59d2185353706f7bc73baa84dd9fdeafcb81321d508e47dc529a08de29c535bb`.
+
+Every existing Zee schema table had the same digest before and after the atomic
+metadata transaction:
+`9a75b1c8da55ab169303a9d8ac934e75799061fad5beb1d362b311e11ec5b20a`.
+The new lifetime authorization table was the only excluded table. Original
+policies, predecessor history, quote/admission counts, caps and budgets retained
+their existing values. Control remained epoch **242**, xmin **388504**. The
+financial worker PID, original execution configuration and financial entry
+remained intact; Root reloaded only the API. No worker restart, control change,
+capital allocation or Source/indexer change was performed for this publication.
+
+At **31 October 2026, 01:23:30 WIB** (30 October, 18:23:30 UTC), the public API
+returned version **3**, status `ready`, `lifetime: "nonexpiring"`,
+`expiresAt: null` and zero active orders. Remaining capacity was **zero forward
+admissions, two reverse admissions and 30 quotes**. The previously active user
+order had closed through normal runtime progress; Root did not reset it. The
+forward direction remains unavailable because its two historical admissions
+already consumed the cap. No quota was reset or increased.
+
+At 18:23:44 UTC, the actual public JSON passed the deployed frontend
+`decodeAvailability` and `servicePolicyIsCurrent` checks: forward quoting was
+false and reverse quoting was true. This validates the actual API/decoder
+contract; it does not claim browser GUI execution, wallet interaction, a new
+payment or independently confirmed cross-chain settlement.
+
+The served HTML SHA256 was
+`6985377cef4a9357e54066471a39a97131b7f980a681301dc0216d1f367adef1`.
+Its `index-Y5qXtvM3.js` and CSS assets returned HTTP 200. The previous
+`index-Dh4jmouC.js` asset also remained HTTP 200 in the permanent asset store;
+new assets were published before switching HTML.
+
+The service grant has no expiry. Independent finite quote, funding, source,
+capital and recovery-authority limits remain enforced. In particular, the
+existing automatic metadata-recovery configuration retains its original finite
+authority; this service grant does not extend that separate permission.
