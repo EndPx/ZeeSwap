@@ -10,6 +10,13 @@ import { height, requireThat,parseHeader,stable,ObservationError,type ReplaceRan
 const siblingFrames=new WeakMap<ChefCanonicalHeadChanged,{error:string;anchors:Map<number,string>;parents:Header[]}>();
 const siblingWaitProofs=new WeakMap<ChefCanonicalHeadChanged,{kind:'verified-unpublished-sibling-ancestry';headHeight:number;persistedTipHeight:number;unpublishedParentCount:number}>();
 export function chefSiblingWaitProof(error:unknown){return error instanceof ChefCanonicalHeadChanged?siblingWaitProofs.get(error):undefined;}
+const recentWaitProofs=new WeakMap<object,{kind:'RECENT_PREFIX_COMMITMENT';checkpointHeight:number;verifiedThrough:number;allHistoricalHeadersAudited:false}>();
+export function chefRecentWaitProof(error:unknown){return error instanceof ChefCanonicalHeadChanged||error instanceof SourceCheckpointMismatch?recentWaitProofs.get(error):undefined;}
+function recentTransportUnavailable(error:unknown,from:number,through:number){
+ if(!(error instanceof Error)||error.message!=='CHEF_PERSISTED_RANGE_FAILED')return false;
+ const p=(error as Error&{persistedRange?:any}).persistedRange;
+ return p&&p.reason===null&&[4,14].includes(p.grpcStatus)&&p.aborted===false&&Number.isInteger(p.exitCode)&&p.exitCode!==0&&Number.isSafeInteger(p.fromHeight)&&Number.isSafeInteger(p.throughHeight)&&p.fromHeight>=from&&p.throughHeight<=through&&p.throughHeight>=p.fromHeight&&p.throughHeight-p.fromHeight<1000;
+}
 
 /** Retained financial anchors are canonical header checks, never a claim that
  * the new Chef account scanned notes before its explicit birthday. */
@@ -92,11 +99,12 @@ export async function chefSourceRecheck<T>(unchangedState:()=>Promise<boolean>,r
  if(!await unchangedState())return false;
  try{return matches(await readSource());}catch(error){if(error instanceof ObservationError&&['WAIT_SOURCE_UNREADY','WAIT_SOURCE_UNAVAILABLE','STALE_SOURCE','CHEF_HTTP_ERROR'].includes(error.code))return'SOURCE_UNREADY';throw error;}
 }
-export async function chefHeadChangeCanWait(error:unknown,publicationAttempted:boolean,before:ChefPersistedState,cursor:{processedThrough:number;tipHash:string},canonical:ChefConfig['canonical']&{prefetchPersisted?:(heights:number[],signal:AbortSignal)=>Promise<void>},unchanged:()=>Promise<boolean|'SOURCE_UNREADY'>,signal:AbortSignal,cyclePhase?:string,verifiedDiagnostic?:()=>Promise<void>){
+export async function chefHeadChangeCanWait(error:unknown,publicationAttempted:boolean,before:ChefPersistedState,cursor:{processedThrough:number;tipHash:string},canonical:ChefConfig['canonical']&{prefetchPersisted?:(heights:number[],signal:AbortSignal)=>Promise<void>;recentPrefix?:(from:number,through:number,expectedCheckpointHash:string,signal:AbortSignal)=>Promise<Map<number,Header>>},unchanged:()=>Promise<boolean|'SOURCE_UNREADY'>,signal:AbortSignal,cyclePhase?:string,verifiedDiagnostic?:()=>Promise<void>){
  const headChange=error instanceof ChefCanonicalHeadChanged,checkpointChange=error instanceof SourceCheckpointMismatch;
  if(publicationAttempted||!headChange&&!checkpointChange||!before.checkpoint)return false;
+ recentWaitProofs.delete(error);
  const expectedHeight=headChange?error.expected.height:error.expectedCore.height,actualHeight=headChange?error.actual.height:error.actualHeader.height;
- if(actualHeight!==expectedHeight||checkpointChange&&(cyclePhase!=='TRAVERSE'||!error.freshCanonicalHeader||error.freshCanonicalHeader.height!==expectedHeight||error.freshCanonicalFailure!==undefined))return false;
+ if(actualHeight!==expectedHeight||checkpointChange&&cyclePhase!=='TRAVERSE')return false;
  requireThat(before.headers.length<=10004,'CHEF_PERSISTED_STATE_BOUND');
  const headers=new Map(before.headers.map(x=>[Number(x.height),x.block_hash]));
  if(headers.has(cursor.processedThrough)&&headers.get(cursor.processedThrough)!==cursor.tipHash)return false;
@@ -106,6 +114,21 @@ export async function chefHeadChangeCanWait(error:unknown,publicationAttempted:b
  const financial=before.financial as Record<string,any[]>;
  for(const [table,key]of [['deposits','block_height'],['reverse_payouts','block_height'],['source_refunds','height']] as const)for(const row of financial[table]??[]){if(row[key]==null&&row.block_hash==null)continue;const h=Number(row[key]);if(!Number.isSafeInteger(h)||headers.get(h)!==row.block_hash)return false;}
  if(![...headers.keys(),scanned,finalized].every(h=>Number.isSafeInteger(h)&&h>=0&&h<expectedHeight))return false;
+ const recent=!!canonical.recentPrefix&&expectedHeight-scanned<1000;
+ if(recent&&(scanned!==cursor.processedThrough||cursor.tipHash!==cp.tip_hash||finalized>scanned||before.headers.length!==new Set(before.headers.map(h=>h.height)).size||[...headers.keys()].some(h=>h>scanned)))return false;
+ if(checkpointChange&&!recent&&(!error.freshCanonicalHeader||error.freshCanonicalHeader.height!==expectedHeight||error.freshCanonicalFailure!==undefined))return false;
+ if(recent){
+  try{
+   const proof=await canonical.recentPrefix!(scanned,expectedHeight,cp.tip_hash,signal);signal.throwIfAborted();requireThat(proof.size===expectedHeight-scanned+1,'CHEF_RECENT_PREFIX_INCOMPLETE');let previous:Header|undefined;
+   for(let h=scanned;h<=expectedHeight;h++){const actual=parseHeader(proof.get(h),'zcash-testnet');requireThat(actual.height===h&&(!previous||actual.parentHash===previous.hash),'CHEF_RECENT_PREFIX_FORK');if(headers.has(h)&&headers.get(h)!==actual.hash)return false;previous=actual;}
+   recentWaitProofs.set(error,{kind:'RECENT_PREFIX_COMMITMENT',checkpointHeight:scanned,verifiedThrough:expectedHeight,allHistoricalHeadersAudited:false});
+  }catch(failure){
+   if(!recentTransportUnavailable(failure,scanned,expectedHeight)){error.recheckFailure=failure;throw error;}
+   // No prefix/freshness witness exists. Retry only after two unchanged-world
+   // reads; malformed Source/configuration or generation changes stay fatal.
+   let onAbort:()=>void=()=>{};const aborted=new Promise<never>((_,reject)=>{onAbort=()=>reject(signal.reason);signal.addEventListener('abort',onAbort,{once:true});});try{for(let n=0;n<2;n++){signal.throwIfAborted();if(await Promise.race([unchanged(),aborted])===false)return false;}signal.throwIfAborted();error.recheckFailure=failure;return'DEFERRED_UNVERIFIED_READ' as const;}catch(recheckFailure){error.recheckFailure=recheckFailure;throw error;}finally{signal.removeEventListener('abort',onAbort);}
+  }
+ }
  try{
  const frame=headChange?siblingFrames.get(error):undefined;
  let sibling=false;
@@ -119,12 +142,13 @@ export async function chefHeadChangeCanWait(error:unknown,publicationAttempted:b
    for(let h=expectedHeight-1;h>=scanned;h--){signal.throwIfAborted();const parent=frame.parents[expectedHeight-1-h];if(!parent||parent.height!==h||parent.hash!==parentHash)break;if(h===scanned){sibling=parent.hash===cp.tip_hash;break;}parentHash=parent.parentHash;}
   }
  }
- if(sibling&&headChange){siblingWaitProofs.set(error,{kind:'verified-unpublished-sibling-ancestry',headHeight:expectedHeight,persistedTipHeight:scanned,unpublishedParentCount:expectedHeight-scanned-1});}
+ if(recent){/* Fresh CP hash commits to its unchanged ancestry; no archival audit claim. */}
+ else if(sibling&&headChange){siblingWaitProofs.set(error,{kind:'verified-unpublished-sibling-ancestry',headHeight:expectedHeight,persistedTipHeight:scanned,unpublishedParentCount:expectedHeight-scanned-1});}
  else {
  await canonical.prefetchPersisted?.([...headers.keys()],signal);
  for(const [h,hash]of headers){signal.throwIfAborted();const current=await canonical.header(h,signal);if(current.height!==h||current.hash!==hash)return false;}
  }
- signal.throwIfAborted();let onAbort:()=>void=()=>{};const aborted=new Promise<never>((_,reject)=>{onAbort=()=>reject(signal.reason);signal.addEventListener('abort',onAbort,{once:true});});try{const result=await Promise.race([unchanged(),aborted]);signal.throwIfAborted();if(result==='SOURCE_UNREADY')return'DEFERRED_SOURCE_UNREADY' as const;if(result&&(verifiedDiagnostic||sibling)){await verifiedDiagnostic?.();signal.throwIfAborted();const final=await Promise.race([unchanged(),aborted]);signal.throwIfAborted();return final==='SOURCE_UNREADY'?'DEFERRED_SOURCE_UNREADY' as const:final;}return result;}finally{signal.removeEventListener('abort',onAbort);}
+ signal.throwIfAborted();let onAbort:()=>void=()=>{};const aborted=new Promise<never>((_,reject)=>{onAbort=()=>reject(signal.reason);signal.addEventListener('abort',onAbort,{once:true});});try{const result=await Promise.race([unchanged(),aborted]);signal.throwIfAborted();if(result==='SOURCE_UNREADY')return'DEFERRED_SOURCE_UNREADY' as const;if(result&&(verifiedDiagnostic||sibling||recent)){await verifiedDiagnostic?.();signal.throwIfAborted();const final=await Promise.race([unchanged(),aborted]);signal.throwIfAborted();return final==='SOURCE_UNREADY'?'DEFERRED_SOURCE_UNREADY' as const:final;}return result;}finally{signal.removeEventListener('abort',onAbort);}
  }catch(recheckFailure){error.recheckFailure=recheckFailure;throw error;}
 }
 export const chefDiagnosticCodes=['CANONICAL_HEAD_CHANGED','OBSERVER_EPOCH_CHANGED','CHEF_LIVE_CURSOR_REORG','CHEF_LIVE_GENERATION_CHANGED','CHEF_RECOVERY_TARGET_REORG','CHEF_RECOVERY_OVERLAP_REORG','CHEF_LIVE_CURSOR_IDENTITY','CHEF_LIVE_SOURCE_REGRESSION','CHEF_RECOVERY_IDENTITY_CHANGED','CANONICAL_CHECKPOINT_MISMATCH','HEADER_GAP_OR_FORK','CANONICAL_NOTE_MISMATCH','CHEF_HTTP_ERROR','CHEF_CANONICAL_HEADER_FAILED','CANONICAL_RPC_HTTP_ERROR','CHEF_PERSISTED_STATE_BOUND'] as const;
