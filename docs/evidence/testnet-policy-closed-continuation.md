@@ -43,3 +43,51 @@ that publication executes no DDL. Three private Python helpers parsed
 successfully. These checks do not establish an actual continuation commit,
 worker readiness, customer transaction or settlement. Root records those
 outcomes separately after original-XID reconciliation.
+
+## Actual closed continuation and public readiness, 30 October 2026
+
+Root's read-only incident recheck succeeded for the bounded recent prefix
+**4,558,585 through 4,558,588** using the reviewed Native production helper.
+Two reads retained the same world and Source identity. Its proof class is
+`RECENT_PREFIX_COMMITMENT`, with `allHistoricalHeadersAudited=false`. The recheck
+performed no SQL operation, freshness publication or cursor advance. This is
+bounded recent-prefix evidence, not a complete historical canonical audit.
+
+Root then verified the reviewed recent-prefix Native consumer active and an
+actual ordinary publication through **4,558,668**. Core Zeer and Envio were
+unchanged. The separate fresh Source and capital proofs qualified the ordinary
+closed-policy continuation under the protected Root context.
+
+The continuation from paused **241 / xmin 381754** committed under original
+XID **388504** and was reconciled **COMMITTED_EXACT**, enabling control epoch
+**242**. Its parent remains policy SHA-256
+`7013874ad978170f500684f5d78e32c6796111d79d4f730146935aafa018a38d`,
+whose original activation XID is **372136**. The new immutable policy is
+`d1af6cdc-93a3-4390-b2be-a1df7b3bf1c5`, SHA-256
+`1684eb5a004f4cc9bfbe332bea10970796374349ce00fddfd540fe80da5d41a8`.
+The protected completed receipt SHA-256 is
+`d8bd0db497ff2312b0803daac8b903e826b511835753c7a020517cd3e5dc06ca`.
+
+Expiry remains **2026-10-31T11:48:23.898Z / 31 October at 18:48:23.898 WIB**.
+This operation did not renew or extend the permit and executed no DDL. Carried
+usage remains one quote, one forward admission and zero reverse admissions;
+remaining capacity remains **1 forward / 2 reverse / 31 quotes**. It created
+**zero payments**. All prior rows, including the existing renewal authorization,
+were preserved.
+
+Root successfully switched the existing CAS-pinned worker, API and idle-gate
+drop-in paths. The new worker configuration SHA-256 is
+`f19f6cccf83ceabf021e88a2b14e33fbeb79b3819ebc3506cb6771a479cafe85`;
+the old `9bae...` configuration bytes remain backed up. Only the policy pin
+changed. Financial release `6ebb11da0fdaa70ccdd35d0c04e5abfe0b256ecc`, its execution
+manifest and datastore preload remained unchanged. The switch reused the
+existing effective paths, avoiding policy-hash filename ordering.
+
+At **2026-10-30T20:22:05.906669+07:00**, Root's Windows public GET returned
+**READY**, the new `1684...` policy, both directions available, **zero active
+orders**, and remaining capacity **1 forward / 2 reverse / 31 quotes**. Root also
+observed two actual `POLICY_IDLE_CAPITAL_VERIFIED` ticks. These are timestamped
+operator observations, not a full stability-window claim or evidence of a
+customer broadcast, payment or cross-chain settlement. Later customer activity
+may change the counters. This documentation update performs no probe, restart
+or actor action.

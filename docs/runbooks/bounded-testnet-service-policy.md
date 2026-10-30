@@ -255,3 +255,47 @@ resolved. These are recorded observations, not a promise of continuous readiness
 or evidence of a customer transaction. The live application may now have an
 active customer order: do not restart actors, pause sources, replay a publication
 or assume the recorded counters remain current merely to refresh documentation.
+
+## Recorded continuation after the epoch-241 pause
+
+The subsequent ordinary continuation is documented in
+[the closed-policy continuation evidence](../evidence/testnet-policy-closed-continuation.md).
+Root reconciled original XID **388504** as COMMITTED_EXACT, moving paused
+**241 / xmin 381754** to epoch **242**. The new policy SHA-256 is
+`1684eb5a004f4cc9bfbe332bea10970796374349ce00fddfd540fe80da5d41a8`.
+It retains the expiry **31 October 2026, 11:48:23.898 UTC / 18:48:23.898 WIB**,
+the existing renewal authorization and all prior history. No renewal, time
+extension, DDL, allocation, quota reset or payment was created by this operation.
+
+For future closed reconciliation within an unexpired permit, use the separate
+context-pinned ordinary continuation purpose. Seal the actual complete baseline,
+parent/XID, paused control, next epoch, expiry and full-lineage consumed/remaining
+counts in a new finite Root context. Retain fresh Source and Native/Base capital
+proofs, installed-0031 verification, the original-XID ext4 journal and exact CAS.
+An existing intent always requires reconciliation rather than replay.
+
+Root's bounded incident recheck covered only Native heights **4,558,585 through
+4,558,588**, with unchanged world and Source identity on two reads and proof
+class `RECENT_PREFIX_COMMITMENT`. It did not audit all historical headers or
+publish SQL freshness/cursor progress. Root separately observed the reviewed
+consumer active and an ordinary publication through **4,558,668**. Keep these
+proof boundaries distinct when diagnosing another pause; the recheck itself
+cannot establish application freshness or authorize a financial restart.
+
+The successful selector switch CAS-updated the same existing effective worker,
+API and idle ExecCondition drop-in paths with protected before-byte backups.
+The current recorded worker configuration SHA-256 is
+`f19f6cccf83ceabf021e88a2b14e33fbeb79b3819ebc3506cb6771a479cafe85`.
+Its policy pin alone changed; retain financial release `6ebb11da0fdaa70ccdd35d0c04e5abfe0b256ecc`,
+the original execution manifest and datastore preload. Verify effective ExecStart
+and ExecCondition against the new configuration SHA rather than relying on a new
+policy-hash filename to sort after the old selector. Switch the API only after
+actual new-policy worker readiness.
+
+The latest recorded public observation is **30 October 2026 at
+20:22:05.906669 WIB**: **READY**, new `1684...` policy, both directions available,
+zero active orders and remaining capacity **1 forward / 2 reverse / 31 quotes**.
+Root also recorded two actual `POLICY_IDLE_CAPITAL_VERIFIED` ticks. This records
+bounded readiness, not continuous stability or a customer payment/settlement.
+The user may now be transacting. Do not probe, restart or pause actors to refresh
+this documentation, and do not assume these timestamped counters remain current.
