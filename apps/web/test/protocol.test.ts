@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ApiError, apiOrigin, ZeeApi } from '../src/api.ts';
+import { ApiError, apiOrigin, resolveApiOrigin, ZeeApi } from '../src/api.ts';
 import { amountForApi, capability, decodeOrder, formatUnits, indicativeOutput, parseUnits, quoteBody, statusCopy, type OrderView, type QuoteBody } from '../src/protocol.ts';
 import { OrderRequestFence, readPrivateSession, writePrivateSession } from '../src/session.ts';
 
@@ -22,3 +22,14 @@ test('private session storage failure stays in memory; no localStorage fallback'
 test('remote API origins require HTTPS and cannot embed query credentials/paths',()=>{assert.equal(apiOrigin('http://127.0.0.1:3031'),'http://127.0.0.1:3031');for(const url of ['http://example.com','https://user:secret@example.com','https://example.com?key=secret','https://example.com/api','javascript:alert(1)'])assert.throws(()=>apiOrigin(url));});
 
 test('authenticated reverse destination accepts only canonical confirmed testnet txid/height and rejects wrong networks',()=>{const reverse={...view('SETTLED'),direction:'BASE_TO_ZCASH',source:{received:true,confirmed:true,confirmations:0,policy:'base-finalized',requiredConfirmations:null},destination:{network:'zcash-testnet',status:'FINALIZED',transactionHash:'a'.repeat(64),blockNumber:4532200}};assert.equal(decodeOrder(reverse).destination?.network,'zcash-testnet');assert.equal(statusCopy(decodeOrder(reverse)).title,'Delivery finalized');assert.throws(()=>decodeOrder({...reverse,destination:{...reverse.destination,network:'zcash-mainnet'}}));assert.throws(()=>decodeOrder({...reverse,destination:{...reverse.destination,network:'base-sepolia'}}));assert.throws(()=>decodeOrder({...reverse,destination:{...reverse.destination,transactionHash:'0x'+'a'.repeat(64)}}));assert.equal(statusCopy(decodeOrder({...reverse,status:'READY'})).title,'Destination delivered');const pending=decodeOrder({...reverse,status:'READY',destination:{network:'zcash-testnet',status:'PAYOUT_PENDING'}});assert.notEqual(statusCopy(pending).title,'Delivery finalized');});
+
+test('production defaults API to page origin while development and explicit overrides retain validated origins',()=>{
+ assert.equal(resolveApiOrigin(undefined,true,'https://zeeswap.example'),'https://zeeswap.example');
+ assert.equal(resolveApiOrigin('',true,'https://zeeswap.example'),'https://zeeswap.example');
+ assert.equal(resolveApiOrigin(undefined,false,'http://localhost:5173'),'http://127.0.0.1:3031');
+ assert.equal(resolveApiOrigin('https://api.example',true,'https://zeeswap.example'),'https://api.example');
+ assert.equal(resolveApiOrigin('https://api.example',false,'http://localhost:5173'),'https://api.example');
+ for(const configured of ['http://remote.example','https://user:secret@api.example','https://api.example/api','https://api.example?token=secret','javascript:alert(1)'])assert.throws(()=>resolveApiOrigin(configured,true,'https://zeeswap.example'));
+ assert.throws(()=>resolveApiOrigin(undefined,true,'null'));
+ assert.throws(()=>resolveApiOrigin(undefined,true,'http://remote.example'));
+});

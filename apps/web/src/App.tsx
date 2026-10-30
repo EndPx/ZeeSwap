@@ -2,7 +2,7 @@ import { BridgePanel } from './BridgePanel.tsx';
 import {FaucetDialog} from './FaucetDialog.tsx';
 import { fundEscrow } from './escrow-funding.ts';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { ApiError, apiOrigin, ZeeApi, type QuoteBounds } from './api.ts';
+import { ApiError, resolveApiOrigin, ZeeApi, type QuoteBounds } from './api.ts';
 import { amountForApi, assets, fixedQuoteMatches, decodePrivateOrders, flip, formatUnits, indicativeOutput, pair, quoteBody, statusCopy, terminal, type Asset, type Direction, type OrderView, type PrivateOrder, type QuoteBody } from './protocol.ts';
 import { Button, Copy, Dialog, Icon, Notice, TokenMark, BrandMark, WalletMark } from './ui.tsx';
 import { useWallet } from './wallet.ts';
@@ -20,7 +20,7 @@ const humanError=(error:unknown)=>error instanceof Error?error.message:'The requ
 const displayAmount=(order:OrderView,input=true)=>{const asset=pair(order.direction)[input?0:1];return `${formatUnits(input?order.inputAmount:order.outputAmount,assets[asset].decimals)} ${assets[asset].symbol}`;};
 
 export default function App(){
-  const api=useMemo(()=>new ZeeApi(apiOrigin(import.meta.env.VITE_API_BASE_URL||'http://127.0.0.1:3031')),[]),wallet=useWallet(),noir=useNoir();
+  const api=useMemo(()=>new ZeeApi(resolveApiOrigin(import.meta.env.VITE_API_BASE_URL,import.meta.env.PROD,window.location.origin)),[]),wallet=useWallet(),noir=useNoir();
   const [mode,setMode]=useState<'swap'|'bridge'>('swap');
   const [direction,setDirection]=useState<Direction>('ZCASH_TO_BASE'),[amount,setAmount]=useState('0.01'),[recipient,setRecipient]=useState(''),[refund,setRefund]=useState('');
   const noirFilled=useRef<{side:'recipient'|'refund';address:string}|null>(null);

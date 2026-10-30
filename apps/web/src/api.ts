@@ -70,6 +70,9 @@ export function apiOrigin(value:string):string {
   if(url.protocol==='http:'&&!['localhost','127.0.0.1','[::1]'].includes(url.hostname))throw Error('Use HTTPS for a remote API.');
   return url.origin;
 }
+export function resolveApiOrigin(configured:string|undefined,production:boolean,pageOrigin:string):string {
+  return apiOrigin(configured||(production?pageOrigin:'http://127.0.0.1:3031'));
+}
 export class ZeeApi {
   private creating:Promise<{order:OrderView;access:PrivateOrder}>|null=null;
   private request:{fingerprint:string;key:string;token:string;completed:boolean}|null=null;

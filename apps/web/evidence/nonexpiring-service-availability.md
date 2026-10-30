@@ -36,3 +36,22 @@ No browser, wallet, RPC, VPS or financial operation was performed for these
 checks. A successful static build does not establish deployed service readiness
 or settlement. Backend activation, deployment, live qualification, publication
 and remote SHA verification remain the coordinating operator's work.
+
+## Production API origin correction
+
+The initial static build used an unset API environment variable and inherited
+the development localhost fallback. A visitor consequently tried their own
+localhost API. `resolveApiOrigin` now defaults production to the current page
+origin and keeps the localhost port 3031 default only for development. An
+explicit configured origin still takes precedence, and every selected origin
+passes the existing HTTPS, credential and path validation.
+
+Local correction checks passed: TypeScript typecheck, all 88 web unit tests
+(zero failures or skips), and the production Vite build. The additional unit
+case checks missing and empty production configuration, development fallback,
+explicit overrides, and rejection of insecure remote, credential-bearing,
+path-bearing or malformed origins. The shared resolver's dormant development
+branch can retain a localhost literal in bundled source; actual production
+selection uses the production flag and page origin. Runtime request destinations
+must be checked during deployment. No browser, wallet, RPC, VPS or API restart
+was performed for this correction; live verification belongs to Root.
