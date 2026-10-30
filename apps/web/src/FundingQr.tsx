@@ -1,7 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { OrderView } from './protocol.ts';
 import { fundingPaymentRequest } from './payment-uri.ts';
-import { Copy, Notice } from './ui.tsx';
+import {externalPaymentAttemptStorage,readExternalPaymentAttempt} from './external-payment-attempt.ts';
+import { Button, Copy, Notice } from './ui.tsx';
+
+function fundingHeightWarning(order:OrderView,now=Date.now()):string {
+  const cutoff=order.funding?.cutoffHeight;if(cutoff==null)return '';
+  const h=order.source.scannedHeight,scanned=Date.parse(order.source.scannedAt??''),checked=Date.parse(order.source.checkedAt??'');
+  if(typeof h==='number'&&Number.isSafeInteger(h)&&h>=cutoff)return 'The funding height cutoff has been reached. Do not send to this order. Refresh the original order.';
+  if(order.funding?.cutoffTime===null&&(typeof h!=='number'||!Number.isSafeInteger(h)||h<=0||!Number.isFinite(scanned)||!Number.isFinite(checked)||now-scanned< -5000||now-scanned>30000||now-checked< -5000||now-checked>30000||scanned-checked>5000))return 'Refresh the original order to verify a fresh service-observed Zcash height before sending. Do not send while its funding window is unverified.';
+  return '';
+}
 
 /** Only server-issued accepted funding instructions belong in this component.
  * QR generation happens offline in the browser; no signing or wallet RPC occurs. */
@@ -11,17 +20,35 @@ export function FundingQr({ order, reviewOnly=false }: { order: OrderView; revie
     try { return { request: fundingPaymentRequest(order), invalid: false }; }
     catch { return { request: null, invalid: true }; }
   }, [order, clockTick]);
-  const heightWarning=useMemo(()=>{
-    const cutoff=order.funding?.cutoffHeight;if(cutoff==null)return '';
-    const h=order.source.scannedHeight,now=Date.now(),scanned=Date.parse(order.source.scannedAt??''),checked=Date.parse(order.source.checkedAt??'');
-    if(typeof h==='number'&&Number.isSafeInteger(h)&&h>=cutoff)return 'The funding height cutoff has been reached. Do not send to this order. Refresh the original order.';
-    if(order.funding?.cutoffTime===null&&(typeof h!=='number'||!Number.isSafeInteger(h)||h<=0||!Number.isFinite(scanned)||!Number.isFinite(checked)||now-scanned< -5000||now-scanned>30000||now-checked< -5000||now-checked>30000||scanned-checked>5000))return 'Refresh the original order to verify a fresh service-observed Zcash height before sending. Do not send while its funding window is unverified.';
-    return '';
-  },[order,clockTick]);
+  const heightWarning=useMemo(()=>fundingHeightWarning(order),[order,clockTick]);
   const instructionsOnly=reviewOnly||!!heightWarning;
   const uri = instructionsOnly?undefined:result.request?.uri;
   const [qr, setQr] = useState<{ uri: string; image: string } | null>(null);
   const [failedUri, setFailedUri] = useState<string | null>(null);
+  const [downloading,setDownloading]=useState(false),[downloadError,setDownloadError]=useState('');
+  const latest=useRef({order,reviewOnly,uri}),mounted=useRef(false),downloadPending=useRef(false);
+  latest.current={order,reviewOnly,uri};
+  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
+  const eligibleDownloadUri=()=>{
+    const current=latest.current;
+    if(!mounted.current||current.reviewOnly||fundingHeightWarning(current.order)||readExternalPaymentAttempt(externalPaymentAttemptStorage,current.order.id))return undefined;
+    const request=fundingPaymentRequest(current.order);
+    return request&&request.uri===current.uri?request.uri:undefined;
+  };
+  const downloadQr=async()=>{
+    if(downloadPending.current)return;
+    downloadPending.current=true;setDownloading(true);setDownloadError('');
+    try{
+      const originalId=latest.current.order.id,requestedUri=eligibleDownloadUri();
+      if(!requestedUri)throw Error('Refresh the original order before downloading a payment QR. Its funding window or previous wallet request must be reconciled.');
+      const encoder=await import('qrcode');
+      const image=await encoder.default.toDataURL(requestedUri,{type:'image/png',width:768,margin:4,errorCorrectionLevel:'M'});
+      if(!mounted.current)return;
+      if(latest.current.order.id!==originalId||eligibleDownloadUri()!==requestedUri)throw Error('The original funding request changed or expired. No QR was downloaded. Refresh the original order.');
+      const link=document.createElement('a');link.href=image;link.download='zeeswap-payment-qr.png';document.body.append(link);link.click();link.remove();
+    }catch(error){if(mounted.current)setDownloadError(error instanceof Error?error.message:'QR download unavailable. Refresh the original order.');}
+    finally{downloadPending.current=false;if(mounted.current)setDownloading(false);}
+  };
   useEffect(()=>{
     if(order.status!=='AWAITING_FUNDS'||order.funding?.cutoffTime!==null)return;
     const expires=Math.min(Date.parse(order.source.scannedAt??'')+30001,Date.parse(order.source.checkedAt??'')+30001),remaining=expires-Date.now();
@@ -62,6 +89,8 @@ export function FundingQr({ order, reviewOnly=false }: { order: OrderView; revie
         : <div role="status" className="fine-print">{failedUri === uri ? 'QR unavailable. Use the exact details below.' : 'Preparing payment QR…'}</div>}
       <figcaption className="fine-print">TAZ only. Never send mainnet ZEC. Wallet support varies; scanning does not send funds.</figcaption>
     </figure>}
+    {!instructionsOnly&&<Button variant="quiet" busy={downloading} disabled={!qr||qr.uri!==uri} onClick={()=>{void downloadQr();}}>Download QR (PNG)</Button>}
+    {downloadError&&<Notice tone="warning">{downloadError}</Notice>}
     <div className="funding-label"><span>Exact source amount</span><Copy value={request.amount} label="Copy amount" /></div>
     <div className="private-value">{request.amount} TAZ</div>
     <div className="funding-label"><span>Shielded deposit receiver</span><Copy value={request.receiver} label="Copy receiver" /></div>

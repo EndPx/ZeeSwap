@@ -99,7 +99,12 @@ Unbroken addresses wrap inside min-width:0 containers.
   immutable amounts, copy controls and server-issued funding instructions only.
 - Funding QR: local lazy-loaded ZIP 321 encoder, 240px black/white functional QR
   with four-module quiet zone; exact testnet amount, shielded receiver and encoded
-  canonical memo only. Private order capabilities never enter the payment URI.
+  canonical memo only. Private order capabilities never enter the payment URI. Download QR
+  (PNG) reuses the quiet button and local encoder, at 768px with four-module
+  quiet zone. Only the current eligible accepted request may download; verify
+  time/height freshness and prior-wallet evidence before and after encoding.
+  Changed orders and unmounted panels cannot complete a pending download.
+
 - Manual shielded funding: accepted API instructions remain available through
   local ZIP 321 QR, exact amount, receiver and memo copy controls. The wallet
   dialog connects Base Sepolia EVM wallets only. No injected Zcash provider is

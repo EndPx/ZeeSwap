@@ -90,7 +90,14 @@ Rust SDK remains authoritative for a decoded Orchard receiver.
 There is no injected Zcash provider discovery, connection, autofill or send action.
 Zcash funding is manual in the user's own wallet. The funding panel and How it
 works explain external Zingo Testnet setup, synchronization, spendable TAZ plus
-network fees, QR/payment-request verification and both swap directions. Official
+network fees, QR/payment-request verification and both swap directions. The accepted
+funding panel can download a 768px PNG through its existing local QR encoder.
+Choose Download QR (PNG), then use Zingo Send / Scan QR from image to import it.
+The generic filename contains no order ID or capability. Download eligibility is
+checked again before and after encoding; stale/expired, received or previous
+external-payment requests cannot download a new payment QR. Saved files do not
+extend the funding cutoff: verify the original order again before sending.
+ Official
 Zingo PC release and Windows x64 installer links are guidance; no Zingo SDK or
 provider is integrated, and this does not claim a verified Zingo-funded swap.
 

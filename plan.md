@@ -2,6 +2,15 @@
 
 Last updated: 2026-10-29 (Asia/Jakarta), for the isolated Linux testnet deployment. Execution evidence below retains its recorded dates.
 
+Payment QR image export (31 October, explicit user decision): accepted Zcash
+funding instructions may be saved as an offline PNG for importing into Zingo.
+Export only the currently eligible canonical receiver, amount and memo request;
+recheck funding status, deadlines, source freshness and prior-payment warnings
+before and after encoding. Keep access tokens out of the image and filename.
+Do not clear legacy browser records or restore a removed wallet integration.
+This is a static frontend release, with no order reset or financial action.
+See `docs/evidence/qr-download.md` for implementation and actual check results.
+
 Continuous unsigned-order recovery (31 October, explicit user decision): keep
 service supervision running and recover temporary failures without repeated
 manual starts. An inactive original worker may resume only after verified SQL
