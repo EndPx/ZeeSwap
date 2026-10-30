@@ -15,6 +15,17 @@ automatic handoff. Do not stop an active worker, change its financial release,
 reset budgets, or bypass source freshness to keep the quote button enabled.
 See `docs/evidence/unfunded-attempt-reuse.md` for actual execution evidence.
 
+Same-proof capital timestamp compatibility (31 October): preserve the original
+financial worker and its captured capital clock while accepting legacy
+millisecond Date transport for the exact same existing proof. Only when both
+actual Root lifetime and reuse grants are enabled, a caller timestamp equal to
+the millisecond truncation of the stored capture may be normalized back to that
+same stored microsecond instant. Do not set it to now, round stored state,
+refresh capital authority, weaken freshness/regression guards or change funds.
+Publish only the reviewed SQL function replacement with finite Root publication
+authority, exact old body/ACL and all-table unchanged-row verification. See
+`docs/evidence/capital-timestamp-compatibility.md` for actual check results.
+
 Continuous unsigned source recovery (31 October, explicit user decision): keep
 ordinary remote services running and allow a distinct Root version 2
 `ROOT_UNSIGNED_AUTOMATIC_SOURCE_METADATA_RECOVERY` authority for a safely
