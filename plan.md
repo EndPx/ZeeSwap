@@ -15,6 +15,28 @@ automatic handoff. Do not stop an active worker, change its financial release,
 reset budgets, or bypass source freshness to keep the quote button enabled.
 See `docs/evidence/unfunded-attempt-reuse.md` for actual execution evidence.
 
+Continuous unsigned source recovery (31 October, explicit user decision): keep
+ordinary remote services running and allow a distinct Root version 2
+`ROOT_UNSIGNED_AUTOMATIC_SOURCE_METADATA_RECOVERY` authority for a safely
+unsigned service state. This is metadata recovery only, never an order reset or
+financial retry. Bind the exact current policy/control, original policy expiry
+as history, original activation, unchanged limits and immutable nonexpiring and
+unfunded-reuse SQL authorization hashes. Effective authority has no service
+expiry only while both actual SQL grants remain valid at every state check.
+The original finite preuser authority remains unchanged.
+
+Require no financial process/PID or lease, no deposit or financial artifacts,
+and the reviewed unsigned restart qualification for current safely expired,
+strictly reserve-only waiting, or bound quote-only cohorts. Use its normalized
+projection only to prove original initial books; retain the actual full financial
+snapshot, lineage and Native checkpoint unchanged throughout collection and
+publication. Preserve the existing zero-event 500,000-block maximum, 1,000-block
+packets, fresh actual 5,000-block final tail, independent canonical anchors and
+original-XID/ACK/marker recovery. Any funded, signed or unknown financial state
+requires Root review. No Core/SDK/indexer engine edits, forged observation clock,
+quota reset, additional budget or financial worker signals are authorized.
+See `docs/evidence/automatic-unsigned-source-recovery.md` for actual evidence.
+
 Manual Zcash wallet flow (31 October, explicit user decision): remove Noir
 provider use, connection, address autofill, send actions and branding from the
 web interface. ZeeSwap must not depend on a wallet-specific Zcash browser
