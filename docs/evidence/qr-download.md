@@ -58,3 +58,30 @@ No production behavior was changed for that test correction.
 Root must rebuild with the public API and verified faucet configuration before
 publishing assets and HTML. No VPS/API/worker/SQL operation, real quote creation,
 order acceptance, wallet request or payment was performed for these checks.
+# Actual public static release
+
+Root published implementation commit
+`db7ca19ba41cc5c0f8c55f41bfbf5b70632ec327` and rebuilt with the public HTTPS API
+and verified Base Sepolia faucet configuration. The static release is
+`/opt/zeeswap-testnet/web/qr-download-20261031-r1`, with entry
+`index-Bd1MMWxH.js` and HTML SHA256
+`863036ab5582f6eb7beda1f7a47384478c64801582c6118f265851ca55376349`.
+New assets were published before the HTML switch; Nginx validation and reload
+passed. No API, observer or financial worker was restarted and no SQL changed.
+
+An actual public-page headless Chrome check used one intercepted synthetic
+private-order GET, while health and availability remained public. The first
+harness attempt targeted the unversioned private route and timed out; the
+corrected `/v1/orders/<fixture-id>` route then passed. Every POST and localhost
+request was blocked. The browser downloaded `zeeswap-payment-qr.png`: PNG
+signature valid, 768 by 768 pixels, 21,744 bytes. The removed provider getter
+was read zero times, removed-wallet buttons were absent and there were no page
+JavaScript errors. No actual quote, acceptance, wallet request, payment or
+settlement was created. The fixture image remains private and is not a usable
+payment instruction.
+
+Root also confirmed that the currently served application already omitted the
+removed wallet integration before this PNG release. A previously open tab can
+continue running its old JavaScript until navigation. Users with active orders
+should retain their private recovery access before reloading; the new release
+does not clear browser storage or invalidate that access.
