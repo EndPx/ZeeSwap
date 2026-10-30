@@ -87,6 +87,18 @@ account/network changes and rejection handling. Connection alone never sends.
 Native shielded funding uses the exact accepted API instructions; local ZIP 321
 QR generation includes its source amount, receiver and canonical memo. The API's
 Rust SDK remains authoritative for a decoded Orchard receiver.
+There is no injected Zcash provider discovery, connection, autofill or send action.
+Zcash funding is manual in the user's own wallet. The funding panel and How it
+works explain external Zingo Testnet setup, synchronization, spendable TAZ plus
+network fees, QR/payment-request verification and both swap directions. Official
+Zingo PC release and Windows x64 installer links are guidance; no Zingo SDK or
+provider is integrated, and this does not claim a verified Zingo-funded swap.
+
+Existing browser records of a previous external-wallet request are read without
+modification. A neutral warning
+and any known submitted TXID remain visible for reconciliation; that order offers
+no QR or payment-request copy that could encourage another send. Exact original
+amount, receiver and memo remain available for checking the original transaction.
 
 Bridge mode represents the same principal: ZeeSwap Bridged Testnet Zcash (zeeTAZ),
 eight decimals, one zatoshi per atomic unit, only on Base Sepolia. It is distinct

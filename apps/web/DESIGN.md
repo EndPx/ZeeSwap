@@ -100,17 +100,17 @@ Unbroken addresses wrap inside min-width:0 containers.
 - Funding QR: local lazy-loaded ZIP 321 encoder, 240px black/white functional QR
   with four-module quiet zone; exact testnet amount, shielded receiver and encoded
   canonical memo only. Private order capabilities never enter the payment URI.
-- Noir: reuse the wallet dialog, existing buttons, notices and private-value
-  wrapping for a separate shielded Zcash testnet connection. Connection is an
-  explicit gesture and never depends on swap admission. Empty-field autofill
-  is explicit; account changes clear only values inserted by Noir. The accepted
-  order offers a separate shielded payment approval with submitted/unknown
-  states, an exclusive same-origin per-order Web Lock and a persistent resend
-  fence. Contention is refused immediately; unsupported browsers retain manual
-  funding instructions. Missing extension links to
-  official Testnet installation guidance; mainnet/invalid accounts fail closed.
-  Direct payment requires a verifiable time cutoff and fresh active service
-  policy; manual instructions retain their original API meaning.
+- Manual shielded funding: accepted API instructions remain available through
+  local ZIP 321 QR, exact amount, receiver and memo copy controls. The wallet
+  dialog connects Base Sepolia EVM wallets only. No injected Zcash provider is
+  discovered, connected or called, and no Zcash send action appears. Zingo setup
+  guidance links to the official PC release without invoking the wallet. Help
+  explains both directions, Testnet setup, fees, exact memo, cutoffs and receipts.
+- Previous external payment: read existing per-order browser attempt records
+  without changing or deleting them. Unknown, malformed or unreadable records
+  show a neutral warning before funding details; a known submitted TXID remains
+  visible. These details are for reconciliation: suppress the QR/payment-request
+  copy for that order and never offer a new send, retry or wallet deep link.
 - Activity row: private session order, API state, amount and reopen action. Empty
   state invites a first quote; no invented transaction rows.
 - Primitive harness at `/design` exercises button/notice/input states for visual QA.

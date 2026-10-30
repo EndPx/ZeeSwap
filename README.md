@@ -29,8 +29,9 @@ payments without sending twice.
 
 ZeeSwap makes those boundaries part of the product:
 
-- **One explicit journey:** connect Noir for Zcash testnet and an injected EVM
-  wallet for Base Sepolia, review exact terms, then approve funding separately.
+- **One explicit journey:** enter a Zcash testnet receiver and use exact QR or
+  copied funding instructions in your chosen shielded wallet. Connect an injected
+  EVM wallet for Base Sepolia and approve its actions separately.
 - **Two distinct products:** swap TAZ and project-issued USDC at the fixed
   testnet rate **1 TAZ = 100 USDC**, or use the separate 1:1 TAZ/zeeTAZ bridge
   flow when its own backing and availability gates are qualified.
@@ -46,11 +47,22 @@ representation of TAZ, not the swap's USDC output.
 ## The user journey
 
 1. Select Swap or Bridge and the desired direction.
-2. Connect the wallet for each leg. Connecting does not send a payment.
+2. Enter the Zcash receiver manually; connect an EVM wallet when using Base.
+   Connecting the Base wallet does not send a payment.
 3. Check service availability, destination and exact amount before accepting.
-4. Approve the accepted funding instruction in the appropriate wallet.
+4. For Zcash, scan the accepted payment QR or copy its exact address, amount
+   and memo into your shielded wallet. For Base, approve the accepted action
+   through the connected EVM wallet. Reconcile any uncertain original payment
+   before sending again.
 5. Follow the private order as source verification and destination delivery
    advance independently. An uncertain payment stays pending reconciliation.
+
+For a desktop wallet, the [official Zingo PC NU7 release notes](https://github.com/zingolabs/zingo-pc/releases/tag/zingo-pc-2.0.26-196)
+provide a compatible testnet-support starting point. On an Intel/AMD Windows PC,
+choose the **Windows x64** package; ARM64 packages are for ARM devices. Select
+Zcash testnet, let the wallet sync, then use the accepted order's QR if supported
+or copy its exact address, amount and memo. Release support is not evidence of a
+completed Zingo PC to ZeeSwap payment; that end-to-end check remains separate.
 
 New quotes and deposits remain disabled whenever the required service gates are
 closed. The [judge guide](docs/judge-guide.md) explains what can be reviewed
@@ -64,7 +76,7 @@ flowchart LR
   B[Public Base Sepolia events] --> E[Envio: public event projection]
   C --> W[ZeeSwap worker and PostgreSQL settlement authority]
   E --> W
-  U[Web app: Noir and EVM wallets] --> A[Private quote and order API]
+  U[Web app: manual shielded funding and EVM wallet] --> A[Private quote and order API]
   A --> W
   W --> G[Source, finality, inventory and replay gates]
   G --> S[Separate restricted signing adapters]
@@ -153,7 +165,7 @@ records performed checks separately from these reproducible commands.
 
 | Module | Responsibility |
 | --- | --- |
-| [apps/web](apps/web/README.md) | React/Vite interface, Noir and EVM wallet flows, private order activity |
+| [apps/web](apps/web/README.md) | React/Vite interface, manual Zcash funding, EVM wallet flows and private order activity |
 | [api](api/README.md) | Exact accounting, encrypted private data, admission, reconciliation and worker orchestration |
 | [contracts](contracts/README.md) | Base settlement, test token, faucet and separate bridge contracts |
 | [workers/zcash-wallet](workers/zcash-wallet/README.md) | Native Zcash wallet observation and durable signing boundary |

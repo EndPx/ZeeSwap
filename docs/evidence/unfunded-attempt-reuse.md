@@ -174,3 +174,59 @@ requests returned HTTP 200. All POST requests and localhost requests were blocke
 during this verification. Therefore it created **no live quote, acceptance,
 wallet request, payment or settlement**. The screenshot is retained privately;
 no address or private mapping is included in this public evidence.
+
+## Unsigned waiting and bound-quote restart qualification
+
+A later Root inspection found fresh Native and Base consumers with unchanged
+PIDs, while the financial worker had exited and a current unfunded order was
+still `AWAITING_FUNDS`. That order had no deposit or financial operation and
+retained its original three held reservations and finite funding cutoff. The
+previous safe-expired-only condition correctly refused it. No source or indexer
+change was needed to qualify this distinct unsigned restart case.
+
+The additional read-only qualification accepts only three current-policy
+cohorts under the actual SQL lifetime and reuse grants: previously qualified
+expired attempts; at most one strictly unsigned `AWAITING_FUNDS` order; and
+current-policy bound quotes with no order or admission. A waiting order must
+retain the original fixed amount/assets/fees, its accepted policy epoch, finite
+funding terms, exactly three expected held reservations, six exact available
+negative/reserved positive ledger entries, and one accepted event. Any deposit
+by order or reference, financial binding, operation, escrow, refund, frozen
+process or related Base signer journal refuses qualification. Quote-only entries
+must match their bound owner, fixed terms and finite 120-second maximum lifetime,
+with no financial footprint. Arbitrary unbound or other-policy quotes remain in
+the baseline and cannot be silently excluded.
+
+Only those validated IDs are removed from the seven-table in-memory projection.
+For the single waiting order, its exact held amounts are subtracted from matching
+inventory reserved fields using bigint arithmetic while preserving each JSON
+number/string representation. Balances, deposits, operations, bindings, history
+and SQL rows are never changed. The projected digest must still equal the exact
+original initial books and pass the existing ancestor, control, lease, global
+unresolved-state and actual-clock authority checks. Current order deadlines,
+funding instructions and reservation rows stay intact for the original worker
+when it resumes; the gate never expires an order or sends a payment itself.
+
+The checker verifies absent process/native directories for every current bound
+quote and absent Base signer filenames for its exact public settlement identity,
+including authorization, typed and transaction artifacts. Root directory
+protections, fresh source checks, original execution/configuration pins and the
+recovery marker checks remain enforced. A funded, confirming, ready, signed or
+frozen operation is outside this permission.
+
+API typecheck and **15/15** idle qualification tests passed. Tests include the
+original finite and expired-only defaults, unsigned waiting with both numeric
+and string accounting representations, quote-only acceptance, malformed and
+unbound quotes, deposit references, funded/signed states, changed inventory,
+wrong ledger/reservation amounts, unrelated unresolved finance and missing SQL
+membership proof. Root's actual read-only qualification and subsequent guarded
+worker start remain separate operator results; this local evidence does not
+claim that the pending live order has expired or settled.
+
+Root's read-only preflight also found an accepted quote with mixed-case EVM
+contract text while the immutable policy stores its canonical lowercase form.
+The unsigned fixed-term check now validates a complete hexadecimal address and
+compares its lowercase value to the policy, matching the existing SQL semantics.
+The snapshot's original text remains unchanged for exact book reconstruction.
+A regression confirms mixed-case acceptance, rejection of a different address
+and preservation of the original snapshot. No accepted-order field was rewritten.

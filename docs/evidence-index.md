@@ -38,7 +38,8 @@ It has no Circle affiliation or monetary value.
 | --- | --- | --- |
 | Public Linux application | [Deployment checkpoint](evidence/native-linux-live-checkpoint.md), [health compatibility](evidence/live-app-health-compatibility.md) | Actual frontend/API connectivity and health schema checks; financial readiness remains independent |
 | Fixed pricing and faucet UI | [Public fixed-rate check](evidence/fixed-rate-faucet-live.md), [fixed-rate implementation](evidence/fixed-rate-settlement.md) | Exact configured terms and UI checks; fixture/browser arithmetic is not live settlement |
-| Noir wallet flow | [Noir connection](evidence/noir-wallet-connection.md) | Synthetic-provider acceptance tests; installed-extension approval and real shielded payment are separate |
+| Manual Zcash wallet flow | [Noir removal](evidence/noir-removal.md) | Current implementation uses exact QR/manual copy instructions; static release and real payment verification are separate |
+| Historical Noir wallet flow | [Noir connection](evidence/noir-wallet-connection.md) | Superseded by the 31 October manual-wallet decision; old synthetic-provider tests remain historical evidence |
 | Original UI assets | [Artwork provenance](../apps/web/evidence/original-brand-assets.md) | Original wallet, asset and network art plus reviewed deployed build |
 | Bridge model and storage | [G6 implementation](evidence/g6-bridge-implementation.md), [design](bridge.md) | Local and isolated PostgreSQL bridge evidence; separate book and backing gates |
 | Concrete Base bridge reads/signing | [G6 adapters](evidence/g6-bridge-base-adapters.md) | Canonical Base verification and restricted local mechanics; no implication of live two-way bridge delivery |

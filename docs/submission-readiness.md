@@ -3,13 +3,15 @@
 **Status checkpoint: 29 October 2026 (Asia/Jakarta).** This is the single summary
 of changing deployment and submission facts. Historical evidence retains its
 own date and scope; a later deployment does not retroactively qualify it.
+The Zcash wallet UX description was updated on 31 October for the manual-wallet
+implementation; other dated deployment checkpoints retain their recorded scope.
 
 ## Current deployment
 
 | Surface | Verified scope / current limit | Evidence |
 | --- | --- | --- |
-| Public frontend | [zeeswap.endpx.cloud](https://zeeswap.endpx.cloud/) is published with Swap, Bridge, wallet connection and Faucet flows; original wallet/network artwork is deployed | [Web guide](../apps/web/README.md), [original artwork check](../apps/web/evidence/original-brand-assets.md) |
-| Noir connection | Explicit Zcash testnet provider integration, separate from the Base wallet; synthetic-provider browser checks passed | [Noir evidence](evidence/noir-wallet-connection.md); real installed-extension approval and shielded funding remain distinct checks |
+| Public frontend | [zeeswap.endpx.cloud](https://zeeswap.endpx.cloud/) has published Swap, Bridge, Base EVM wallet connection and Faucet flows; the 31 October manual Zcash rework has a separate release record | [Web guide](../apps/web/README.md), [original artwork check](../apps/web/evidence/original-brand-assets.md) |
+| Zcash funding interface | Manual receiver entry and exact accepted-order QR/copy instructions replace the wallet-specific browser integration. Implementation checks and static deployment are recorded separately | [Removal and verification record](evidence/noir-removal.md); [historical Noir evidence](evidence/noir-wallet-connection.md) is superseded and does not describe the current flow |
 | Swap admission | Latest public read reported availability disabled and policy `null`; fresh public settlement is not enabled | [Bounded service policy](evidence/bounded-testnet-service-policy.md), [source incident](evidence/native-chef-fatal-supervision.md), [plan](../plan.md) |
 | Fixed rate / faucet | Fixed swap rule is 1 TAZ = 100 USDC, zero protocol fee, with network fees separate. The USDC faucet has a verified historical claim | [Fixed-rate/public UI check](evidence/fixed-rate-faucet-live.md), [faucet deployment and claim](evidence/usdc-faucet-live.md) |
 | Public bridge API | Latest public read reported `BRIDGE_NOT_CONFIGURED`; new deposits/burns remain unavailable | [Historical public Bridge check](evidence/g6-bridge-web-live.md), [implementation](evidence/g6-bridge-implementation.md) |

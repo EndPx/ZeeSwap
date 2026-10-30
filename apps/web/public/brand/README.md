@@ -41,7 +41,6 @@ CSS letter facsimiles represent third-party brands.
 | Local file | Official source | SHA-256 |
 | --- | --- | --- |
 | `metamask.svg` | [MetaMask official assets page](https://images.ctfassets.net/clixtyxoaeas/3kVr1oM3HHOI2TcaVGhzew/9914b11aa711809bac60c87e09ea74c8/fox.svg) | `2ecbecafb4068116dc3a813d80afe6e52e36b2807538414136a868b84d1732ec` |
-| `noir.png` | [Noir official documentation icon](https://docs.zknoir.com/assets/icon128-tq96y-N1.png) | `4e2e811007e35d55b42bd1285346eb6f22643e7a082e386341584243b853eee0` |
 | `zcash.png` | [Zcash official website icon](https://z.cash/wp-content/uploads/2023/06/cropped-z-favicon-512-192x192.png) | `581dce5003c41fb2e60f63ef057f6e35a093136198fe40502218dfa2350fcac2` |
 | `base.svg` | [Base official brand pack: The Square/Base_square_blue.svg](https://www.base.org/base-brand.zip) | `b4f2b487011713f98481cc53c4ce095629b4876acbdbc2f0f3ad69a9688ba82e` |
 | `usdc.svg` | [Circle official pressroom brand pack: Token Logo/USDC Token.svg](https://6778953.fs1.hubspotusercontent-na1.net/hubfs/6778953/Pressroom/brandkit/logo-downloads/usdc.zip) | `fe4f9d5f34ef4ebeb5d80e1f5ff63dcaf5a0d5495f4adf206e4c3011d1f5c57d` |

@@ -2,6 +2,36 @@
 
 Last updated: 2026-10-29 (Asia/Jakarta), for the isolated Linux testnet deployment. Execution evidence below retains its recorded dates.
 
+Continuous unsigned-order recovery (31 October, explicit user decision): keep
+service supervision running and recover temporary failures without repeated
+manual starts. An inactive original worker may resume only after verified SQL
+service/reuse authority, fresh sources, no worker lease or signing journals,
+and exact original-books qualification. Eligible current rows are limited to
+nonfinancial bound quotes, one fully checked unsigned `AWAITING_FUNDS` order,
+and previously qualified expired-unfunded attempts. Reservation projection is
+read-only; actual orders, deadlines, ledger rows and held funds remain intact.
+Funded, confirming, ready, signed or uncertain financial execution receives no
+automatic handoff. Do not stop an active worker, change its financial release,
+reset budgets, or bypass source freshness to keep the quote button enabled.
+See `docs/evidence/unfunded-attempt-reuse.md` for actual execution evidence.
+
+Manual Zcash wallet flow (31 October, explicit user decision): remove Noir
+provider use, connection, address autofill, send actions and branding from the
+web interface. ZeeSwap must not depend on a wallet-specific Zcash browser
+integration. Users enter Zcash receivers manually and fund accepted orders
+through their chosen shielded wallet using the exact QR or copied address,
+amount and memo. Keep backend orders, protocol-native payment instructions,
+funding deadlines, receipt observation and refund boundaries unchanged. Preserve
+Base EVM, bridge and faucet behavior. Historical unknown or submitted send
+attempts remain visible through a read-only compatibility warning; never clear
+their browser storage or encourage resending an uncertain original payment.
+The How it works guide explains manual funding with an official NU7-capable
+Zingo PC release and Windows x64 selection for Intel/AMD PCs; release-note
+compatibility must not be described as tested end-to-end wallet funding.
+This supersedes the 28 October Noir browser-wallet decision below. It authorizes
+only a static frontend release, without SQL changes or financial actor restart.
+See `docs/evidence/noir-removal.md` for implementation and verification status.
+
 Safe unfunded retries (31 October, explicit user decision): a wallet attempt
 that expires without receiving funds must not consume one of the two funded or
 active admissions per direction. This supersedes historical attempt-counting
@@ -135,7 +165,7 @@ The 29 October logo correction replaces the mechanism's placeholder marks with
 original Zeer and Envio assets. The updated MP4 preserves the finished encoded
 ElevenLabs audio; only the mechanism scene was rerendered.
 
-Browser wallet decision (28 October): the user explicitly requested direct Noir
+Historical browser wallet decision (28 October, superseded by the 31 October manual flow): the user explicitly requested direct Noir
 connection. The web interface now uses the injected Noir Zcash provider for an
 explicit Testnet connection, separate from the Base Sepolia wallet. Only a
 checksum-valid testnet unified address can populate Zcash fields. Connecting

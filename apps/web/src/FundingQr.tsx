@@ -5,15 +5,28 @@ import { Copy, Notice } from './ui.tsx';
 
 /** Only server-issued accepted funding instructions belong in this component.
  * QR generation happens offline in the browser; no signing or wallet RPC occurs. */
-export function FundingQr({ order }: { order: OrderView }) {
+export function FundingQr({ order, reviewOnly=false }: { order: OrderView; reviewOnly?:boolean }) {
   const [clockTick, setClockTick] = useState(0);
   const result = useMemo(() => {
     try { return { request: fundingPaymentRequest(order), invalid: false }; }
     catch { return { request: null, invalid: true }; }
   }, [order, clockTick]);
-  const uri = result.request?.uri;
+  const heightWarning=useMemo(()=>{
+    const cutoff=order.funding?.cutoffHeight;if(cutoff==null)return '';
+    const h=order.source.scannedHeight,now=Date.now(),scanned=Date.parse(order.source.scannedAt??''),checked=Date.parse(order.source.checkedAt??'');
+    if(typeof h==='number'&&Number.isSafeInteger(h)&&h>=cutoff)return 'The funding height cutoff has been reached. Do not send to this order. Refresh the original order.';
+    if(order.funding?.cutoffTime===null&&(typeof h!=='number'||!Number.isSafeInteger(h)||h<=0||!Number.isFinite(scanned)||!Number.isFinite(checked)||now-scanned< -5000||now-scanned>30000||now-checked< -5000||now-checked>30000||scanned-checked>5000))return 'Refresh the original order to verify a fresh service-observed Zcash height before sending. Do not send while its funding window is unverified.';
+    return '';
+  },[order,clockTick]);
+  const instructionsOnly=reviewOnly||!!heightWarning;
+  const uri = instructionsOnly?undefined:result.request?.uri;
   const [qr, setQr] = useState<{ uri: string; image: string } | null>(null);
   const [failedUri, setFailedUri] = useState<string | null>(null);
+  useEffect(()=>{
+    if(order.status!=='AWAITING_FUNDS'||order.funding?.cutoffTime!==null)return;
+    const expires=Math.min(Date.parse(order.source.scannedAt??'')+30001,Date.parse(order.source.checkedAt??'')+30001),remaining=expires-Date.now();
+    const timer=setTimeout(()=>setClockTick(tick=>tick+1),Number.isFinite(remaining)&&remaining>0?Math.min(10000,remaining):10000);return()=>clearTimeout(timer);
+  },[order,clockTick]);
 
   useEffect(() => {
     const cutoff = order.funding?.cutoffTime;
@@ -39,23 +52,25 @@ export function FundingQr({ order }: { order: OrderView }) {
   const request = result.request;
   if (!request) return null;
   return <section className="funding-panel" aria-label="Shielded testnet funding instructions">
-    <h3>Fund this swap</h3>
-    <p>Scan with a Zcash testnet wallet that supports payment requests. Review the amount, receiver and memo before confirming in your wallet.</p>
-    <figure className="funding-qr" style={{ margin: '16px 0', textAlign: 'center' }}>
+    {heightWarning&&<Notice tone="warning">{heightWarning}</Notice>}
+    <h3>{instructionsOnly?'Original funding details':'Pay with Zingo'}</h3>
+    <p>{instructionsOnly?'For checking the original wallet transaction only. Do not send another payment.':'Open Zingo separately with a Zcash Testnet wallet. Let it sync and make sure you have spendable TAZ plus the wallet network fee. Scan this QR or paste the copied payment request, then verify the exact receiver, TAZ amount and required memo before sending once.'}</p>
+    {!instructionsOnly&&<p className="fine-print"><a className="inline-link" href="https://github.com/zingolabs/zingo-pc/releases/tag/zingo-pc-2.0.27-201" target="_blank" rel="noreferrer">Get Zingo PC</a>. On Windows x64, choose the <a className="inline-link" href="https://github.com/zingolabs/zingo-pc/releases/download/zingo-pc-2.0.27-201/Zingo.PC-2.0.27-201-x64.msi" target="_blank" rel="noreferrer">x64 installer</a>, not ARM64. Another Zcash testnet wallet may also support these payment requests. ZeeSwap does not connect to or control your Zcash wallet.</p>}
+    {!instructionsOnly&&<figure className="funding-qr" style={{ margin: '16px 0', textAlign: 'center' }}>
       {qr && qr.uri === uri
         ? <img src={qr.image} width="240" height="240" style={{ maxWidth: '100%', height: 'auto' }} alt="Zcash testnet payment QR with the exact amount, shielded receiver and required memo shown below" />
         : <div role="status" className="fine-print">{failedUri === uri ? 'QR unavailable. Use the exact details below.' : 'Preparing payment QR…'}</div>}
       <figcaption className="fine-print">TAZ only. Never send mainnet ZEC. Wallet support varies; scanning does not send funds.</figcaption>
-    </figure>
+    </figure>}
     <div className="funding-label"><span>Exact source amount</span><Copy value={request.amount} label="Copy amount" /></div>
     <div className="private-value">{request.amount} TAZ</div>
     <div className="funding-label"><span>Shielded deposit receiver</span><Copy value={request.receiver} label="Copy receiver" /></div>
     <div className="private-value">{request.receiver}</div>
     <div className="funding-label"><span>Required payment memo</span><Copy value={request.memo} label="Copy memo" /></div>
     <div className="private-value">{request.memo}</div>
-    <Copy value={request.uri} label="Copy wallet payment request" />
+    {!instructionsOnly&&<Copy value={request.uri} label="Copy wallet payment request" />}
     {request.cutoffHeight !== null && <p className="funding-cutoff">Deposit must be included at or before block {request.cutoffHeight.toLocaleString()}.</p>}
     {request.cutoffTime && <p className="funding-cutoff">Funding cutoff: {new Date(request.cutoffTime).toLocaleString()}.</p>}
-    <Notice>Confirmation may finish after the cutoff when inclusion was timely. Send once; another deposit will not speed up this order.</Notice>
+    <Notice>{instructionsOnly?'Keep these details to reconcile the original wallet transaction. Do not send another payment.':'Confirmation may finish after the cutoff when inclusion was timely. Send once; another deposit will not speed up this order.'}</Notice>
   </section>;
 }
