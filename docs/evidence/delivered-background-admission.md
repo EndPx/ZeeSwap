@@ -61,3 +61,9 @@ payouts or treat Base inclusion as Ethereum finality.
 The fixture uses `api/scripts/test-continuous-demo-sql.ts` with
 `--delivered-background` and the explicit disposable database-name guard.
 It performs no signing, transfers, or writes to the main database.
+
+The continuous startup adapter invokes the actual `gate` action, including the
+fresh wallet and Base nonce checks, rather than only inspecting journal state.
+Its five focused tests and API typechecking passed. The corrected adapter is
+deployed as a separately pinned startup artifact; it does not alter the reviewed
+financial release or its execution manifest.

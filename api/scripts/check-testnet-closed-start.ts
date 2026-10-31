@@ -9,7 +9,7 @@ const ROOT='/opt/zeeswap-testnet',UNIT='zeeswap-testnet-policy-worker.service',M
 function need(v:unknown,code:string):asserts v{if(!v)throw Error('CLOSED_START_'+code);}
 /** The activating unit is allowed only when this exact checker is its ControlPID. */
 export function requireClosedStartQualification(info:any,unit:Record<string,string>,pid:number,markerPresent:boolean){
- need(info?.status==='CLOSED_SERVICE_QUALIFIED'&&info.paused===false&&(info.warm===true||info.open===true)&&info.sourceFresh===true&&info.financialWorkerLease===false,'QUALIFICATION');
+ need(['CLOSED_SERVICE_QUALIFIED','POLICY_CLOSED_IDLE_RESTART_ALLOWED'].includes(info?.status)&&info.paused===false&&(info.warm===true||info.open===true)&&info.sourceFresh===true&&info.financialWorkerLease===false,'QUALIFICATION');
  need(info.pendingPublication!==true,'ORIGINAL_TRANSACTION_PENDING');
  need(!markerPresent,'SOURCE_RECOVERY_ACTIVE');
  need(Number.isSafeInteger(pid)&&pid>1&&unit.MainPID==='0','WORKER_PROCESS');
@@ -28,6 +28,7 @@ export function closedInspectorExport(path:string){
  if(path.endsWith('/api/scripts/recover-testnet-closed-service.ts'))return 'closedServiceAction';
  need(path.endsWith('/api/scripts/administer-continuous-demo.ts'),'ENTRY');return 'continuousClosedServiceAction';
 }
+export function closedInspectorAction(path:string){return closedInspectorExport(path)==='continuousClosedServiceAction'?'gate':'inspect';}
 export async function checkClosedStart(authorityPath:string,authoritySha:string,inspectorPath:string,inspectorSha:string,selfSha:string){
  need(process.platform==='linux'&&process.getuid?.()===0&&process.env.NODE_OPTIONS===undefined,'ROOT');
  const own=fileURLToPath(import.meta.url);need(own.endsWith('/api/scripts/check-testnet-closed-start.ts'),'ENTRY');const inspectorExport=closedInspectorExport(inspectorPath);
@@ -38,7 +39,7 @@ export async function checkClosedStart(authorityPath:string,authoritySha:string,
  // code manifest, current financial configuration and complete SQL/journal proofs.
  const module=await import(pathToFileURL(inspectorPath).href);
  need(typeof module[inspectorExport]==='function','INSPECTOR');
- const info=await module[inspectorExport]({path:authorityPath,sha256:authoritySha},'inspect');
+ const info=await module[inspectorExport]({path:authorityPath,sha256:authoritySha},closedInspectorAction(inspectorPath));
  if(inspectorExport==='continuousClosedServiceAction')need(info?.pendingPublication===false,'ORIGINAL_TRANSACTION_PENDING');
  requireClosedStartQualification(info,before,process.pid,await markerPresent());
  requireClosedStartQualification(info,await unitState(),process.pid,await markerPresent());
