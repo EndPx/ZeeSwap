@@ -5,6 +5,11 @@ export const FAST_IDLE_TABLES=['assets','inventory_accounts','quotes','orders','
 export type TableDigest={rows:number;sha256:string};
 export interface FastIdleLaunchProof {version:1;purpose:'ROOT_BASE_L2_IDLE_LAUNCH';workerConfigSha256:string;fastRootSha256:string;policySha256:string;activeEpoch:string;effectiveEpoch:string;controlXmin:string;approvedAt:string;publishBefore:string;originalWorkerPid:number;closedReceiptProof:{path:string;sha256:string};tableDigests:Record<string,TableDigest>}
 function need(v:unknown,code:string):asserts v{if(!v)throw Error('FAST_IDLE_LAUNCH_'+code);}
+/** Preserve the existing isolated wallet state owner; every other ancestor remains Root-owned. */
+export function requireFastIdleDirectoryOwner(path:string,uid:number,gid:number,mode:number){
+ const originalState=path==='/opt/zeeswap-testnet/state'&&uid===986&&gid===978&&(mode&0o7777)===0o700;
+ need(originalState||(uid===0&&(mode&0o022)===0),'ROOT_DIRECTORY');
+}
 const hash=(v:unknown)=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v)&&v!=='0'.repeat(64);
 export function validateFastIdleLaunchProof(v:unknown,expected:{workerConfigSha256:string;fastRootSha256:string;policySha256:string;activeEpoch:string;effectiveEpoch?:string},now=Date.now()):asserts v is FastIdleLaunchProof{
  const p=v as FastIdleLaunchProof;need(p?.version===1&&p.purpose==='ROOT_BASE_L2_IDLE_LAUNCH','PURPOSE');

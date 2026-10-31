@@ -2,11 +2,11 @@
 import {readFile,lstat,realpath,readdir} from 'node:fs/promises';import {createHash} from 'node:crypto';import {dirname,resolve} from 'node:path';import {fileURLToPath,pathToFileURL} from 'node:url';
 import {connect} from '../src/db.ts';import {loadLinuxForward} from '../src/linux-forward-dispatch.ts';import {loadLinuxNativeDispatch,applyLinuxNativeFastExecution} from '../src/linux-native-dispatch.ts';import {loadServicePolicyApi} from '../src/testnet-service-policy.ts';
 import {workerExecutionRoot,workerExecutionPins,requireForwardFastExecution,requireForwardFastSignerConfig,readPolicyExecutionEpoch,type WorkerExecutionConfig,type ForwardFastExecutionApproval,type WorkerExecutionPin} from '../src/testnet-policy-execution.ts';
-import {FAST_IDLE_TABLES,fastIdleTableDigestSql,validateFastIdleLaunchProof,requireFastIdleLaunchState,consumeFastIdleLaunch,type FastIdleLaunchProof,type TableDigest} from '../src/fast-testnet-idle-launch.ts';
+import {FAST_IDLE_TABLES,requireFastIdleDirectoryOwner,fastIdleTableDigestSql,validateFastIdleLaunchProof,requireFastIdleLaunchState,consumeFastIdleLaunch,type FastIdleLaunchProof,type TableDigest} from '../src/fast-testnet-idle-launch.ts';
 const ROOT='/opt/zeeswap-testnet',sha=(b:Buffer)=>createHash('sha256').update(b).digest('hex');function need(v:unknown,c:string):asserts v{if(!v)throw Error('FAST_IDLE_LAUNCH_'+c);}
 async function pinned(pin:WorkerExecutionPin,privateFile=false){
  need(pin&&pin.path.startsWith(ROOT+'/')&&resolve(pin.path)===pin.path&&/^[a-f0-9]{64}$/.test(pin.sha256),'PIN_PATH');
- for(let path=dirname(pin.path);path.startsWith(ROOT);path=dirname(path)){const s=await lstat(path);need(s.isDirectory()&&!s.isSymbolicLink()&&s.uid===0&&(s.mode&0o022)===0&&await realpath(path)===path,'ROOT_DIRECTORY');}
+ for(let path=dirname(pin.path);path.startsWith(ROOT);path=dirname(path)){const s=await lstat(path);need(s.isDirectory()&&!s.isSymbolicLink()&&await realpath(path)===path,'ROOT_DIRECTORY');requireFastIdleDirectoryOwner(path,s.uid,s.gid,s.mode);}
  const s=await lstat(pin.path);need(s.isFile()&&!s.isSymbolicLink()&&s.uid===0&&(s.mode&(privateFile?0o077:0o022))===0&&s.size<=16000000&&await realpath(pin.path)===pin.path,'ROOT_PIN');const raw=await readFile(pin.path);need(sha(raw)===pin.sha256,'PIN_CHANGED');return raw;
 }
 async function absent(path:string){try{await lstat(path);return false;}catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')return true;throw e;}}

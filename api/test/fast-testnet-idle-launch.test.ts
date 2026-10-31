@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,rm,readFile} from 'node:fs/promises';import {tmpdir} from 'node:os';import {join} from 'node:path';
-import {FAST_IDLE_TABLES,FAST_IDLE_ZERO_COUNTS,fastIdleTableDigestSql,validateFastIdleLaunchProof,requireFastIdleLaunchState,consumeFastIdleLaunch,type FastIdleLaunchProof,type FastIdleLaunchState} from '../src/fast-testnet-idle-launch.ts';
+import {FAST_IDLE_TABLES,requireFastIdleDirectoryOwner,FAST_IDLE_ZERO_COUNTS,fastIdleTableDigestSql,validateFastIdleLaunchProof,requireFastIdleLaunchState,consumeFastIdleLaunch,type FastIdleLaunchProof,type FastIdleLaunchState} from '../src/fast-testnet-idle-launch.ts';
 const now=Date.now(),hash='1'.repeat(64),expected={workerConfigSha256:hash,fastRootSha256:'2'.repeat(64),policySha256:'3'.repeat(64),activeEpoch:'240'};
 function fixture(){const proof:FastIdleLaunchProof={version:1,purpose:'ROOT_BASE_L2_IDLE_LAUNCH',...expected,effectiveEpoch:expected.activeEpoch,controlXmin:'1234',approvedAt:new Date(now-1000).toISOString(),publishBefore:new Date(now+599000).toISOString(),originalWorkerPid:123,closedReceiptProof:{path:'/opt/zeeswap-testnet/state/service-policy/closed-receipts.private.json',sha256:'4'.repeat(64)},tableDigests:Object.fromEntries(FAST_IDLE_TABLES.map(t=>[t,{rows:1,sha256:'5'.repeat(64)}]))};const state:FastIdleLaunchState={control:{epoch:'240',xmin:'1234',accepting_orders:true,dispatch_enabled:true,reconciliation_required:false},tableDigests:structuredClone(proof.tableDigests),counts:Object.fromEntries(FAST_IDLE_ZERO_COUNTS.map(k=>[k,0])),originalWorkerAlive:false,financialProcessPids:[],checkedAt:new Date(now),sources:['zcash-testnet','base-sepolia'].map(network=>({network,scanned_height:'1000',finalized_height:'990',observed_at:new Date(now)}))};return {proof,state};}
 test('one exact Root launch requires finite ten-minute authority, exact config/policy and explicit full table set',()=>{
@@ -28,4 +28,21 @@ test('Root resume keeps raw admission epoch while authorizing only the exact eff
  requireFastIdleLaunchState(resumed,{...state,control:{...state.control,epoch:'242'}});
  assert.equal(resumed.activeEpoch,'240');
  assert.throws(()=>validateFastIdleLaunchProof({...resumed,effectiveEpoch:'243'},{...expected,effectiveEpoch:'242'},now),/CONTROL/);
+});
+
+
+test('only the original private state ancestor may retain isolated wallet ownership',()=>{
+ requireFastIdleDirectoryOwner('/opt/zeeswap-testnet/state',986,978,0o40700);
+ requireFastIdleDirectoryOwner('/opt/zeeswap-testnet/state/service-policy',0,978,0o40750);
+ requireFastIdleDirectoryOwner('/opt/zeeswap-testnet/releases/reviewed/app',0,0,0o40755);
+ for(const [path,uid,gid,mode] of [
+  ['/opt/zeeswap-testnet/state',986,978,0o40750],
+  ['/opt/zeeswap-testnet/state',986,978,0o40777],
+  ['/opt/zeeswap-testnet/state',986,0,0o40700],
+  ['/opt/zeeswap-testnet/state',987,978,0o40700],
+  ['/opt/zeeswap-testnet/state/service-policy',986,978,0o40700],
+  ['/opt/zeeswap-testnet/state/base-signer-journal',986,978,0o40700],
+  ['/opt/zeeswap-testnet/releases/reviewed/app',986,978,0o40700],
+  ['/opt/zeeswap-testnet/state/service-policy',0,978,0o40770],
+ ] as const)assert.throws(()=>requireFastIdleDirectoryOwner(path,uid,gid,mode),/ROOT_DIRECTORY/);
 });
