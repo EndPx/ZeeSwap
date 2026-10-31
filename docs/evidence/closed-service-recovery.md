@@ -93,6 +93,16 @@ pending-intent markers and immutable execution pins remain enforced.
   and immutable raw-policy preservation. The complete transaction rolled back;
   no main-database writes occurred.
 
+The startup adapter `check-testnet-closed-start.ts` addresses systemd's
+ExecCondition lifecycle: the unit is already `activating` while its own checker
+is running. It invokes the original immutable, separately pinned inspector in
+read-only mode and permits this state only with `MainPID=0` and
+`ControlPID` equal to the checker's own PID. Another control process, a live main
+process, stale sources, a worker lease, paused dispatch or a recovery marker
+refuses startup. The wrapper and original inspector bytes are checked before
+and after qualification. Three focused tests and API typechecking passed; the
+original Root authority and inspector code were preserved.
+
 Remote publication, recovery execution, worker
 capital readiness and public availability must be recorded separately after
 operator verification. This preparation alone does not establish continuous
