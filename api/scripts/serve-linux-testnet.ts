@@ -12,6 +12,7 @@ import {loadContinuationApi,continuationQuoteBounds} from '../src/continuation-a
 import {loadServicePolicyApi} from '../src/testnet-service-policy.ts';
 import {fileURLToPath} from 'node:url';
 import {requireForwardFastExecution,workerExecutionPins,type ForwardFastExecutionApproval} from '../src/testnet-policy-execution.ts';
+import {requireApiRootMetadataPermissions} from '../src/api-root-metadata.ts';
 
 const path=process.argv[2];if(process.argv.length!==3||!path)throw Error('Explicit Linux API profile required');
 const configBytes=await readFile(path),config=JSON.parse(configBytes.toString());
@@ -38,7 +39,7 @@ let fastBaseInclusion:{rootApprovalSha256:string}|undefined;
 const fastPath=process.env.ZEESWAP_BASE_L2_EXECUTION_PROOF,fastSha=process.env.ZEESWAP_BASE_L2_EXECUTION_SHA256;
 if(fastPath||fastSha){
  if(!fastPath||!fastSha||!servicePolicy)throw Error('LINUX_API_FAST_PAIRED_ROOT_POLICY_REQUIRED');
- async function rootPin(pin:{path:string;sha256:string}){const s=await lstat(pin.path);if(!s.isFile()||s.isSymbolicLink()||s.uid!==0||(s.mode&0o077)!==0||s.size>1048576||await realpath(pin.path)!==pin.path||!/^[a-f0-9]{64}$/.test(pin.sha256))throw Error('LINUX_API_FAST_ROOT_FILE');const b=await readFile(pin.path);if(linuxRawSha256(b)!==pin.sha256)throw Error('LINUX_API_FAST_ROOT_SHA');return b;}
+ async function rootPin(pin:{path:string;sha256:string}){const s=await lstat(pin.path);requireApiRootMetadataPermissions(s);if(!s.isFile()||s.isSymbolicLink()||s.size>1048576||await realpath(pin.path)!==pin.path||!/^[a-f0-9]{64}$/.test(pin.sha256))throw Error('LINUX_API_FAST_ROOT_FILE');const b=await readFile(pin.path);if(linuxRawSha256(b)!==pin.sha256)throw Error('LINUX_API_FAST_ROOT_SHA');return b;}
  const approval=JSON.parse((await rootPin({path:fastPath,sha256:fastSha})).toString()) as ForwardFastExecutionApproval;
  const entry=await realpath(fileURLToPath(import.meta.url)),suffix='/api/scripts/serve-linux-testnet.ts';
  if(!entry.endsWith(suffix))throw Error('LINUX_API_FAST_ENTRY');
