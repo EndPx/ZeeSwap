@@ -159,3 +159,10 @@ forward order, two reverse orders and 25 quote issuances. Immutable recovery
 generations were retained. This is actual bounded recovery evidence; a full
 24-hour uninterrupted observation has not been performed. Genuine unsettled
 or conflicting financial evidence still refuses automatic handoff.
+
+The API and both existing consumer units were also enabled for systemd boot
+startup; all retain `Restart=on-failure`. The supervision timer was already
+enabled, and the primary PostgreSQL container retains `unless-stopped` restart
+policy. The financial worker starts through its qualified supervisor rather
+than an unconditional boot bypass. The shared VPS was not rebooted for this
+check, so boot configuration is recorded separately from a live reboot test.
