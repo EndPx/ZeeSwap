@@ -3,15 +3,17 @@ import {readFile} from 'node:fs/promises';
 import {randomBytes,randomUUID} from 'node:crypto';
 import assert from 'node:assert/strict';
 import pg from 'pg';
+import {acquireContinuousPublicationMutex} from './administer-continuous-demo.ts';
 import {validateServiceAvailability} from '../src/testnet-service-policy.ts';
 const cfg=JSON.parse(await readFile(process.argv[2]!,'utf8')),url=new URL(cfg.databaseUrl);
 assert.equal(url.pathname,'/zee_continuous_demo_test_20261031');assert.equal(decodeURIComponent(url.username),'zee_app_admin_20261023');url.searchParams.delete('sslmode');
-const db=new pg.Client({connectionString:url.toString(),ssl:{ca:await readFile(cfg.caPath,'utf8'),rejectUnauthorized:true},statement_timeout:20000});
+const connection={connectionString:url.toString(),ssl:{ca:await readFile(cfg.caPath,'utf8'),rejectUnauthorized:true},statement_timeout:20000};const db=new pg.Client(connection),consumer=new pg.Client(connection);
 const policy=Buffer.from('1684eb5a004f4cc9bfbe332bea10970796374349ce00fddfd540fe80da5d41a8','hex'),proof=randomBytes(32),owner=randomBytes(32);let cases=0;
 const check=(value:unknown,label:string)=>{assert.ok(value,label);cases++;};
 async function rejected(sql:string,args:any[],code:RegExp){await db.query('SAVEPOINT negative_case');try{await assert.rejects(db.query(sql,args),code);cases++;}finally{await db.query('ROLLBACK TO negative_case');}}
 try{
- await db.connect();await db.query('BEGIN');
+ await db.connect();await consumer.connect();await consumer.query('SELECT pg_advisory_lock(84532,20261024)');await db.query('BEGIN');await db.query("SET LOCAL lock_timeout='2000ms'");
+ await acquireContinuousPublicationMutex(db);check((await db.query("SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND classid=84532 AND objid=20261024 AND pid<>pg_backend_pid() AND granted) held")).rows[0].held,'ordinary separate consumer lifetime lease24 remains held while row mutex qualifies');
  check((await db.query('SELECT zee.testnet_policy_closed_books() yes')).rows[0].yes,'copied full books must actually be closed');
  const original=(await db.query('SELECT to_jsonb(p) row FROM zee.root_testnet_service_policies p WHERE policy_sha256=$1',[policy])).rows[0].row;
  const history=(await db.query('SELECT count(*)::int quotes FROM zee.testnet_policy_quotes')).rows[0].quotes;
@@ -66,4 +68,4 @@ try{
  await rejected('UPDATE zee.testnet_continuous_proceeds SET amount=amount',[],/immutable/);
  check(!(await db.query("SELECT has_function_privilege('zeeswap_worker','zee.reconcile_testnet_continuous_proceeds(zee.digest,uuid,zee.digest,timestamp with time zone)','EXECUTE') yes")).rows[0].yes,'worker cannot reconcile proceeds');
  console.log(JSON.stringify({status:'CONTINUOUS_DEMO_SQL_FIXTURE_PASS',cases,rollback:true,mainWrites:false}));
-}finally{await db.query('ROLLBACK').catch(()=>{});await db.end();}
+}finally{await db.query('ROLLBACK').catch(()=>{});await db.end();await consumer.end();}

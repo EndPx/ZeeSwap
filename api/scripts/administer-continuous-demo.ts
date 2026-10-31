@@ -69,6 +69,7 @@ async function resolveOriginalIntent(db:Pick<pg.PoolClient,'query'>,directory:st
  await removePending(directory);return false;
 }
 
+export async function acquireContinuousPublicationMutex(db:Pick<pg.PoolClient,'query'>){await db.query('SELECT zee.lock_observer_cycle()');}
 export async function continuousDemoAction(modePin:Pin,action:Action,execute=false,context?:{db:pg.PoolClient}){
  need(!context||action==='inspect','BORROWED_INSPECT_ONLY');
  need(typeof process.getuid==='function'&&process.getuid()===0,'ROOT_REQUIRED');need(['inspect','publish','reconcile','closed-inspect','closed-gate','closed-pause','closed-resume','closed-intake'].includes(action)&&(['inspect','closed-inspect','closed-gate'].includes(action)||execute),'ACTION');
@@ -102,8 +103,9 @@ export async function continuousDemoAction(modePin:Pin,action:Action,execute=fal
  try{
   if(!context){await db.query('BEGIN ISOLATION LEVEL REPEATABLE READ');await db.query("SET LOCAL statement_timeout='30000ms'");await db.query("SET LOCAL idle_in_transaction_session_timeout='30000ms'");}
   else need((await db.query("SELECT current_setting('transaction_isolation') IN('repeatable read','serializable') yes")).rows[0].yes,'BORROWED_SNAPSHOT');
-  need((await db.query('SELECT pg_try_advisory_xact_lock(84532,20261024) owned')).rows[0].owned,'OBSERVER_BUSY');
-  await db.query('SELECT zee.lock_observer_cycle()');
+  // The ordinary Envio consumer owns advisory key20261024 for its lifetime.
+  // Admission/publication instead share this actual runtime-control row mutex.
+  await acquireContinuousPublicationMutex(db);
   const identity=(await db.query('SELECT current_database() db,current_user role,(pg_control_system()).system_identifier::text system')).rows[0];
   need(identity.db==='zee_app_20261023'&&(identity.role==='zee_app_admin_20261023'||context&&identity.role==='zee_app_worker_20261023')&&identity.system==='7701863382450487342','DATABASE');
   const authorized=(await db.query('SELECT EXISTS(SELECT 1 FROM zee.testnet_closed_recovery_authorizations WHERE authorization_sha256=$1 AND policy_sha256=$2 AND worker_config_sha256=$3 AND execution_manifest_sha256=$4 AND execution_approval_sha256=$5 AND source_identity_digest=$6) yes',[h(a.parentClosedAuthority.sha256),h(parent.policy.sha256),h(parent.workerConfig.sha256),h(parent.executionManifest.sha256),h(parent.executionApproval.sha256),h(parent.sourceIdentityDigest)])).rows[0].yes;need(authorized,'PARENT_SQL_AUTHORITY');

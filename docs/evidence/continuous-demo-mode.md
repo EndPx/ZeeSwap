@@ -204,3 +204,28 @@ is distinct from the removed lifetime admission/quote counters and must not be
 represented as unrestricted unattended recovery of every financial exception.
 Freshness, available capital and fees, original signed-byte recovery and the
 existing funded/uncertain handoff boundaries remain enforced.
+
+## Ordinary observer lifetime lease compatibility
+
+The first cutover attempt found that the ordinary Envio consumer holds advisory
+key `(84532, 20261024)` for its entire process lifetime. Treating that lease as a
+publication mutex refused continuous inspection/publication while the healthy
+consumer was running. The attempt stopped before a migration intent or 0039
+installation; Root restored the original worker and supervision while reviewing
+the correction.
+
+Continuous operations now acquire the actual shared runtime-control row mutex
+through `zee.lock_observer_cycle()`. They retain full closed SQL/journal
+qualification and current-control checks. The exact migration installer retains
+its financial actor guards on keys 20261023 and 20261026 and uses the same row
+mutex, without acquiring the observer's lifetime key. No healthy consumer needs
+to stop for this permission correction.
+
+The focused continuous suite passed **5/5** and API typechecking passed. A
+separate actual PostgreSQL probe on the disposable
+`zee_continuous_demo_test_20261031` held key 20261024 on one session while a
+second session acquired the shared row mutex with a one-second lock timeout.
+It passed and rolled back, with no Main writes. The previously completed full
+migration fixture remains **31 assertions**; it was not rerun or relabelled as
+32 assertions for this probe. A separate Root operations release carries this
+operator correction; the prepared financial successor release remains immutable.

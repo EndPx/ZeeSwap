@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {validateServiceAvailability} from '../src/testnet-service-policy.ts';
-import {validateContinuousPhysicalProof,classifyContinuousOriginal} from '../scripts/administer-continuous-demo.ts';
+import {validateContinuousPhysicalProof,classifyContinuousOriginal,acquireContinuousPublicationMutex} from '../scripts/administer-continuous-demo.ts';
 import {readContinuousClosedJournalPage} from '../src/testnet-continuous-journals.ts';
 const digest='a'.repeat(64),now=Date.parse('2026-10-31T10:00:00Z');
 function availability(){return{version:5,status:'ready',checkedAt:new Date(now).toISOString(),policy:{id:'fixture',sha256:digest,expiresAt:null,lifetime:'nonexpiring',lifetimeAuthorizationSha256:'b'.repeat(64),capacityBasis:'current-liquidity',capacityAuthorizationSha256:'c'.repeat(64),inputAmountAtomic:'100000',maxAcceptedByDirection:null,remainingByDirection:{ZCASH_TO_BASE:4,BASE_TO_ZCASH:4},maxConcurrent:1,activeOrders:0,remainingQuotes:null,availableByDirection:{ZCASH_TO_BASE:true,BASE_TO_ZCASH:true},quoteRateLimit:{max:32,windowSeconds:120,remaining:32}}};}
@@ -36,4 +36,9 @@ test('original SQL outcomes are resolved before another allocation, credit or cl
  assert.equal(classifyContinuousOriginal('committed',expected,structuredClone(expected),false),'pending');
  assert.throws(()=>classifyContinuousOriginal('committed',expected,{...expected,ledger_entries:[]},true),/ORIGINAL_EFFECT_CONFLICT/);
  for(const status of [null,undefined,'unknown','prepared'])assert.throws(()=>classifyContinuousOriginal(status,expected,expected,true),/ORIGINAL_XID_UNKNOWN/);
+});
+
+test('continuous publication uses the shared row mutex while ordinary observer lifetime24 remains held',async()=>{
+ const calls:string[]=[];const db={async query(sql:string){calls.push(sql);if(sql.includes('20261024'))throw Error('ordinary observer owns its lifetime lease');return{rows:[]};}};
+ await acquireContinuousPublicationMutex(db as any);assert.deepEqual(calls,['SELECT zee.lock_observer_cycle()']);
 });
