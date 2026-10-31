@@ -24,6 +24,20 @@ automatic handoff. Do not stop an active worker, change its financial release,
 reset budgets, or bypass source freshness to keep the quote button enabled.
 See `docs/evidence/unfunded-attempt-reuse.md` for actual execution evidence.
 
+Bounded ordinary Base transport (31 October, explicit user approval): retain
+all dense event/header, independent log, financial anchor, finality, source
+freshness and admission checks. Add a separate protected Root opt-in for a
+five-second independent RPC attempt deadline after its existing method queue,
+and an eight-second SDK status/export read deadline covering headers and the
+complete bounded body. Preserve the outer 30-second cycle, 24-method pacing,
+existing retry behavior and no-retry SDK export semantics. A failed read leaves
+the checkpoint unchanged; the next cycle selects a fresh actual source sample.
+No Core/producer/schema, Source recovery kernel, policy quota, UI-ready override
+or financial worker/configuration change is authorized. Bind the original raw
+profile, generation, projection, assets, endpoints, exact limits and reviewed
+code hashes. Default callers stay unchanged without the paired Root selector.
+See `docs/evidence/ordinary-base-transport-deadlines.md` for actual checks.
+
 Same-proof capital timestamp compatibility (31 October): preserve the original
 financial worker and its captured capital clock while accepting legacy
 millisecond Date transport for the exact same existing proof. Only when both

@@ -1,3 +1,4 @@
+import {requireHttpResponse} from './bounded-http.ts';
 import { safeEndpoint, readJson, type CanonicalReader, type CanonicalSample } from "./chef.ts";
 import { height, hex, object, parseHeader, requireThat, type Header, type Policy, ObservationError } from "./types.ts";
 import {setTimeout as delay}from'node:timers/promises';
@@ -24,12 +25,12 @@ export function canonicalRpc(config: { url: string; authorization?: string; netw
       try{const response=await(config.fetch??fetch)(endpoint,{method:'POST',signal,redirect:'error',headers:{'content-type':'application/json',...(config.authorization?{authorization:config.authorization}:{})},body:JSON.stringify(body)});
         if(!response.ok){const diagnostic:CanonicalRpcDiagnostic={event:'canonical-rpc-failure',attempt:attempt+1,methodCount:Array.isArray(body)?body.length:1,httpStatus:response.status,retryAfterMs:canonicalRetryAfterMs(response.headers.get('retry-after')),willRetry:attempt===0&&(response.status===429||response.status>=500)};try{if(config.diagnostic)config.diagnostic(diagnostic);else console.error(JSON.stringify(diagnostic));}catch{}}
         if(attempt===0&&(response.status===429||response.status>=500)){await response.body?.cancel();await delay(500,undefined,{signal});continue;}return response;
-      }catch(error){if(attempt===1||signal.aborted)throw error;await delay(500,undefined,{signal});}
+      }catch(error){if(attempt===1||signal.aborted||(error as {code?:unknown})?.code==='CANONICAL_RESPONSE_BODY_TOO_LARGE')throw error;await delay(500,undefined,{signal});}
     }throw Error('CANONICAL_RPC_HTTP_ERROR');
   };
   const call = async (method: "eth_chainId" | "eth_getBlockByNumber" | "getblockchaininfo" | "getblockhash" | "getblockheader", params: unknown[], signal: AbortSignal): Promise<unknown> => {
     const response = await request({jsonrpc:'2.0',id:1,method,params},signal);
-    requireThat(response.ok, "CANONICAL_RPC_HTTP_ERROR");
+    requireHttpResponse(response, "CANONICAL_RPC_HTTP_ERROR");
     const raw = await readJson(response, signal) as Record<string, unknown>;
     requireThat(raw && typeof raw === "object" && raw.id === 1 && (raw.error === null || raw.error === undefined) && raw.result !== undefined && raw.result !== null, "CANONICAL_RPC_ERROR"); return raw.result;
   };
@@ -54,7 +55,7 @@ export function canonicalRpc(config: { url: string; authorization?: string; netw
       const values=new Map<number,Header>();
       const batch=async(wanted:readonly{height:number;index:number}[])=>{
        const requests=wanted.map((h,index)=>({jsonrpc:'2.0',id:index+1,method:'eth_getBlockByNumber',params:[`0x${height(h.height).toString(16)}`,false]}));
-       const response=await request(requests,signal);requireThat(response.ok,'CANONICAL_RPC_HTTP_ERROR');
+       const response=await request(requests,signal);requireHttpResponse(response,'CANONICAL_RPC_HTTP_ERROR');
        const rows=await readJson(response,signal,8_000_000) as Array<{id:number;result?:unknown;error?:{code?:unknown}}>,missing:{height:number;index:number}[]=[];
        const diagnostic=(kind:1|2|3,h:number,row?:{id?:unknown;error?:{code?:unknown}})=>{const value:CanonicalHeaderRowDiagnostic={event:'canonical-header-row-failure',kind,height:h,rpcCode:Number.isSafeInteger(row?.error?.code)?row!.error!.code as number:null,id:Number.isSafeInteger(row?.id)?row!.id as number:null};try{if(config.headerDiagnostic)config.headerDiagnostic(value);else console.error(JSON.stringify(value));}catch{}};
        if(!Array.isArray(rows)||rows.length!==wanted.length||new Set(rows.map(row=>row?.id)).size!==rows.length){let emitted=false;for(let i=0;i<wanted.length;i++)if(!Array.isArray(rows)||!rows.some(row=>row?.id===i+1)){diagnostic(3,wanted[i]!.height);emitted=true;}if(!emitted)diagnostic(3,wanted[0]!.height);throw new ObservationError('CANONICAL_BATCH_RESPONSE');}
@@ -74,7 +75,7 @@ export function canonicalRpc(config: { url: string; authorization?: string; netw
       if (config.network === "eip155:84532") {
         let head:Header,finalized:Header;
         if(config.batchEvmSample){
-          const response=await request([{jsonrpc:'2.0',id:1,method:'eth_chainId',params:[]},{jsonrpc:'2.0',id:2,method:'eth_getBlockByNumber',params:['latest',false]},{jsonrpc:'2.0',id:3,method:'eth_getBlockByNumber',params:['finalized',false]}],signal);requireThat(response.ok,'CANONICAL_RPC_HTTP_ERROR');
+          const response=await request([{jsonrpc:'2.0',id:1,method:'eth_chainId',params:[]},{jsonrpc:'2.0',id:2,method:'eth_getBlockByNumber',params:['latest',false]},{jsonrpc:'2.0',id:3,method:'eth_getBlockByNumber',params:['finalized',false]}],signal);requireHttpResponse(response,'CANONICAL_RPC_HTTP_ERROR');
           const rows=await readJson(response,signal) as Array<{id:number;result?:unknown;error?:unknown}>;
           requireThat(Array.isArray(rows)&&rows.length===3&&new Set(rows.map(r=>r?.id)).size===3&&rows.every(r=>r&&[1,2,3].includes(r.id)),'CANONICAL_BATCH_RESPONSE');
           requireThat(rows.every(r=>r.error==null&&r.result!=null),'CANONICAL_RPC_ERROR');

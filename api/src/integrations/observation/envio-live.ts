@@ -1,4 +1,5 @@
 import type pg from 'pg';
+import {ordinarySdkRequest,type OrdinaryTransportApproval} from '../../linux-envio-ordinary-transport.ts';
 import type {PrivateData} from '../../private-data.ts';
 import {BaseContract,publicSettlementId} from '../../base-contract.ts';
 import {observeEscrowFunding} from '../../base-escrow.ts';
@@ -39,12 +40,12 @@ export function replaceEnvioFundingHints(previous:FundingHint[],batch:ReplaceRan
   pending.set(`${orderId}:${event.txHash}`,{orderId,txHash:event.txHash as `0x${string}`,height:event.block.height,blockHash:event.block.hash});}
  requireThat(pending.size<=500,'FUNDING_HINT_LIMIT');return{pending,unknownEvents};
 }
-export async function observeEnvioOnce(pool:pg.Pool,keys:PrivateData,base:BaseContract,config:{url:string;token:string;policy:Policy;canonical:CanonicalReader;hints:FundingHintJournal;verificationSourceId?:string;eventFirst?:{generation:string;reader:EventFirstReader}}) {
+export async function observeEnvioOnce(pool:pg.Pool,keys:PrivateData,base:BaseContract,config:{url:string;token:string;policy:Policy;canonical:CanonicalReader;hints:FundingHintJournal;verificationSourceId?:string;eventFirst?:{generation:string;reader:EventFirstReader;ordinaryTransport?:OrdinaryTransportApproval;beforeFinality?:()=>void}}) {
  requireThat(base.registry.chainId===84532&&config.policy.network==='eip155:84532'
   &&config.policy.contract===base.registry.contracts.ZeeSwapSettlement.address.toLowerCase()
   &&config.policy.token===base.registry.contracts.MockUSDC.address.toLowerCase(),'LIVE_BASE_PROFILE_MISMATCH');
- const signal=AbortSignal.timeout(30000),endpoint=safeEndpoint(config.url);
- const response=await fetch(new URL(config.eventFirst?'/zee-observation/event-first/status':'/zee-observation/status',endpoint),{headers:{authorization:`Bearer ${config.token}`},signal,redirect:'error'});
+ const signal=AbortSignal.timeout(30000),endpoint=safeEndpoint(config.url),request=config.eventFirst?.ordinaryTransport?ordinarySdkRequest(config.eventFirst.ordinaryTransport):fetch;
+ const response=await request(new URL(config.eventFirst?'/zee-observation/event-first/status':'/zee-observation/status',endpoint),{headers:{authorization:`Bearer ${config.token}`},signal,redirect:'error'});
  requireThat(response.ok,'WAIT_ENVIO_EXPORT');
  const status=await readJson(response,signal) as {protocol?:unknown;state?:unknown;checkpoint?:{through?:{height?:unknown};complete?:unknown;sourceSampledAt?:unknown}};
  let producerThrough:number;
@@ -57,9 +58,10 @@ export async function observeEnvioOnce(pool:pg.Pool,keys:PrivateData,base:BaseCo
  const previous=(await pool.query("SELECT scanned_height::text,finalized_height::text FROM zee.scanner_checkpoints WHERE network='base-sepolia'")).rows[0];
  const accepted=Number((await pool.query('SELECT count(*)::text AS count FROM zee.orders')).rows[0]?.count);
  const from=envioAdmissionFrom(config.policy,producerThrough,previous?Number(previous.scanned_height):undefined,admission,accepted);
- const batch=config.eventFirst?await fetchEventFirstReplacement(config.url,config.token,from,producerThrough,config.policy,config.eventFirst.generation,config.eventFirst.reader,signal,fetch,{boundedFinalTail:true,preReadFreshness:true,fixedReadStartTarget:true}):await fetchEnvioExport(config.url,config.token,from,config.policy,config.canonical,Date.now(),fetch,config.verificationSourceId);
+ const batch=config.eventFirst?await fetchEventFirstReplacement(config.url,config.token,from,producerThrough,config.policy,config.eventFirst.generation,config.eventFirst.reader,signal,request,{boundedFinalTail:true,preReadFreshness:true,fixedReadStartTarget:true}):await fetchEnvioExport(config.url,config.token,from,config.policy,config.canonical,Date.now(),fetch,config.verificationSourceId);
  fresh(batch.coverage.sourceSampledAt,Date.now());
  requireThat(batch.coverage.sourceHead.height-batch.coverage.through.height<=40,'WAIT_ENVIO_BEHIND_HEAD');
+ config.eventFirst?.beforeFinality?.();
  const sample=await sampleCanonicalFinalityAtLeast(config.canonical,config.verificationSourceId??config.policy.canonicalSourceId,Number(previous?.finalized_height??0),signal);
  requireThat(sample.sourceId===(config.verificationSourceId??config.policy.canonicalSourceId),'WRONG_CANONICAL_SOURCE');fresh(sample.checkedAt,Date.now());
  if(config.eventFirst)requireThat(sample.head.height>=batch.coverage.through.height,'WAIT_ENVIO_BEHIND_HEAD');
