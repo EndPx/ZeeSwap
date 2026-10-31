@@ -6,7 +6,7 @@ import {isDeepStrictEqual} from 'node:util';
 import type pg from 'pg';
 import type {PrivateData} from './private-data.ts';
 import {depositIdentity,type DepositInput} from './repository.ts';
-export type CapitalSource={kind:'opening'|'settled-source'|'confirmed-own-change'|'refund-source'|'confirmed-refund-own-change'|'discharged-refund-residual';path:string;sha256:string;orderId?:string};
+export type CapitalSource={kind:'opening'|'settled-source'|'confirmed-own-change'|'refund-source'|'confirmed-refund-own-change'|'discharged-refund-residual';path:string;sha256:string;orderId?:string;continuousPolicySha256?:string};
 /** Operator-reviewed immutable provenance only. Admission never credits books. */
 export async function approvedLiveReverseCapital(pool:pg.Pool,keys:PrivateData,sources:CapitalSource[],refundOrderId?:string,policy?:PolicyWorkerOrderContext){
  if(!Array.isArray(sources)||sources.length<1||sources.length>100)throw Error('LIVE_CAPITAL_APPROVAL_SOURCES_REQUIRED');
@@ -58,7 +58,13 @@ async function dischargedRefundCapital(pool:pg.Pool,keys:PrivateData,source:Capi
   ((SELECT count(*) FROM zee.operations op WHERE op.order_id=r.order_id)=1 AND EXISTS(SELECT 1 FROM zee.operations op WHERE op.order_id=r.order_id AND op.deposit_id=r.deposit_id AND op.kind='REFUND' AND op.state='CONFIRMED' AND NOT op.chain_authorization_verified)) terminal_refund_operation,
   ((SELECT count(*) FROM zee.outbox_jobs j JOIN zee.operations op ON op.id=j.operation_id WHERE op.order_id=r.order_id)=1 AND EXISTS(SELECT 1 FROM zee.outbox_jobs j JOIN zee.operations op ON op.id=j.operation_id WHERE op.order_id=r.order_id AND op.deposit_id=r.deposit_id AND op.kind='REFUND' AND op.state='CONFIRMED' AND j.status='DONE' AND j.lease_owner IS NULL AND j.lease_until IS NULL AND j.fence>=1)) terminal_refund_job
   FROM zee.source_refunds r JOIN zee.orders o ON o.id=r.order_id AND o.primary_deposit=r.deposit_id JOIN zee.quotes q ON q.id=o.id JOIN zee.deposits d ON d.id=r.deposit_id WHERE r.order_id=$1`,[source.orderId])).rows[0];
- if(!row||row.order_state!=='REFUNDED'||row.direction!=='ZCASH_TO_BASE'||row.base_phase!=='CANCEL'||row.base_confirmed!==true||row.confirmed!==true||row.liability_discharged!==true||row.no_open_liability!==true||row.terminal_refund_operation!==true||row.terminal_refund_job!==true||row.source_classification!=='LATE'||!row.source_confirmed_at||row.source_shielded!==true||row.source_amount!=='100000'||!row.zcash_payload||!row.receipt_payload)throw Error('REFUND_CAPITAL_NOT_FULLY_DISCHARGED');
+ let continuous=false;
+ if(source.continuousPolicySha256){
+  if(!/^[a-f0-9]{64}$/.test(source.continuousPolicySha256))throw Error('REFUND_CAPITAL_CONTINUOUS_POLICY');
+  const enabled=(await pool.query('SELECT EXISTS(SELECT 1 FROM zee.testnet_policy_admissions a WHERE a.order_id=$1 AND a.policy_sha256=$2 AND zee.testnet_continuous_demo_enabled(a.policy_sha256)) yes',[source.orderId,Buffer.from(source.continuousPolicySha256,'hex')])).rows[0]?.yes;
+  if(enabled!==true)throw Error('REFUND_CAPITAL_CONTINUOUS_POLICY');continuous=true;
+ }
+ if(!row||row.order_state!=='REFUNDED'||row.direction!=='ZCASH_TO_BASE'||row.base_phase!=='CANCEL'||row.base_confirmed!==true||row.confirmed!==true||row.liability_discharged!==true||row.no_open_liability!==true||row.terminal_refund_operation!==true||row.terminal_refund_job!==true||!(continuous?['EXACT','UNDER','OVER','LATE']:['LATE']).includes(row.source_classification)||!row.source_confirmed_at||row.source_shielded!==true||(continuous?!/^[1-9][0-9]*$/.test(row.source_amount):row.source_amount!=='100000')||!row.zcash_payload||!row.receipt_payload)throw Error('REFUND_CAPITAL_NOT_FULLY_DISCHARGED');
  const signed=keys.open(row.zcash_payload,`source-refund:${source.orderId}:ZCASH:v1`) as PreparedZcashTransaction,receipt=keys.open(row.receipt_payload,`source-refund:${source.orderId}:ZCASH-proof:v1`) as VerifiedZcashReceipt,q=keys.open(row.quote_payload,`quote:${source.orderId}:v1`) as any;
  validatePreparedZcash(signed,{orderId:source.orderId,operationId:source.orderId,recipient:q.refundRecipient,amountZatoshi:row.source_amount,maxFeeZatoshi:row.refund_fee});
  if(signed.feeZatoshi!=='10000'||signed.feeZatoshi!==row.zcash_fee||signed.expiryHeight!==String(row.expiry_height)||!keys.lookup('zcash-tx',signed.txid).equals(row.zcash_hash)||journal?.state!=='DELIVERY_CONFIRMED'||!isDeepStrictEqual(journal.prepared,signed)||journal.receipt?.confirmed!==true||journal.receipt?.attestationMode!=='operator-outgoing-recovery'||journal.receipt?.orderId!==source.orderId)throw Error('REFUND_CHANGE_JOURNAL_SQL_MISMATCH');

@@ -1,3 +1,4 @@
+import {requireContinuousCapitalApproval} from './testnet-policy-execution.ts';
 import {validatePolicyCapitalProof,requirePolicyCapitalProvenance} from './testnet-policy-capital.ts';
 import {requirePolicyWorkerOrder,validatePolicyWorkerOrderContext,type PolicyWorkerOrderContext} from './testnet-policy-refund.ts';
 /** Linux physical transport for the existing native reverse/refund kernels. */
@@ -95,7 +96,18 @@ export async function linuxPerOrderCapital(loaded:LoadedLinuxNative,pool:pg.Pool
   const pc=approval.policyCapital;need(pc?.version===1&&pc.policySha256===policyContext.policySha256&&inside(pc.capture?.path,directory+'/proofs')&&/^[0-9a-f]{64}$/.test(pc.capture?.sha256),'POLICY_CAPITAL_ROOT_BINDING');
   const stat=await lstat(pc.capture.path);need(stat.isFile()&&!stat.isSymbolicLink()&&stat.uid===0&&(stat.mode&0o027)===0&&stat.size<=1048576&&await realpath(pc.capture.path)===pc.capture.path,'POLICY_CAPITAL_ROOT_FILE');
   const raw=await readFile(pc.capture.path);need(linuxRawSha256(raw)===pc.capture.sha256,'POLICY_CAPITAL_RAW_CHANGED');
-  const current=validatePolicyCapitalProof(JSON.parse(raw.toString()),{policySha256:policyContext.policySha256,profileSha256:loaded.verified.profileSha256,loaderSha256:loaded.originalProfileLoaderSha256,captureScriptSha256:linuxRawSha256(await readFile(p.roots.release+'/app/workers/zcash-wallet/testnet_policy_capital.py'))});
+  let captureScriptSha256=linuxRawSha256(await readFile(p.roots.release+'/app/workers/zcash-wallet/testnet_policy_capital.py'));
+  if(pc.continuousCapitalApproval){
+   const pin=pc.continuousCapitalApproval;need(/^\/opt\/zeeswap-testnet\/(?:state\/service-policy|secrets)\/[A-Za-z0-9._-]+\.private\.json$/.test(pin.path)&&/^[a-f0-9]{64}$/.test(pin.sha256),'POLICY_CONTINUOUS_CAPITAL_APPROVAL');
+   const stat=await lstat(pin.path);need(stat.isFile()&&!stat.isSymbolicLink()&&stat.uid===0&&(stat.mode&0o077)===0&&stat.size<=1048576&&await realpath(pin.path)===pin.path,'POLICY_CONTINUOUS_CAPITAL_APPROVAL');
+   const bytes=await readFile(pin.path);need(linuxRawSha256(bytes)===pin.sha256,'POLICY_CONTINUOUS_CAPITAL_APPROVAL');const a=JSON.parse(bytes.toString());
+   requireContinuousCapitalApproval(a,{executionRoot:a.executionRoot},policyContext.policySha256,loaded.verified.profileSha256);
+   need(a.originalCaptureScript.path===p.roots.release+'/app/workers/zcash-wallet/testnet_policy_capital.py'&&a.originalCaptureScript.sha256===captureScriptSha256,'POLICY_CONTINUOUS_ORIGINAL_CAPTURE');
+   const script=await lstat(a.captureScript.path);need(script.isFile()&&!script.isSymbolicLink()&&script.uid===0&&(script.mode&0o022)===0&&await realpath(a.captureScript.path)===a.captureScript.path&&linuxRawSha256(await readFile(a.captureScript.path))===a.captureScript.sha256,'POLICY_CONTINUOUS_CAPTURE_SCRIPT');
+   need((await pool.query('SELECT zee.testnet_continuous_demo_enabled($1) AND EXISTS(SELECT 1 FROM zee.testnet_continuous_demo_authorizations WHERE policy_sha256=$1 AND capital_approval_sha256=$2) yes',[Buffer.from(policyContext.policySha256,'hex'),Buffer.from(pin.sha256,'hex')])).rows[0]?.yes===true,'POLICY_CONTINUOUS_CAPITAL_AUTHORITY');
+   captureScriptSha256=a.captureScript.sha256;
+  }
+  const current=validatePolicyCapitalProof(JSON.parse(raw.toString()),{policySha256:policyContext.policySha256,profileSha256:loaded.verified.profileSha256,loaderSha256:loaded.originalProfileLoaderSha256,captureScriptSha256});
   need(pc.observedAt===current.observedAt&&JSON.stringify(pc.notes)===JSON.stringify(current.notes),'POLICY_CAPITAL_ROOT_CAPTURE_CHANGED');
   notes=requirePolicyCapitalProvenance(current.notes,notes);
  }

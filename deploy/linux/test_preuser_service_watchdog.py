@@ -356,5 +356,78 @@ class ClosedSupervisionTests(unittest.TestCase):
         self.assertNotIn(('start', watchdog.WORKER), e.events)
 
 
+class ContinuousEffects(ClosedEffects):
+    continuous_enabled = True
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.info['pendingPublication'] = False
+        self.proceeds = {'status': 'CONTINUOUS_PROCEEDS_RECONCILED', 'pendingPublication': False, 'credited': 0}
+
+    def reconcile_proceeds(self):
+        self.events.append('reconcile-proceeds')
+        return self.proceeds
+
+
+class ContinuousSupervisionTests(unittest.TestCase):
+    def test_continuous_configuration_requires_paired_pins_and_parent_closed_path(self):
+        for config in [{'continuousAuthority': {}}, {'closedAuthority': {}, 'closedEntry': {}, 'continuousAuthority': {}}, {'closedAuthority': {}, 'closedEntry': {}, 'continuousEntry': {}}]:
+            with self.assertRaisesRegex(ValueError, 'WATCHDOG_CONTINUOUS_CONFIG'):
+                watchdog.RootEffects(config, {})
+
+    def test_qualified_idle_open_worker_reconciles_before_any_intake_check(self):
+        e = ContinuousEffects(active=True, paused=False)
+        self.assertEqual(watchdog.supervise(e, True)['status'], 'WATCHDOG_CLOSED_INTAKE_CHECKED')
+        self.assertEqual(e.events, [('closed', 'inspect', False), 'reconcile-proceeds', ('closed', 'inspect', False), ('closed', 'intake', True)])
+
+    def test_actual_credit_is_one_bounded_action_without_worker_signal(self):
+        e = ContinuousEffects(active=True, paused=False)
+        e.proceeds['credited'] = 2
+        self.assertEqual(watchdog.supervise(e, True), {'status': 'WATCHDOG_CONTINUOUS_PROCEEDS_RECONCILED', 'credited': 2, 'actorAction': True})
+        self.assertEqual(e.events, [('closed', 'inspect', False), 'reconcile-proceeds'])
+
+    def test_pending_unknown_or_conflicting_original_blocks_start_and_credit(self):
+        for change in [True, None, 'false']:
+            e = ContinuousEffects()
+            e.info['pendingPublication'] = change
+            self.assertEqual(watchdog.supervise(e, True)['status'], 'WATCHDOG_WAIT_CONTINUOUS_PROCEEDS')
+            self.assertEqual(e.events, [('closed', 'inspect', False)])
+        for result in [{'status': 'CONTINUOUS_DEMO_ORIGINAL_TRANSACTION_PENDING', 'pendingPublication': True}, {'status': 'CONTINUOUS_PROCEEDS_RECONCILED', 'credited': 0}, {'status': 'CONTINUOUS_PROCEEDS_REFUSED'}, {'status': 'CONTINUOUS_PROCEEDS_RECONCILED', 'pendingPublication': False, 'credited': True}]:
+            e = ContinuousEffects(active=True, paused=False)
+            e.proceeds = result
+            self.assertEqual(watchdog.supervise(e, True)['status'], 'WATCHDOG_WAIT_CONTINUOUS_PROCEEDS')
+            self.assertNotIn(('closed', 'intake', True), e.events)
+
+    def test_stale_sample_inspection_and_financial_refusal_never_credit_or_stop(self):
+        e = ContinuousEffects(fresh=False, active=True, paused=False)
+        self.assertEqual(watchdog.supervise(e, True)['status'], 'WATCHDOG_CLOSED_INTAKE_CHECKED')
+        self.assertNotIn('reconcile-proceeds', e.events)
+        self.assertNotIn('stop-verified-closed-worker', e.events)
+        e = ContinuousEffects(active=True, paused=False)
+        e.refused = 'inspect'
+        self.assertEqual(watchdog.supervise(e, True)['status'], 'WATCHDOG_CLOSED_REFUSED')
+        self.assertNotIn('reconcile-proceeds', e.events)
+        e = ContinuousEffects()
+        self.assertEqual(watchdog.supervise(e)['status'], 'WATCHDOG_INSPECTED_CLOSED')
+        self.assertNotIn('reconcile-proceeds', e.events)
+
+    def test_continuous_backoff_does_not_append_generation(self):
+        e = ContinuousEffects()
+        e.budget = False
+        self.assertEqual(watchdog.supervise(e, True)['status'], 'WATCHDOG_START_BACKOFF')
+        self.assertNotIn(('closed', 'resume', True), e.events)
+
+    def test_wire_adapter_selects_exact_continuous_entry_and_action(self):
+        e = watchdog.RootEffects.__new__(watchdog.RootEffects)
+        e.continuous_enabled = True
+        e.c = {'continuousAuthority': {'path': '/mode', 'sha256': 'a' * 64}}
+        with patch.object(e, 'run_entry', return_value=(0, {'status': 'CLOSED_SERVICE_QUALIFIED'})) as call:
+            e.closed('inspect')
+            call.assert_called_once_with('continuousEntry', ['/mode', 'a' * 64, 'closed-inspect'], 60)
+        with patch.object(e, 'run_entry', return_value=(0, {'status': 'CONTINUOUS_PROCEEDS_RECONCILED', 'credited': 0, 'pendingPublication': False})) as call:
+            e.reconcile_proceeds()
+            call.assert_called_once_with('continuousEntry', ['/mode', 'a' * 64, 'reconcile', '--execute'], 60)
+
+
 if __name__ == '__main__':
     unittest.main()

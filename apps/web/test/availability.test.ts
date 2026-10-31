@@ -34,6 +34,19 @@ test('v3 preserves stale, source, worker, budget, concurrency and directional re
 });
 
 function fundedCapacity(now:number){const a=nonexpiring(now);return {...a,version:4,policy:{...a.policy,capacityBasis:'funded-or-active',capacityAuthorizationSha256:'c'.repeat(64)}};}
+function continuousCapacity(now:number){const a=fundedCapacity(now);return {...a,version:5,policy:{...a.policy,capacityBasis:'current-liquidity',maxAcceptedByDirection:null,remainingQuotes:null,remainingByDirection:{ZCASH_TO_BASE:15,BASE_TO_ZCASH:7},quoteRateLimit:{max:32,windowSeconds:120,remaining:32}}};}
+test('v5 admits current liquidity beyond historical quotas and a rolling quote cooldown recovers',()=>{
+ const now=Date.now(),payload=continuousCapacity(now),a=decodeAvailability(payload,now);
+ assert.equal(serviceCanQuote(a,'ZCASH_TO_BASE',now),true);assert.equal(a.policy!.remainingByDirection.ZCASH_TO_BASE,15);assert.equal(a.policy!.remainingQuotes,null);assert.equal(a.policy!.maxAcceptedByDirection,null);assert.equal(availabilityCopy(a),'Ready for a testnet quote');
+ payload.status='rate_limited';payload.policy.quoteRateLimit.remaining=0;payload.policy.availableByDirection={ZCASH_TO_BASE:false,BASE_TO_ZCASH:false};
+ const cooldown=decodeAvailability(payload,now);assert.equal(serviceCanQuote(cooldown,'ZCASH_TO_BASE',now),false);assert.match(availabilityCopy(cooldown),/cooling down/);
+ payload.status='ready';payload.policy.quoteRateLimit.remaining=1;payload.policy.availableByDirection.ZCASH_TO_BASE=true;assert.equal(serviceCanQuote(decodeAvailability(payload,now),'ZCASH_TO_BASE',now),true);
+});
+test('v5 rejects invented unlimited capacity, malformed rate windows and inconsistent readiness',()=>{
+ const now=Date.now();
+ for(const mutate of [(a:any)=>a.policy.maxAcceptedByDirection={ZCASH_TO_BASE:2,BASE_TO_ZCASH:2},(a:any)=>a.policy.remainingQuotes=32,(a:any)=>a.policy.capacityBasis='funded-or-active',(a:any)=>a.policy.capacityAuthorizationSha256='0'.repeat(64),(a:any)=>a.policy.remainingByDirection.ZCASH_TO_BASE=null,(a:any)=>a.policy.remainingByDirection.ZCASH_TO_BASE=Number.MAX_SAFE_INTEGER+1,(a:any)=>a.policy.remainingByDirection.ZCASH_TO_BASE=-1,(a:any)=>a.policy.remainingByDirection.ZCASH_TO_BASE=1.5,(a:any)=>a.policy.quoteRateLimit.windowSeconds=121,(a:any)=>a.policy.quoteRateLimit.max=33,(a:any)=>a.policy.quoteRateLimit.remaining=33,(a:any)=>a.policy.quoteRateLimit.remaining=0,(a:any)=>a.policy.quoteRateLimit.extra=true,(a:any)=>a.policy.remainingByDirection.ZCASH_TO_BASE=0,(a:any)=>a.policy.activeOrders=1,(a:any)=>a.checkedAt=new Date(now-60001).toISOString(),(a:any)=>a.policy.extra='private']){const a=continuousCapacity(now);mutate(a);assert.throws(()=>decodeAvailability(a,now));}
+ for(const status of ['source_unavailable','worker_unavailable','capital_unavailable','paused','busy','reconciling']){const a=continuousCapacity(now);a.status=status;a.policy.availableByDirection={ZCASH_TO_BASE:false,BASE_TO_ZCASH:false};assert.equal(serviceCanQuote(decodeAvailability(a,now),'ZCASH_TO_BASE',now),false);}
+});
 test('v4 funded-or-active capacity permits only fresh authorized remaining routes with unchanged quote count',()=>{
  const now=Date.now(),payload=fundedCapacity(now);payload.policy.remainingQuotes=30;
  const a=decodeAvailability(payload,now);assert.equal(serviceCanQuote(a,'ZCASH_TO_BASE',now),true);assert.equal(a.policy!.remainingQuotes,30);assert.equal(servicePolicyIsCurrent(a,now+365*86400000),true);assert.equal(serviceCanQuote(a,'ZCASH_TO_BASE',now+60001),false);

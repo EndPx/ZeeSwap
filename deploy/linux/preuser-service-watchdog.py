@@ -132,6 +132,21 @@ def supervise_closed(effects, execute=False):
     info = effects.closed('inspect')
     if info.get('status') != 'CLOSED_SERVICE_QUALIFIED':
         return {'status': 'WATCHDOG_CLOSED_REFUSED', 'actorAction': False}
+    if getattr(effects, 'continuous_enabled', False) and info.get('pendingPublication') is not False:
+        return {'status': 'WATCHDOG_WAIT_CONTINUOUS_PROCEEDS', 'actorAction': False}
+    # The Root-only helper resolves its original XID before any new credit.
+    # A stale sample simply waits; it never authorizes a Source interruption.
+    if execute and getattr(effects, 'continuous_enabled', False) and info.get('paused') is False and info.get('sourceFresh') is True:
+        proceeds = effects.reconcile_proceeds()
+        if proceeds.get('status') != 'CONTINUOUS_PROCEEDS_RECONCILED' or proceeds.get('pendingPublication') is not False:
+            return {'status': 'WATCHDOG_WAIT_CONTINUOUS_PROCEEDS', 'actorAction': False}
+        if type(proceeds.get('credited')) is not int or proceeds['credited'] < 0 or proceeds['credited'] > 32:
+            return {'status': 'WATCHDOG_WAIT_CONTINUOUS_PROCEEDS', 'actorAction': False}
+        if proceeds['credited'] > 0:
+            return {'status': 'WATCHDOG_CONTINUOUS_PROCEEDS_RECONCILED', 'credited': proceeds['credited'], 'actorAction': True}
+        info = effects.closed('inspect')
+        if info.get('status') != 'CLOSED_SERVICE_QUALIFIED' or info.get('pendingPublication') is not False:
+            return {'status': 'WATCHDOG_CLOSED_REFUSED', 'actorAction': False}
     if not inactive(effects.state(WORKER)):
         # A missed freshness sample is not authority to interrupt a healthy
         # worker. The ordinary financial/source gates fence actual stale work;
@@ -235,6 +250,9 @@ class RootEffects:
         self.closed_enabled = 'closedAuthority' in config or 'closedEntry' in config
         if self.closed_enabled and not ('closedAuthority' in config and 'closedEntry' in config):
             raise ValueError('WATCHDOG_CLOSED_CONFIG')
+        self.continuous_enabled = 'continuousAuthority' in config or 'continuousEntry' in config
+        if self.continuous_enabled and (not self.closed_enabled or not ('continuousAuthority' in config and 'continuousEntry' in config)):
+            raise ValueError('WATCHDOG_CONTINUOUS_CONFIG')
         if config.get('version') != 1 or config.get('purpose') != 'ROOT_PREUSER_SERVICE_SUPERVISION':
             raise ValueError('WATCHDOG_PURPOSE')
         self.env = dict(os.environ)
@@ -272,6 +290,17 @@ class RootEffects:
             if not entry['path'].startswith(str(ROOT / 'releases') + '/') or not entry['path'].endswith('/api/scripts/recover-testnet-closed-service.ts'):
                 raise ValueError('WATCHDOG_CLOSED_ENTRY')
             pinned(entry)
+        if self.continuous_enabled:
+            mode = json.loads(pinned(self.c['continuousAuthority'], True))
+            if mode.get('version') != 1 or mode.get('purpose') != 'ROOT_CONTINUOUS_TESTNET_DEMO' or mode.get('parentClosedAuthority') != self.c['closedAuthority']:
+                raise ValueError('WATCHDOG_CONTINUOUS_PARENT')
+            source_authority = json.loads(pinned(source['authority'], True))
+            if source_authority.get('version') != 4 or source_authority.get('continuousMode') != self.c['continuousAuthority'] or source_authority.get('continuousInspector') != self.c['continuousEntry'] or source_authority.get('closedRecovery') != self.c['closedAuthority']:
+                raise ValueError('WATCHDOG_CONTINUOUS_SOURCE_BINDING')
+            entry = self.c['continuousEntry']
+            if not entry['path'].startswith(str(ROOT / 'releases') + '/') or not entry['path'].endswith('/api/scripts/administer-continuous-demo.ts'):
+                raise ValueError('WATCHDOG_CONTINUOUS_ENTRY')
+            pinned(entry)
 
     def run_entry(self, entry, args, timeout):
         self.verify()
@@ -290,9 +319,17 @@ class RootEffects:
         return self.run_entry('sourceEntry', ['--config', pin['path'], '--config-sha256', pin['sha256']], 60)[1]
 
     def closed(self, action, execute=False):
-        pin = self.c['closedAuthority']
-        code, value = self.run_entry('closedEntry', [pin['path'], pin['sha256'], action, *(['--execute'] if execute else [])], 60)
+        continuous = getattr(self, 'continuous_enabled', False)
+        pin = self.c['continuousAuthority' if continuous else 'closedAuthority']
+        code, value = self.run_entry('continuousEntry' if continuous else 'closedEntry', [pin['path'], pin['sha256'], ('closed-' if continuous else '') + action, *(['--execute'] if execute else [])], 60)
         return value if code == 0 else {'status': 'CLOSED_SERVICE_REFUSED', 'code': value.get('code', 'PRIVATE_CLOSED_FAILURE')}
+
+    def reconcile_proceeds(self):
+        if not self.continuous_enabled:
+            raise ValueError('WATCHDOG_CONTINUOUS_CONFIG')
+        pin = self.c['continuousAuthority']
+        code, value = self.run_entry('continuousEntry', [pin['path'], pin['sha256'], 'reconcile', '--execute'], 60)
+        return value if code == 0 else {'status': 'CONTINUOUS_PROCEEDS_REFUSED'}
 
     def recover(self):
         pin = self.c['sourceConfig']

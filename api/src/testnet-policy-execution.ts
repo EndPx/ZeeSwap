@@ -52,7 +52,17 @@ export const POLICY_WORKER_EXECUTION_PATHS=[
   "workers/zcash-wallet/snapshot.schema.json"
 ] as const;
 export interface WorkerExecutionPin {path:string;sha256:string;}
-export interface WorkerExecutionConfig {executionRoot:string;publicCommit:string;executionManifest:WorkerExecutionPin;forwardFastExecution?:WorkerExecutionPin;}
+export interface WorkerExecutionConfig {executionRoot:string;publicCommit:string;executionManifest:WorkerExecutionPin;forwardFastExecution?:WorkerExecutionPin;continuousCapital?:WorkerExecutionPin;}
+export type ContinuousCapitalApproval={version:1;purpose:'ROOT_CONTINUOUS_POLICY_CAPITAL';policySha256:string;profileSha256:string;executionRoot:string;captureScript:WorkerExecutionPin;originalCaptureScript:WorkerExecutionPin};
+export function requireContinuousCapitalApproval(a:ContinuousCapitalApproval,c:Pick<WorkerExecutionConfig,'executionRoot'>,policySha256:string,profileSha256:string){
+ need(a?.version===1&&a.purpose==='ROOT_CONTINUOUS_POLICY_CAPITAL'&&a.policySha256===policySha256&&a.profileSha256===profileSha256&&a.executionRoot===c.executionRoot,'CONTINUOUS_CAPITAL_SCOPE');
+ workerExecutionRoot(c.executionRoot+'/api/scripts/work-linux-testnet-policy.ts',c.executionRoot);
+ need(a.captureScript?.path===c.executionRoot+'/workers/zcash-wallet/testnet_continuous_capital.py'&&/^[a-f0-9]{64}$/.test(a.captureScript.sha256)&&a.captureScript.sha256!=='0'.repeat(64)&&/^\/opt\/zeeswap-testnet\/releases\/[a-z0-9][a-z0-9._-]{0,79}\/app\/workers\/zcash-wallet\/testnet_policy_capital\.py$/.test(a.originalCaptureScript?.path)&&a.originalCaptureScript.path!==a.captureScript.path&&/^[a-f0-9]{64}$/.test(a.originalCaptureScript.sha256)&&a.originalCaptureScript.sha256!=='0'.repeat(64),'CONTINUOUS_CAPITAL_CAPTURE');
+}
+export async function requireContinuousCapitalSqlGrant(db:{query:(sql:string,args?:any[])=>Promise<any>},policySha256:string,approvalSha256:string){
+ need([policySha256,approvalSha256].every(h=>/^[a-f0-9]{64}$/.test(h)&&h!=='0'.repeat(64)),'CONTINUOUS_CAPITAL_DIGEST');
+ need((await db.query('SELECT zee.testnet_continuous_demo_enabled($1) AND EXISTS(SELECT 1 FROM zee.testnet_continuous_demo_authorizations WHERE policy_sha256=$1 AND capital_approval_sha256=$2) yes',[Buffer.from(policySha256,'hex'),Buffer.from(approvalSha256,'hex')])).rows[0]?.yes===true,'CONTINUOUS_CAPITAL_SQL_AUTHORITY');
+}
 /** Root review changes only forward execution, retaining the original policy and native profiles. */
 export interface ForwardFastExecutionApproval {
  nativeExecution?:WorkerExecutionPin;

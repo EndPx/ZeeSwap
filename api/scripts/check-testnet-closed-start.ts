@@ -10,6 +10,7 @@ function need(v:unknown,code:string):asserts v{if(!v)throw Error('CLOSED_START_'
 /** The activating unit is allowed only when this exact checker is its ControlPID. */
 export function requireClosedStartQualification(info:any,unit:Record<string,string>,pid:number,markerPresent:boolean){
  need(info?.status==='CLOSED_SERVICE_QUALIFIED'&&info.paused===false&&(info.warm===true||info.open===true)&&info.sourceFresh===true&&info.financialWorkerLease===false,'QUALIFICATION');
+ need(info.pendingPublication!==true,'ORIGINAL_TRANSACTION_PENDING');
  need(!markerPresent,'SOURCE_RECOVERY_ACTIVE');
  need(Number.isSafeInteger(pid)&&pid>1&&unit.MainPID==='0','WORKER_PROCESS');
  const own=unit.ControlPID===String(pid),idle=unit.ActiveState==='inactive'||unit.ActiveState==='failed';
@@ -23,17 +24,22 @@ async function codePin(path:string,sha256:string){
 }
 async function markerPresent(){try{await lstat(MARKER);return true;}catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')return false;throw e;}}
 async function unitState(){const r=await run('/bin/systemctl',['show',UNIT,'--property=ActiveState','--property=MainPID','--property=ControlPID'],{timeout:10000,maxBuffer:4096});return Object.fromEntries(r.stdout.trim().split('\n').map(line=>line.split('=',2)));}
+export function closedInspectorExport(path:string){
+ if(path.endsWith('/api/scripts/recover-testnet-closed-service.ts'))return 'closedServiceAction';
+ need(path.endsWith('/api/scripts/administer-continuous-demo.ts'),'ENTRY');return 'continuousClosedServiceAction';
+}
 export async function checkClosedStart(authorityPath:string,authoritySha:string,inspectorPath:string,inspectorSha:string,selfSha:string){
  need(process.platform==='linux'&&process.getuid?.()===0&&process.env.NODE_OPTIONS===undefined,'ROOT');
- const own=fileURLToPath(import.meta.url);need(own.endsWith('/api/scripts/check-testnet-closed-start.ts')&&inspectorPath.endsWith('/api/scripts/recover-testnet-closed-service.ts'),'ENTRY');
+ const own=fileURLToPath(import.meta.url);need(own.endsWith('/api/scripts/check-testnet-closed-start.ts'),'ENTRY');const inspectorExport=closedInspectorExport(inspectorPath);
  await codePin(own,selfSha);await codePin(inspectorPath,inspectorSha);
  need(!await markerPresent(),'SOURCE_RECOVERY_ACTIVE');
  const before=await unitState();
  // Import the exact existing release: its authority verifies its own immutable
  // code manifest, current financial configuration and complete SQL/journal proofs.
  const module=await import(pathToFileURL(inspectorPath).href);
- need(typeof module.closedServiceAction==='function','INSPECTOR');
- const info=await module.closedServiceAction({path:authorityPath,sha256:authoritySha},'inspect');
+ need(typeof module[inspectorExport]==='function','INSPECTOR');
+ const info=await module[inspectorExport]({path:authorityPath,sha256:authoritySha},'inspect');
+ if(inspectorExport==='continuousClosedServiceAction')need(info?.pendingPublication===false,'ORIGINAL_TRANSACTION_PENDING');
  requireClosedStartQualification(info,before,process.pid,await markerPresent());
  requireClosedStartQualification(info,await unitState(),process.pid,await markerPresent());
  await codePin(own,selfSha);await codePin(inspectorPath,inspectorSha);

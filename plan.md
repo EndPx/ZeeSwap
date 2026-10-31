@@ -2,6 +2,19 @@
 
 Last updated: 2026-10-29 (Asia/Jakarta), for the isolated Linux testnet deployment. Execution evidence below retains its recorded dates.
 
+Continuous judge demo (31 October, explicit selected user decision): retain
+fixed 100,000-atomic swaps and global concurrency one, but replace the lifetime
+two-per-direction and 32-issued-quote pilot caps with actual inventory/fee
+capacity and a bounded rolling quote rate. Preserve all historical counts,
+original policy rows and financial history. Only finalized, canonical,
+discharged exact source proceeds may be credited back to operator principal,
+once per deposit, through recorded balanced ledger entries. Additional demo
+capital must be independently proven operator-owned and physically available;
+allocation is a separate finite Root publication, not a fabricated balance.
+Keep liquidity, current Sources, signed-transaction identity, gas ceilings and
+funded/uncertain recovery boundaries. No testnet asset mint or external transfer
+is implied by this accounting/allocation decision.
+
 Recurring service recovery (31 October, explicit request for continuous
 availability): replace the one-time, old-release-only restart assumption with
 a protected persistent Root path for fully closed financial books. Preserve

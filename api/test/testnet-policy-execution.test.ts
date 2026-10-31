@@ -1,8 +1,17 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';import {posix} from 'node:path';
-import {POLICY_WORKER_EXECUTION_PATHS,workerExecutionRoot,workerExecutionPins,requireWorkerPolicyCommit,requireForwardFastExecution,requireForwardFastSignerConfig,readPolicyExecutionEpoch,type ForwardFastExecutionApproval} from '../src/testnet-policy-execution.ts';
+import {POLICY_WORKER_EXECUTION_PATHS,workerExecutionRoot,workerExecutionPins,requireWorkerPolicyCommit,requireContinuousCapitalApproval,requireContinuousCapitalSqlGrant,requireForwardFastExecution,requireForwardFastSignerConfig,readPolicyExecutionEpoch,type ForwardFastExecutionApproval,type ContinuousCapitalApproval} from '../src/testnet-policy-execution.ts';
 const root='/opt/zeeswap-testnet/releases/swap-live-fixture-r1/app',commit='a'.repeat(40),hash='b'.repeat(64);
 const fixture=():{publicCommit:string;files:{relativePath:string;path:string;sha256:string}[]}=>({publicCommit:commit,files:POLICY_WORKER_EXECUTION_PATHS.map(relativePath=>({relativePath,path:root+'/'+relativePath,sha256:hash}))});
+test('continuous capital requires exact new capture, original delegate and actual SQL approval',async()=>{
+ const policy='c'.repeat(64),profile='d'.repeat(64),a:ContinuousCapitalApproval={version:1,purpose:'ROOT_CONTINUOUS_POLICY_CAPITAL',policySha256:policy,profileSha256:profile,executionRoot:root,captureScript:{path:root+'/workers/zcash-wallet/testnet_continuous_capital.py',sha256:hash},originalCaptureScript:{path:'/opt/zeeswap-testnet/releases/original-r1/app/workers/zcash-wallet/testnet_policy_capital.py',sha256:'e'.repeat(64)}};
+ assert.doesNotThrow(()=>requireContinuousCapitalApproval(a,{executionRoot:root},policy,profile));
+ for(const change of [(x:any)=>x.purpose='OTHER',(x:any)=>x.policySha256=profile,(x:any)=>x.profileSha256=policy,(x:any)=>x.executionRoot=root+'/other',(x:any)=>x.captureScript.sha256='0'.repeat(64),(x:any)=>x.captureScript.path=x.originalCaptureScript.path,(x:any)=>x.originalCaptureScript.path='/tmp/testnet_policy_capital.py',(x:any)=>x.originalCaptureScript.sha256='0'.repeat(64)]){const wrong=structuredClone(a);change(wrong);assert.throws(()=>requireContinuousCapitalApproval(wrong,{executionRoot:root},policy,profile));}
+ const db={query:async(sql:string,args?:any[])=>{assert.match(sql,/capital_approval_sha256=\$2/);assert.equal(args?.[0].toString('hex'),policy);assert.equal(args?.[1].toString('hex'),hash);return{rows:[{yes:true}]};}};
+ await requireContinuousCapitalSqlGrant(db,policy,hash);
+ for(const yes of [false,null,undefined,'true'])await assert.rejects(requireContinuousCapitalSqlGrant({query:async()=>({rows:[{yes}]})},policy,hash),/CONTINUOUS_CAPITAL_SQL_AUTHORITY/);
+ await assert.rejects(requireContinuousCapitalSqlGrant(db,policy,'0'.repeat(64)),/CONTINUOUS_CAPITAL_DIGEST/);
+});
 
 test('Root forward execution amendment binds original policy and exact reviewed new execution without changing default commit gate',()=>{
  const pin=(path:string)=>({path,sha256:hash}),c={executionRoot:root,publicCommit:commit,executionManifest:pin('/opt/zeeswap-testnet/state/service-policy/new-manifest.private.json'),forwardFastExecution:pin('/opt/zeeswap-testnet/state/service-policy/forward-fast.private.json')};
