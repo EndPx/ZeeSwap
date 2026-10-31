@@ -13,6 +13,7 @@ class Effects:
         self.value = {'status': 'AUTO_SOURCE_PREUSER_IDLE', 'safeToGracefullyStop': True,
                       'manualReview': False, 'pendingPublication': pending,
                       'sourceFresh': fresh, 'financialWorkerLease': active}
+        self.value['sourceStale'] = not fresh
         self.states = {u: {'ActiveState': 'inactive', 'MainPID': '0'}
                        for u in (watchdog.WORKER, watchdog.NATIVE, watchdog.BASE)}
         if active:
@@ -266,6 +267,38 @@ class ClosedEffects(Effects):
 
 
 class ClosedSupervisionTests(unittest.TestCase):
+    def test_transient_freshness_miss_never_fences_active_open_worker(self):
+        e = ClosedEffects(fresh=False, active=True, paused=False)
+        e.info.update(warm=False, open=True)
+        self.assertEqual(watchdog.supervise(e, True)['status'], 'WATCHDOG_WAIT_EXISTING_WORKER')
+        self.assertEqual(e.events, [('closed', 'inspect', False)])
+
+    def test_transient_freshness_miss_keeps_warm_worker_for_actual_intake_gate(self):
+        e = ClosedEffects(fresh=False, active=True, paused=False)
+        e.refused = 'intake'
+        self.assertEqual(watchdog.supervise(e, True)['status'], 'WATCHDOG_WAIT_ACTUAL_CAPITAL')
+        self.assertEqual(e.events, [('closed', 'inspect', False), ('closed', 'intake', True)])
+
+    def test_native_only_staleness_does_not_interrupt_base_for_metadata_recovery(self):
+        e = ClosedEffects(fresh=False)
+        e.value['sourceStale'] = False
+        for unit in (watchdog.NATIVE, watchdog.BASE):
+            e.states[unit] = {'ActiveState': 'active', 'MainPID': '123'}
+        self.assertEqual(watchdog.supervise(e, True)['status'], 'WATCHDOG_WAIT_CLOSED_SOURCE_FRESHNESS')
+        self.assertEqual(e.events, [('closed', 'inspect', False), 'inspect'])
+
+    def test_pending_original_is_reconciled_even_when_base_is_fresh(self):
+        e = ClosedEffects(fresh=False)
+        e.value.update(sourceStale=False, pendingPublication=True)
+        self.assertEqual(watchdog.supervise(e, True)['status'], 'WATCHDOG_CLOSED_WORKER_START_REQUESTED')
+        self.assertIn('recover-original', e.events)
+
+    def test_unknown_base_staleness_cannot_authorize_metadata_recovery(self):
+        e = ClosedEffects(fresh=False)
+        del e.value['sourceStale']
+        self.assertEqual(watchdog.supervise(e, True)['status'], 'WATCHDOG_WAIT_CLOSED_SOURCE_FRESHNESS')
+        self.assertNotIn('recover-original', e.events)
+
     def test_inspect_never_mutates_even_when_sources_stale(self):
         e = ClosedEffects(fresh=False)
         self.assertEqual(watchdog.supervise(e)['status'], 'WATCHDOG_INSPECTED_CLOSED')

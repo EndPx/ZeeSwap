@@ -166,3 +166,26 @@ enabled, and the primary PostgreSQL container retains `unless-stopped` restart
 policy. The financial worker starts through its qualified supervisor rather
 than an unconditional boot bypass. The shared VPS was not rebooted for this
 check, so boot configuration is recorded separately from a live reboot test.
+
+## Freshness supervision correction
+
+The earlier active-worker branch treated the closed inspector's single
+30-second freshness miss as permission to pause and stop a qualified idle
+worker. A freshness miss alone does not establish that metadata recovery is
+needed. The corrected supervisor leaves an active warm or open worker running;
+only an already-paused SQL generation can enter its existing independently
+qualified stop path. The worker's financial and Source gates remain in force.
+
+For an inactive worker, the supervisor now distinguishes the automatic
+inspector's Base-specific `sourceStale` (older than 60 seconds) from
+`sourceFresh` (both actual Sources). Native-only staleness waits for ordinary
+consumer progress without stopping Base or requesting Base metadata recovery.
+A pending original publication still takes precedence and must be reconciled.
+Missing Base staleness evidence cannot authorize a new recovery. Startup,
+capital and intake freshness requirements are unchanged.
+
+The focused Linux supervisor suite passed **29/29 tests** under WSL Ubuntu
+24.04. Regression cases cover an active open worker, a warm worker with failed
+intake qualification, Native-only staleness, missing Base staleness evidence
+and pending-publication reconciliation. This paragraph records implementation
+and local verification; it does not claim deployment or continuous uptime.

@@ -133,7 +133,10 @@ def supervise_closed(effects, execute=False):
     if info.get('status') != 'CLOSED_SERVICE_QUALIFIED':
         return {'status': 'WATCHDOG_CLOSED_REFUSED', 'actorAction': False}
     if not inactive(effects.state(WORKER)):
-        if execute and (info.get('paused') is True or info.get('sourceFresh') is False):
+        # A missed freshness sample is not authority to interrupt a healthy
+        # worker. The ordinary financial/source gates fence actual stale work;
+        # only an already-paused closed generation may be handed off here.
+        if execute and info.get('paused') is True:
             fenced = effects.closed('pause', True)
             if fenced.get('status') != 'CLOSED_SERVICE_PAUSED':
                 return {'status': 'WATCHDOG_WAIT_CLOSED_FENCE', 'actorAction': False}
@@ -155,7 +158,12 @@ def supervise_closed(effects, execute=False):
     source = effects.inspect()
     if not eligible(source):
         return {'status': 'WATCHDOG_WAIT_CLOSED_SOURCE_QUALIFICATION', 'actorAction': False}
-    recovering = source.get('sourceFresh') is not True or source.get('pendingPublication') is True
+    # Base metadata recovery cannot repair a stale Native observation. Let the
+    # ordinary consumers catch up without stopping either one in that case.
+    # The pinned inspector's sourceStale is specifically the Base 60s clock.
+    recovering = source.get('sourceStale') is True or source.get('pendingPublication') is True
+    if not recovering and source.get('sourceFresh') is not True:
+        return {'status': 'WATCHDOG_WAIT_CLOSED_SOURCE_FRESHNESS', 'actorAction': False}
     if recovering:
         result, started, safe = None, False, False
         effects.ensure_recovery_marker()

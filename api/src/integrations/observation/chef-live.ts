@@ -84,15 +84,29 @@ export async function observeChefOnce(pool: pg.Pool, keys: PrivateData, config: 
 }
 
 export type ChefPersistedState={control:unknown;checkpoint:{scanned_height:string;finalized_height:string;tip_hash:string}|null;headers:{height:string;block_hash:string}[];financial:unknown};
+/** Ordinary cycles retain a checkpoint ancestry commitment, recent overlap and
+ * every financial anchor. Historical rows remain stored; this is not a lifetime
+ * archive audit. Root recovery callers retain their original complete read. */
+export async function readChefOrdinaryPersistedState(db:Pick<pg.Pool,'query'>):Promise<ChefPersistedState>{return readChefPersistedState(db,true);}
 /** One statement captures the exact native persisted prefix and financial rows.
  * No state/confirmation filter discards a retained financial anchor. */
-export async function readChefPersistedState(db:Pick<pg.Pool,'query'>):Promise<ChefPersistedState>{
+export async function readChefPersistedState(db:Pick<pg.Pool,'query'>,ordinary=false):Promise<ChefPersistedState>{
+ const headers=ordinary?`SELECT height::text,block_hash FROM zee.chain_observations WHERE network='zcash-testnet' AND height IN (
+  SELECT h.height FROM zee.chain_observations h JOIN zee.scanner_checkpoints c ON c.network=h.network
+   WHERE h.network='zcash-testnet' AND h.height BETWEEN GREATEST(0,c.scanned_height-9) AND c.scanned_height
+  UNION SELECT scanned_height FROM zee.scanner_checkpoints WHERE network='zcash-testnet'
+  UNION SELECT finalized_height FROM zee.scanner_checkpoints WHERE network='zcash-testnet'
+  UNION SELECT block_height FROM zee.deposits WHERE network='zcash-testnet'
+  UNION SELECT block_height FROM zee.reverse_payouts WHERE block_height IS NOT NULL
+  UNION SELECT height FROM zee.source_refunds WHERE zcash_hash IS NOT NULL AND height IS NOT NULL
+ ) ORDER BY height LIMIT 397`:`SELECT height::text,block_hash FROM zee.chain_observations WHERE network='zcash-testnet' ORDER BY height LIMIT 10005`;
  const row=(await db.query(`SELECT jsonb_build_object(
  'control',(SELECT to_jsonb(c)||jsonb_build_object('xmin',xmin::text) FROM zee.runtime_control c WHERE singleton),
  'checkpoint',(SELECT to_jsonb(c) FROM zee.scanner_checkpoints c WHERE network='zcash-testnet'),
- 'headers',(SELECT COALESCE(jsonb_agg(to_jsonb(h) ORDER BY h.height::bigint),'[]'::jsonb) FROM (SELECT height::text,block_hash FROM zee.chain_observations WHERE network='zcash-testnet' ORDER BY height LIMIT 10005) h),
+ ${ordinary?`'observationScope','ORDINARY_CHECKPOINT_ANCESTRY_AND_FINANCIAL_ANCHORS','observationSummary',(SELECT jsonb_build_object('count',count(*)::text,'minHeight',min(height)::text,'maxHeight',max(height)::text) FROM zee.chain_observations WHERE network='zcash-testnet'),`:''}
+ 'headers',(SELECT COALESCE(jsonb_agg(to_jsonb(h) ORDER BY h.height::bigint),'[]'::jsonb) FROM (${headers}) h),
  'financial',jsonb_build_object('deposits',(SELECT COALESCE(jsonb_agg(to_jsonb(d) ORDER BY d.id),'[]'::jsonb) FROM (SELECT * FROM zee.deposits WHERE network='zcash-testnet' ORDER BY id LIMIT 129) d),'reverse_payouts',(SELECT COALESCE(jsonb_agg(to_jsonb(r) ORDER BY r.order_id),'[]'::jsonb) FROM (SELECT * FROM zee.reverse_payouts ORDER BY order_id LIMIT 129) r),'source_refunds',(SELECT COALESCE(jsonb_agg(to_jsonb(r) ORDER BY r.order_id),'[]'::jsonb) FROM (SELECT * FROM zee.source_refunds ORDER BY order_id LIMIT 129) r))) AS state`)).rows[0]?.state;
- requireThat(row&&Array.isArray(row.headers)&&row.headers.length<=10004,'CHEF_PERSISTED_STATE_BOUND');requireThat(['deposits','reverse_payouts','source_refunds'].every(t=>Array.isArray(row.financial?.[t])&&row.financial[t].length<=128),'CHEF_PERSISTED_STATE_BOUND');return row;
+ requireThat(row&&Array.isArray(row.headers)&&row.headers.length<=(ordinary?396:10004),'CHEF_PERSISTED_STATE_BOUND');requireThat(['deposits','reverse_payouts','source_refunds'].every(t=>Array.isArray(row.financial?.[t])&&row.financial[t].length<=128),'CHEF_PERSISTED_STATE_BOUND');return row;
 }
 /** A wait is permitted only after independently checking every persisted hash,
  * then rereading the exact captured state. Failure never becomes a wait. */

@@ -56,3 +56,33 @@ initially failed because their reader intentionally rejects unpublished heights
 while the current helper selects its recent-prefix path; those fixtures now
 explicitly disable that path to exercise their intended full-history audit.
 No remote deployment or live reopening is claimed here.
+
+## Ordinary archive growth boundary, 31 October
+
+A later read-only diagnosis found the ordinary consumer repeatedly exiting 1
+with `CHEF_PERSISTED_STATE_BOUND` in `READ_PERSISTED`, before traversal. The
+native observation archive contained 10,006 rows, exceeding the reader's fixed
+10,004-header snapshot limit. The retained financial tables contained two
+native deposits, one source refund and no reverse payout. This failure did not
+establish a stale producer or an unchanged-tip freshness problem.
+
+The ordinary consumer now explicitly reads its current checkpoint ancestry
+commitment, the ten-height overlap ending at that checkpoint, scanned/finalized
+headers and every retained financial-anchor height. Its single SQL snapshot
+also retains the original exact financial rows, runtime control and an archive
+count/minimum/maximum summary. Both unchanged-world rereads use the same scope.
+Historical observation rows remain stored. Root linked/current recovery readers
+retain their original full-prefix read and bounds. The ordinary diagnostic
+explicitly records its projected-anchor scope and
+`allHistoricalHeadersAudited: false`; it makes no full-archive audit claim.
+
+Checkpoint/cursor identity, fresh independent canonical reads, financial-anchor
+hashes, source identity, two unchanged-world checks and postpublication failure
+guards remain required. The change does not refresh timestamps, advance cursors
+without ingestion, delete history or raise a lifetime archive cap.
+
+Local verification passed API typecheck and 36 focused tests across ordinary
+persisted-state bounds, recent-prefix waits, volatile heads, sibling ancestry,
+live cursor publication, fatal supervision and deferred source rechecks.
+Deployment and actual read-only SQL qualification are separate operator steps;
+these local results alone do not establish remote availability.
