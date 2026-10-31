@@ -1,7 +1,7 @@
 # Delivered background admission
 
-Date: 31 October 2026. Implementation and disposable PostgreSQL evidence only;
-this document does not claim activation in the live service.
+Date: 31 October 2026. Implementation, disposable PostgreSQL checks and the
+scoped live activation below are recorded separately.
 
 The continuous demo retains one foreground order. A forward order with the
 original successful canonical Base RESERVE and PAY inclusions can continue
@@ -75,3 +75,33 @@ a fresh snapshot and checks the unchanged capture hash, original proof clock,
 current nonce, journals and Source freshness. Thresholds remain unchanged. The
 12 focused startup/continuous checks passed, including Source publication during
 capture and refusal before opening a transaction when capture fails.
+
+## Live activation
+
+Root installed migrations 0040 and 0041 in transaction `635718`, preserving
+fingerprints for 34 existing financial/control tables and the ACLs of 39
+existing tables. No transaction history or balances were reset. The first
+successor grant was published in `635731`; the corrected Root gate continuation
+was published in `638364`, retaining the same financial configuration and
+capital approval. Neither publication minted assets or sent a payment.
+
+The financial worker runs the immutable `f8c302d` release with 166 execution
+pins and its original native supervisor bytes. Startup uses the separately
+pinned `0d4333c` adapter and `e8d6ba6` Root gate. The initially incomplete
+activation was reconciled against its original private intent after the actual
+gate and worker startup succeeded. Its immutable record was preserved.
+
+The actual wallet-before-lock startup succeeded, the worker published
+`POLICY_IDLE_CAPITAL_VERIFIED`, and the updated supervisor timer is enabled and
+active. Existing Chef and Envio consumers were retained. The public API was
+`ready` at **17:02:31 WIB**, with zero foreground orders and both swap
+directions available. A fresh headless browser also verified both quote dialog
+buttons, the expected production bundle, HTTP 200 health/availability, zero
+JavaScript errors and zero POST requests.
+
+The user's preceding payout had already reached actual finality before the
+cutover. The 60-case isolated fixture proves admission while the original
+delivery remains unfinalized; this activation did not execute a new funded
+background-delivery swap. The new slot behavior applies to canonical forward
+Zcash-to-Base payouts. Reverse and bridge delivery were not relabelled as
+background-complete by this change.
