@@ -23,6 +23,7 @@ It has no Circle affiliation or monetary value.
 
 | Area | Reports | Evidence class / limit |
 | --- | --- | --- |
+| Recurring service recovery | [Persistent closed-state recovery](evidence/closed-service-recovery.md), [dynamic terminal journals](evidence/closed-service-dynamic-journals.md), [unpublished Chef moving fence](evidence/native-unpublished-moving-fence.md) | Actual original-XID metadata recovery plus controlled automatic restart/intake drill; closed books only, no 24-hour uptime SLA |
 | Fast Base L2 execution | [Swap implementation and live readiness](evidence/fast-forward-delivery.md), [closed-policy execution resumption](evidence/closed-policy-execution-resume.md), [separate bridge mode](evidence/base-l2-bridge-execution.md) | Actual ready public swap deployment and original user payment closure; local/isolated fast-path checks. Public bridge activation and a funded fast-mode roundtrip remain separate |
 | Shielded observation | [G1 feasibility](evidence/g1-feasibility.md), [G2 incoming payment](evidence/g2-api-scanner.md) | Real authorized testnet wallet/intake observations; intake `READY` alone is not a payout |
 | Persistent accounting | [G2 database](evidence/g2-database.md) | Encrypted private data, guarded state, reservations and journals on remote PostgreSQL |

@@ -103,7 +103,59 @@ refuses startup. The wrapper and original inspector bytes are checked before
 and after qualification. Three focused tests and API typechecking passed; the
 original Root authority and inspector code were preserved.
 
-Remote publication, recovery execution, worker
-capital readiness and public availability must be recorded separately after
-operator verification. This preparation alone does not establish continuous
-availability or a completed live recovery.
+## Actual deployment and recovery
+
+Migration 0038 and the immutable persistent authority were installed in primary
+transaction `588700`. The operator compared the original financial snapshot,
+control row and original policy table/column privileges before and after; all
+were unchanged. Authority SHA256:
+`d80ab61508eb535ec9c2ba5060b0fbf546308c4865ede6d73a19187f450a7c59`.
+The financial worker configuration, original wallets, receipt journals, budgets
+and admission history were preserved. The consumer and recovery deployment is
+commit `bf27fbe604a7c5c8b4dda08a6cc1f9920ee22226`.
+
+The live Source recovery completed its original metadata transaction `589344`,
+covering blocks 52,490,716 through 52,521,917 in 33 bounded packets, then
+acknowledged the exact original result. A later smaller original transaction
+`590858` covered 52,523,758 through 52,524,256 in two packets. There were no new
+financial operations or resets. Chef resumed from its original canonical
+cursor without rollback and continued normal publications.
+
+Live verification also caught a lagging producer finality announcement below
+already admitted SQL finality. Consumer correction
+`1e0d32d650422f044ad1cd657ed1c817c072ff1a` keeps that producer header checked
+while taking authority only from the actual independent observations. The
+paired ten-code-pin transport proof is
+`d616c8bff80501d5516a95e336c8201c20564dbff61263cb84c69051c26184f8`.
+
+The final persistent systemd start check is commit
+`9bcedc4b3db0f949611b09a1b12fe4c1e68ac613`. It verifies its own code hash and
+calls the unchanged original pinned inspector. Its own `activating` state is
+accepted only with `MainPID=0` and its exact current checker `ControlPID`.
+The original Root authority and inspector were not rewritten to make startup
+pass. Failed rollout generations remain in the immutable history.
+
+## Controlled recovery drill
+
+At **13:16:07 WIB on 31 October**, the operator invoked the closed-book pause
+through the persistent authority, then stopped the idle worker. The pause used
+the admission mutex and refused open financial books; there was no customer
+order, signature, broadcast or quota change. No manual start followed.
+
+- **13:16:17:** the supervisor requested and completed the worker start. Its
+  MainPID changed from 2272879 to 2276846.
+- **13:16:40:** the worker recorded genuine capital verification.
+- **13:16:51:** the supervisor enabled intake after its real lease, capital and
+  Source checks. Full readiness returned in **44 seconds** from the drill start.
+- **13:17:37:** actual public availability returned `ready` for both directions.
+  A fresh GET/HEAD-only browser check also verified both enabled quote buttons,
+  HTTP 200 health/availability and zero page errors. It created no new quote or
+  order and performed no wallet action.
+
+The final observed control was execution epoch 262, with intake and dispatch
+enabled and reconciliation disabled. Both Sources were fresh, there were zero
+open orders or held liabilities, and original remaining capacity stayed one
+forward order, two reverse orders and 25 quote issuances. Immutable recovery
+generations were retained. This is actual bounded recovery evidence; a full
+24-hour uninterrupted observation has not been performed. Genuine unsettled
+or conflicting financial evidence still refuses automatic handoff.

@@ -1,6 +1,6 @@
 # Submission readiness
 
-**Status checkpoint: 31 October 2026, 09:39 WIB (Asia/Jakarta).** This is the single summary
+**Status checkpoint: 31 October 2026, 13:17 WIB (Asia/Jakarta).** This is the single summary
 of changing deployment and submission facts. Historical evidence retains its
 own date and scope; a later deployment does not retroactively qualify it.
 The public Swap interface and both quote directions were verified ready at this
@@ -15,6 +15,7 @@ deployment checkpoints retain their recorded scope.
 | Zcash funding interface | Manual receiver entry and exact accepted-order QR/copy instructions replace the wallet-specific browser integration. Implementation checks and static deployment are recorded separately | [Removal and verification record](evidence/noir-removal.md); [historical Noir evidence](evidence/noir-wallet-connection.md) is superseded and does not describe the current flow |
 | Swap admission | Actual public API returned `ready`; both directions and quote buttons were enabled. The unchanged pilot had one TAZ-to-USDC slot, two reverse slots and 25 quote issuances remaining. Service lifetime is nonexpiring; funding deadlines, inventory and capacity gates still apply | [Fast execution and actual deployment](evidence/fast-forward-delivery.md), [bounded service policy](evidence/bounded-testnet-service-policy.md), [plan](../plan.md) |
 | Fast Base execution | Root-approved canonical L2 inclusion enables dispatch in both swap directions; delivery inclusion and final accounting remain distinct. Zcash still requires ten confirmations. A new funded fast-mode roundtrip has not been claimed | [Implementation, real original payment and readiness evidence](evidence/fast-forward-delivery.md) |
+| Recurring closed-state recovery | Actual backlog recovery and a controlled idle interruption passed. The supervisor restarted the worker automatically and reopened intake after genuine capital/Source verification in 44 seconds. Funded or uncertain financial handoff remains blocked; no uninterrupted 24-hour observation is claimed | [Persistent recovery and live drill](evidence/closed-service-recovery.md) |
 | Fixed rate / faucet | Fixed swap rule is 1 TAZ = 100 USDC, zero protocol fee, with network fees separate. The USDC faucet has a verified historical claim | [Fixed-rate/public UI check](evidence/fixed-rate-faucet-live.md), [faucet deployment and claim](evidence/usdc-faucet-live.md) |
 | Public bridge API | Latest public read reported `BRIDGE_NOT_CONFIGURED`; new deposits/burns remain unavailable | [Historical public Bridge check](evidence/g6-bridge-web-live.md), [implementation](evidence/g6-bridge-implementation.md) |
 | New bridge deployment | Independently finalized on two Base RPCs and paused; roles, eight decimals, zeeTAZ identity, zero supply/unpaid redemptions and gas funding verified. Public runtime configuration remains pending | Canonical checkpoint below; finality is not bridge delivery or backing proof |
