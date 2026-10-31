@@ -132,24 +132,29 @@ def validate_native_config(config, profile, purpose):
     pin = profile.get('configPins', {}).get('reverseProfile' if purpose == 'reverse' else 'refundProfile')
     need(pin and config.get('rootConfigPath') == pin['path'], 'PINNED_ROOT_CONFIG')
     root = json.loads(pinned(pin))
+    fast = fast_native_overlay(config, profile, root) if config.get('fastBaseInclusion') is True else None
+    need(config.get('fastBaseInclusion') in (None, False, True) and (not config.get('nativeFastExecution') or fast), 'FAST_EXPLICIT_MODE')
     need(root.get('operatorProfile') == PROFILE and root.get('python') == roots['base'] + '/tools/python/bin/python', 'ROOT_TRANSPORT')
-    scripts = root['scripts']
+    scripts = fast['scripts'] if fast else root['scripts']
+    code_root = fast['executionRoot'] if fast else roots['release'] + '/app'
     names = {'native': 'linux_native_wallet.py', 'profile': 'linux_operator_profile.py', 'supervisor': 'owned_wallet_call.py',
              'preparedKernel': 'prepared_raw.py', 'refundKernel': 'refund_raw.py', 'outgoingKernel': 'outgoing_recovery.py',
              'preflight': 'reverse_preflight.py' if purpose == 'reverse' else 'refund_preflight.py'}
     for name, filename in names.items():
-        need(scripts[name]['path'] == roots['release'] + '/app/workers/zcash-wallet/' + filename, 'RELEASE_SCRIPT')
+        need(scripts[name]['path'] == code_root + '/workers/zcash-wallet/' + filename, 'RELEASE_SCRIPT')
         pinned(scripts[name], False)
     guard_name = 'reverse-linux-broadcast-guard.ts' if purpose == 'reverse' else 'refund-linux-broadcast-guard.ts'
-    need(scripts['guard']['path'] == roots['release'] + '/app/api/scripts/' + guard_name, 'GUARD_SCRIPT')
+    need(scripts['guard']['path'] == code_root + '/api/scripts/' + guard_name, 'GUARD_SCRIPT')
     pinned(scripts['guard'], False)
     need(root['node']['path'].startswith(('/usr/bin/', roots['base'] + '/tools/')), 'NODE_PATH')
     pinned(root['node'], False)
     preflight = directory + '/preflight.private.json'
     checked = json.loads(pinned({'path': preflight, 'sha256': config['preflightConfigSha256']}))
     registry = json.loads(pinned(profile['immutable']['registry']))
-    need(checked == {'readCommand': [artifacts['reader']['path']], 'rpcUrl': registry['rpcUrl'],
-                     'hashCommand': [artifacts['cast']['path'], 'keccak']}, 'PREFLIGHT_CONFIG')
+    expected_preflight = {'readCommand': [artifacts['reader']['path']], 'rpcUrl': registry['rpcUrl'], 'hashCommand': [artifacts['cast']['path'], 'keccak']}
+    if fast:
+        expected_preflight.update({key: config[key] for key in ('fastBaseInclusion', 'nativeFastExecution', 'baseFastRoot', 'policyContext', 'linuxProfilePath', 'linuxProfileSha256', 'rootConfigPath')})
+    need(checked == expected_preflight, 'PREFLIGHT_CONFIG')
     need(config['preflightCommand'] == [root['python'], scripts['preflight']['path'], '--config', preflight,
                                        '--approved-request', str(approved), '--approved-digest', config['approvedDigest'],
                                        '--registry', profile['immutable']['registry']['path']], 'PREFLIGHT_COMMAND')
@@ -160,3 +165,41 @@ def validate_native_config(config, profile, purpose):
     loader = Path(roots['release'] + '/app/api/node_modules/tsx/dist/loader.mjs').as_uri()
     need(config['beforeBroadcastGuardCommand'] == [root['node']['path'], '--import', loader, scripts['guard']['path'], guard], 'GUARD_COMMAND')
     return order_id
+
+
+def fast_native_overlay(config, profile, root):
+    """Root-signed-by-file-ownership overlay; original wallet/profile authority stays bound."""
+    need(config.get('fastBaseInclusion') is True and config.get('nativePurpose', 'reverse') == 'reverse', 'FAST_REVERSE_ONLY')
+    def protected(pin):
+        need(isinstance(pin, dict) and set(pin) == {'path', 'sha256'} and inside(pin['path'], profile['roots']['state'] + '/service-policy'), 'FAST_ROOT_PATH')
+        root_reviewed(pin['path'])
+        need(Path(pin['path']).lstat().st_mode & 0o077 == 0, 'FAST_ROOT_PERMISSIONS')
+        return json.loads(pinned(pin))
+    parent = protected(config.get('baseFastRoot'))
+    pin = config.get('nativeFastExecution')
+    need(parent.get('purpose') == 'ROOT_BASE_L2_FAST_EXECUTION' and parent.get('version') == 1 and parent.get('nativeExecution') == pin, 'FAST_PARENT')
+    overlay = protected(pin)
+    context = config.get('policyContext', {})
+    original = profile['configPins']['reverseProfile']
+    need(overlay.get('version') == 1 and overlay.get('purpose') == 'ROOT_BASE_L2_FAST_NATIVE_EXECUTION'
+         and overlay.get('originalNativeProfileSha256') == original['sha256']
+         and overlay.get('profileSha256') == config.get('linuxProfileSha256') == parent.get('profileSha256')
+         and overlay.get('policySha256') == context.get('policySha256') == parent.get('policySha256')
+         and overlay.get('activeEpoch') == context.get('activeEpoch') == parent.get('activeEpoch')
+         and config.get('rootConfigPath') == original['path'], 'FAST_BINDING')
+    for key in ('executionRoot', 'publicCommit', 'executionManifest'):
+        need(overlay.get(key) == parent.get(key), 'FAST_EXECUTION_BINDING')
+    code_root = overlay['executionRoot']
+    need(re.fullmatch('/opt/zeeswap-testnet/releases/[a-z0-9][a-z0-9._-]{0,79}/app', code_root), 'FAST_CODE_ROOT')
+    manifest = protected(overlay['executionManifest'])
+    need(manifest.get('publicCommit') == overlay['publicCommit'] and re.fullmatch('[a-f0-9]{40}', overlay['publicCommit']), 'FAST_MANIFEST_COMMIT')
+    scripts = overlay.get('scripts', {})
+    need(set(scripts) == set(root['scripts']), 'FAST_SCRIPT_SET')
+    for name, old in root['scripts'].items():
+        relative = old['path'][len(profile['roots']['release'] + '/app/'):]
+        script = scripts[name]
+        need(script.get('path') == code_root + '/' + relative and any(item.get('relativePath') == relative and item.get('sha256') == script.get('sha256') for item in manifest.get('files', [])), 'FAST_SCRIPT_MANIFEST')
+        root_reviewed(script['path'])
+        need(Path(script['path']).lstat().st_mode & 0o022 == 0, 'FAST_SCRIPT_PERMISSIONS')
+        pinned(script, False)
+    return overlay

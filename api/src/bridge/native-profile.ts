@@ -11,7 +11,7 @@ import type {PermitBinding} from './operator-qualification.ts';
 import type {Books,Order} from './model.ts';
 import {PublicBridgePilotRuntime} from './public-pilot.ts';
 
-export type NativeSpendTemplate={python:FilePin;worker:FilePin;template:FilePin;ownedSupervisor:FilePin};
+export type NativeSpendTemplate={python:FilePin;worker:FilePin;template:FilePin;ownedSupervisor:FilePin;fastBaseL2?:FilePin};
 /** Explicit immutable approval from current canonical inventory. No calculation
  * or wallet send occurs. A partial/existing directory requires Root review. */
 export async function approveNativeProfile(store:BridgeStore,runtime:PausedBridgeRuntime,binding:PermitBinding,config:NativeSpendTemplate,id:string):Promise<NativeCommandProfile>{return approveProfile(store,runtime,config,id,(o,b)=>{const p=binding.permit;if(b.qualification?.permitSha256!==binding.sha256||b.qualification.permitId!==p.permitId||o.recipient!==p.reverse.recipient||o.payer!==p.reverse.payer)throw Error('BRIDGE_NATIVE_APPROVAL_SCOPE');});}
@@ -29,7 +29,7 @@ async function approveProfile(store:BridgeStore,runtime:PausedBridgeRuntime,conf
  const base=runtime.base.profile,q:NativeBridgeRequest={version:1,purpose:'bridge-redemption',intentId:digest(['bridge-delivery-v1',o.id,o.commitment]),orderId:o.id,bridgeId:o.commitment,recipient:o.recipient,amountZatoshi:o.amountAtomic,maxFeeZatoshi:'10000',payoutCommitment:o.commitment,salt:o.salt,commitmentInput:{direction:o.direction,amountAtomic:o.amountAtomic,recipient:o.recipient,payer:o.payer},base:{chainId:84532,contract:base.contractAddress.toLowerCase(),runtimeCodeHash:base.runtimeCodeHash,payer:o.payer!.toLowerCase(),amountAtomic:o.amountAtomic,transactionHash:o.source.transactionHash as `0x${string}`,blockNumber:String(o.source.blockHeight),blockHash:o.source.blockHash,operator:base.operator.toLowerCase(),authorizer:base.authorizer.toLowerCase(),admin:base.admin.toLowerCase()},paired:b.pair};
  const write=async(path:string,value:unknown)=>{const bytes=Buffer.from(JSON.stringify(value)),file=await open(path,'wx',0o600);try{await file.writeFile(bytes);await file.sync();}finally{await file.close();}return {path,sha256:createHash('sha256').update(bytes).digest('hex')};};
  const request=await write(join(dir,'approved.private.json'),q),note=(n:typeof s.notes[number],role:'principal'|'fee')=>({pool:n.pool,txid:n.txid,index:n.index,value:n.value,role});
- const profile={...template,approvedRequest:request,approvedDigest:nativeDigest(q),capitalNotes:[note(principal[0],'principal'),note(fees[0],'fee')],extraFeeNotes:fees.slice(1).map(n=>note(n,'fee'))};
+ const profile={...template,...(config.fastBaseL2?{fastBaseL2:config.fastBaseL2}:{}),approvedRequest:request,approvedDigest:nativeDigest(q),capitalNotes:[note(principal[0],'principal'),note(fees[0],'fee')],extraFeeNotes:fees.slice(1).map(n=>note(n,'fee'))};
  const profilePin=await write(join(dir,'profile.private.json'),profile),directory=await open(dir,'r');try{await directory.sync();}finally{await directory.close();}const outer=await open(parent,'r');try{await outer.sync();}finally{await outer.close();}
  const pins={python:config.python,worker:config.worker,profile:profilePin,approvedRequest:request,approvedDigest:profile.approvedDigest,ownedSupervisor:config.ownedSupervisor};o.nativeProfile=pins;return pins;
  });}

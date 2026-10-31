@@ -23,7 +23,7 @@ export class PublicBridgeWorker {
   for(let i=0;i<5;i++){
    const done=await this.store.update(async b=>{
     const o=b.orders[id];this.pilot.assertOrder(o,b);if(o.status!=='AWAITING_BURN')return true;
-    const start=o.baseScanCursor??o.acceptedPair?.base;if(!start)throw Error('BRIDGE_PUBLIC_ACCEPTED_ANCHOR_REQUIRED');const base=this.pilot.base,final=await base.finalized();await base.readAt(final);
+    const start=o.baseScanCursor??o.acceptedPair?.base;if(!start)throw Error('BRIDGE_PUBLIC_ACCEPTED_ANCHOR_REQUIRED');const base=this.pilot.base,final=await base.settlementAnchor();await base.readAt(final);
     if(start.height>final.height)throw Error('BRIDGE_PUBLIC_SCAN_REGRESSION');
     for(const c of base.clients)if((await c.getBlock({blockNumber:BigInt(start.height)})).hash!==start.hash)throw Error('BRIDGE_PUBLIC_SCAN_CURSOR_REORG');
     if(start.height===final.height)return true;const end=Math.min(start.height+199,final.height),height=BigInt(end),event=getAbiItem({abi:bridgeAbi,name:'RedemptionRequested'});
@@ -54,7 +54,20 @@ export class PublicBridgeWorker {
   return this.store.update(async b=>{const current=b.orders[id];this.pilot.assertOrder(current,b);const {s,c}=await this.pilot.observe(b);b.pair={zcash:s.zcash,base:c.anchor};applyEvent(b,await this.pilot.base.verify({kind:'MINT',transactionHash:current.baseEffects![phase]!.hash},current,b),Date.now());const proof=await this.pilot.recheck(b);await this.signer.reconcile(current.baseEffects![phase]!,b.pair);b.paused=Date.now()>=Date.parse(this.pilot.binding.permit.expiresAt);return reconciledBridgeStatus(b,this.pilot,proof);});
  }
  async recoverNative(id:string){const o=(await this.store.read()).orders[id];this.pilot.assertOrder(o,await this.store.read());await this.pause(id);await this.bindNative(o);await this.reverse.refreshPayout(this.store,id);const signer=this.reverse.signerAdapter(new BridgeJournal(this.journalRoot,this.keys),'recover');return new BridgeWorker(this.store,this.pilot,signer).prepare(id,'10000');}
+ async refreshBaseFinality(){
+  if(!this.pilot.base.fastL2)return;const original=await this.store.read();
+  if(!publicOrders(original,this.pilot.binding).some(o=>[o.source,o.destination,o.acknowledgment].some(r=>r?.network==='base-sepolia'&&r.finality==='INCLUDED')))return;
+  await this.store.update(async b=>{const anchor=await this.pilot.base.settlementAnchor(),pair={base:anchor,zcash:b.pair!.zcash};
+   for(const o of publicOrders(b,this.pilot.binding))for(const [key,kind] of [['source','BURN'],['destination','MINT'],['acknowledgment','ACK']] as const){
+    const r=o[key];if(r?.network!=='base-sepolia'||r.finality!=='INCLUDED')continue;
+    const actual=(await this.pilot.base.verify({kind,transactionHash:r.transactionHash},o,{...b,pair})).receipt;
+    if(actual.transactionHash!==r.transactionHash||actual.blockHeight!==r.blockHeight||actual.blockHash!==r.blockHash)throw Error('BRIDGE_BASE_INCLUDED_REORG');
+    if(actual.finality==='FINALIZED')r.finality='FINALIZED';
+   }
+  });
+ }
  async tick(){
+  await this.refreshBaseFinality();
   await this.pilot.native.observeQuarantines?.(this.store);
   const b=await this.store.read();this.pilot.assertBinding(b);const o=publicOrders(b,this.pilot.binding).find(o=>o.accepted&&!['MINTED','COMPLETED'].includes(o.status));
   if(!o)return this.pilot.refresh(this.store,true);

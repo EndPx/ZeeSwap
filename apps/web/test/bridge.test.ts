@@ -43,6 +43,12 @@ test('native delivery remains informational until a shaped Base acknowledgment c
   for(const bad of [{...pending,source:null},{...pending,destination:null},{...pending,source:native},{...pending,destination:base},{...pending,acknowledgment:base},{...pending,destination:{...native,transactionHash:'bad'}}])assert.throws(()=>decodeBridgeOrder(bad,body,id,token));
   const completed={...pending,status:'COMPLETED' as const,acknowledgment:base};
   assert.equal(bridgeOutcome(decodeBridgeOrder(completed,body,id,token)).tone,'success');
+  const includedAck=decodeBridgeOrder({...completed,acknowledgment:{...base,finality:'INCLUDED'}},body,id,token);
+  assert.equal(bridgeOutcome(includedAck).title,'Shielded TAZ delivered · Base acknowledgment finalizing');assert.equal(bridgeOutcome(includedAck).tone,'info');
+  assert.throws(()=>decodeBridgeOrder({...completed,destination:{...native,finality:'INCLUDED'}},body,id,token));
+  assert.throws(()=>decodeBridgeOrder({...completed,acknowledgment:{...base,finality:'MAYBE'}},body,id,token));
+  const includedBurn=decodeBridgeOrder({...pending,status:'REDEMPTION_PENDING',source:{...base,finality:'INCLUDED'},destination:null},body,id,token);
+  assert.equal(bridgeOutcome(includedBurn).title,'Base burn included · Delivering TAZ');
   for(const acknowledgment of [null,undefined,native,{...base,transactionHash:'bad'},{...base,blockHeight:0},{...base,blockHash:'bad'}]){
     assert.throws(()=>decodeBridgeOrder({...completed,acknowledgment},body,id,token));
     assert.equal(bridgeOutcome({...completed,acknowledgment} as typeof completed).tone,'info');

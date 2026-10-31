@@ -12,13 +12,15 @@ import {fixedOutput,fixedPricingConfiguration,validateFixedQuoteTerms,type Fixed
 import { fixtureOutput } from './amounts.ts';
 import type { WalletAdapter } from './wallet-adapter.ts';
 import type { BaseContract } from './base-contract.ts';
-import { authorizeEscrow, observeEscrowFunding, fundingCall, type FundingTerms } from './base-escrow.ts';
-import { receiptContext } from './base-settlement.ts';
+import { authorizeEscrow, observeEscrowFunding, fundingCall,escrowInclusionContext, type FundingTerms } from './base-escrow.ts';
+import { receiptContext,inclusionContext } from './base-settlement.ts';
+import { canonicalIncludedPayout } from './forward-destination.ts';
+import type { IncludedBaseReceipt } from './base-contract.ts';
 import {assertContinuationOwner,assertContinuationQuote,continuationAdmission,continuationQuoteBounds,type ContinuationApi} from './continuation-api.ts';
 import {disabledServiceAvailability,requireServiceAdmission,servicePolicyBind,servicePolicyAdmission,type ServicePolicyApi} from './testnet-service-policy.ts';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-type Options={fixedRate?:boolean;marketPolicy?:MarketPolicyApi;bridge?:BridgeService;pool:pg.Pool;keys:PrivateData;wallet:WalletAdapter;integrationOnly?:boolean;readOnly?:boolean;servicePolicy?:ServicePolicyApi;baseFeeBudget?:string;allowedOrigin?:string;base?:BaseContract;quoteBounds?:{inputAmountAtomic:'100000';maxAcceptedPerDirection:1}|{inputAmountAtomic:'100000';maxAcceptedByDirection:{ZCASH_TO_BASE:2|3;BASE_TO_ZCASH:1};newForwardCutoffBlocks:40;continuationSha256:string};continuation?:ContinuationApi;escrow?:{pool:pg.Pool;authorize:(terms:FundingTerms)=>Promise<Hex>}};
+type Options={fastBaseInclusion?:{rootApprovalSha256:string};fixedRate?:boolean;marketPolicy?:MarketPolicyApi;bridge?:BridgeService;pool:pg.Pool;keys:PrivateData;wallet:WalletAdapter;integrationOnly?:boolean;readOnly?:boolean;servicePolicy?:ServicePolicyApi;baseFeeBudget?:string;allowedOrigin?:string;base?:BaseContract;quoteBounds?:{inputAmountAtomic:'100000';maxAcceptedPerDirection:1}|{inputAmountAtomic:'100000';maxAcceptedByDirection:{ZCASH_TO_BASE:2|3;BASE_TO_ZCASH:1};newForwardCutoffBlocks:40;continuationSha256:string};continuation?:ContinuationApi;escrow?:{pool:pg.Pool;authorize:(terms:FundingTerms)=>Promise<Hex>}};
 class HttpError extends Error {constructor(readonly status:number,readonly code:string){super(code);}}
 function bearer(req:IncomingMessage){const value=req.headers.authorization?.match(/^Bearer ([A-Za-z0-9_-]{43})$/)?.[1];if(!value)throw new HttpError(401,'AUTH_REQUIRED');return value;}
 async function body(req:IncomingMessage):Promise<Record<string,unknown>> {
@@ -69,8 +71,24 @@ export function createApi(options:Options){
   const attempts=options.base?(await pool.query('SELECT * FROM zee.base_order_status WHERE order_id=$1',[id])).rows:[];
   const paid=attempts.find(a=>a.phase==='PAY');
   const receipt=paid?.confirmed?keys.open(paid.receipt_payload,receiptContext(id,'PAY')) as any:undefined;
+  let included:IncludedBaseReceipt|undefined;
+  if(options.base&&row.direction==='ZCASH_TO_BASE'&&row.state==='READY'&&row.confirmed_at&&paid&&!receipt){
+   const observation=(await pool.query("SELECT block_height,receipt_payload FROM zee.base_inclusion_status WHERE order_id=$1 AND phase='PAY' AND valid",[id])).rows[0];
+   if(observation){
+    const proof=keys.open(observation.receipt_payload,inclusionContext(id,'PAY')) as IncludedBaseReceipt;
+    if(await canonicalIncludedPayout(options.base,proof,{recipient:privateQuote.recipient,amount:row.output_amount,blockHeight:observation.block_height}))included=proof;
+   }
+  }
   let reverseDestination;
+  let sourceIncluded=false;
   if(row.direction==='BASE_TO_ZCASH'&&options.escrow){
+   if(options.base&&!row.confirmed_at){
+    const observation=(await options.escrow.pool.query("SELECT block_height,receipt_payload FROM zee.escrow_inclusion_status WHERE order_id=$1 AND phase='FUND' AND valid",[id])).rows[0];
+    if(observation){const proof=keys.open(observation.receipt_payload,escrowInclusionContext(id,'FUND')) as any;
+     if(proof.phase!=='FUND')throw new HttpError(503,'DESTINATION_EVIDENCE_UNAVAILABLE');
+     sourceIncluded=await canonicalIncludedPayout(options.base,{...proof,phase:'PAY',hash:proof.transactionHash,blockNumber:proof.blockHeight,recipient:privateQuote.payer,amount:row.input_amount},{recipient:privateQuote.payer,amount:row.input_amount,blockHeight:observation.block_height});
+    }
+   }
    const payout=(await options.escrow.pool.query('SELECT confirmed,receipt_payload FROM zee.reverse_payouts WHERE order_id=$1',[id])).rows[0];
    const proof=payout?.confirmed?keys.open(payout.receipt_payload,`reverse-receipt:${id}:v1`) as any:undefined;
    if(proof&&(!/^[0-9a-f]{64}$/.test(proof.txid)||!Number.isSafeInteger(proof.blockHeight)||proof.blockHeight<=0||proof.recipient!==privateQuote.recipient||proof.amountZatoshi!==row.output_amount))throw new HttpError(503,'DESTINATION_EVIDENCE_UNAVAILABLE');
@@ -89,11 +107,11 @@ export function createApi(options:Options){
   return {id,direction:row.direction,status:row.state||'QUOTED',inputAmount:row.input_amount,outputAmount:row.output_amount,
    executionMode:privateQuote.executionMode||'observe-only',
    escrowFunding,
-   destination:options.base&&row.direction==='ZCASH_TO_BASE'?{network:'base-sepolia',status:receipt?'FINALIZED':paid?'PAYOUT_PENDING':attempts.length?'RESERVING':'NOT_SUBMITTED',
-    transactionHash:receipt?.hash,blockNumber:receipt?.blockNumber}:reverseDestination,
+   destination:options.base&&row.direction==='ZCASH_TO_BASE'?{network:'base-sepolia',status:receipt?'FINALIZED':included?'INCLUDED':paid?'PAYOUT_PENDING':attempts.length?'RESERVING':'NOT_SUBMITTED',
+    transactionHash:(receipt??included)?.hash,blockNumber:(receipt??included)?.blockNumber}:reverseDestination,
    priceMode:marketPricing?'market-reference':fixedPricing?'fixed-rate':'fixture',pricing:marketPricing??fixedPricing??null,sourceAsset:row.direction==='ZCASH_TO_BASE'?'TAZ':'USDC',destinationAsset:row.direction==='ZCASH_TO_BASE'?'USDC':'TAZ',testnet:true,integrationOnly:!!options.integrationOnly,expiresAt:row.expires_at,
-   source:{received:!!row.deposit_id,confirmed:!!row.confirmed_at,confirmations:row.confirmations||0,
-    policy:row.direction==='ZCASH_TO_BASE'?'zcash-10-confirmations':'base-finalized',requiredConfirmations:row.direction==='ZCASH_TO_BASE'?10:null,...nativeCheckpoint},
+   source:{received:!!row.deposit_id||sourceIncluded,confirmed:!!row.confirmed_at,...(sourceIncluded?{included:true}:{}),confirmations:row.confirmations||0,
+    policy:row.direction==='ZCASH_TO_BASE'?'zcash-10-confirmations':sourceIncluded?'base-included':'base-finalized',requiredConfirmations:row.direction==='ZCASH_TO_BASE'?10:null,...nativeCheckpoint},
    funding:funding&&row.state==='AWAITING_FUNDS'&&(!options.base||privateQuote.executionMode==='base-settlement-v1')?{network:'zcash-testnet',receiver:privateQuote.depositReceiver,
     memo:JSON.stringify({v:1,ref:privateQuote.reference}),cutoffHeight:serializeFundingCutoffHeight(row.funding_cutoff_height),
     cutoffTime:row.funding_cutoff_time,cancellationAvailableAt:row.cancellation_available_at}:undefined};
@@ -170,7 +188,7 @@ export function createApi(options:Options){
     await repo.privateQuote(funded[1],token);
     const input=await body(req);exact(input,['transactionHash']);
     if(typeof input.transactionHash!=='string'||!/^0x[0-9a-fA-F]{64}$/.test(input.transactionHash))throw new HttpError(400,'INVALID_INPUT');
-    await observeEscrowFunding(options.escrow.pool,keys,options.base,funded[1],input.transactionHash as Hex);
+    await observeEscrowFunding(options.escrow.pool,keys,options.base,funded[1],input.transactionHash as Hex,!!options.fastBaseInclusion);
     reply(200,await view(funded[1],token,true));return;
    }
    const match=url.pathname.match(/^\/v1\/(quotes|orders)\/([0-9a-f-]+)(\/accept)?$/);

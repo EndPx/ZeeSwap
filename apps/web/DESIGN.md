@@ -97,6 +97,15 @@ Unbroken addresses wrap inside min-width:0 containers.
 - Route rail: network icons, directional connector and exact source/destination.
 - Order status: server status, source confirmations, independent destination state,
   immutable amounts, copy controls and server-issued funding instructions only.
+  Confirmed Zcash depth reads `Confirmed · N confirmations`; the pending step
+  retains `10 confirmations`. Forward USDC with a successful canonical PAY receipt
+  reads `USDC delivered · Finalizing` until Base finality; reservations and signed
+  payment attempts alone never show delivery. Finality keeps the success check.
+  Reverse Base inclusion has its own `included` evidence field and never changes
+  the actual `confirmed` finality field. The step reads `Included · Base L2` while
+  the operator accepts reorg risk and proceeds with the 10-confirmation Zcash leg.
+  Bridge Base receipts optionally identify `INCLUDED` or `FINALIZED`; included
+  mints and acknowledgments remain informative finalizing states without success.
 - Funding QR: local lazy-loaded ZIP 321 encoder, 240px black/white functional QR
   with four-module quiet zone; exact testnet amount, shielded receiver and encoded
   canonical memo only. Private order capabilities never enter the payment URI. Download QR

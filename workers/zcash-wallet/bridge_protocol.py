@@ -192,9 +192,14 @@ def path_inside(path, root):
 
 
 def validate_profile(profile, request):
-    exact(profile, ('version mode enabled serviceUid root signingWallet viewingWallet ufvkFile walletUfvkSha256 principalAccount feeAccount swapAccount journalRoot approvedRequest approvedDigest capitalNotes cli reader verifier node tsxLoader preflight baseProfile protoDir modules' + (' extraFeeNotes' if 'extraFeeNotes' in profile else '')))
+    exact(profile, ('version mode enabled serviceUid root signingWallet viewingWallet ufvkFile walletUfvkSha256 principalAccount feeAccount swapAccount journalRoot approvedRequest approvedDigest capitalNotes cli reader verifier node tsxLoader preflight baseProfile protoDir modules' + (' extraFeeNotes' if 'extraFeeNotes' in profile else '') + (' fastBaseL2' if 'fastBaseL2' in profile else '')))
     need(type(profile['version']) is int and profile['version'] == 1 and profile['mode'] == 'BRIDGE_NATIVE_TESTNET'
          and type(profile['enabled']) is bool and type(profile['serviceUid']) is int and profile['serviceUid'] > 0, 'BRIDGE_NATIVE_PROFILE')
+    if 'fastBaseL2' in profile:
+        pin = profile['fastBaseL2']
+        exact(pin, 'path sha256')
+        need(type(pin['path']) is str and re.fullmatch(r'/opt/zeeswap-bridge-testnet/private/[A-Za-z0-9._-]+\.private\.json', pin['path']), 'BRIDGE_L2_ROOT_PIN')
+        hexa(pin['sha256'], prefix=False)
     root = profile['root']
     need(type(root) is str and re.fullmatch(r'/opt/zeeswap-bridge-testnet(?:-[a-z0-9-]+)?', root), 'BRIDGE_DEDICATED_ROOT')
     for key in ('signingWallet', 'viewingWallet', 'ufvkFile', 'journalRoot', 'protoDir'):

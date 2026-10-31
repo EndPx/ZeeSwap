@@ -57,9 +57,9 @@ export interface OrderView {
   id:string; direction:Direction; status:OrderStatus; inputAmount:string; outputAmount:string;
   executionMode:string; priceMode:'fixture'|'market-reference'|'fixed-rate';pricing?:LockedPricing|FixedPricing|null; integrationOnly:boolean; expiresAt:string;
   sourceAsset?:'TAZ'|'USDC';destinationAsset?:'TAZ'|'USDC';testnet?:true;
-  source:{received:boolean;confirmed:boolean;confirmations:number;policy:'zcash-10-confirmations'|'base-finalized';requiredConfirmations:number|null;scannedHeight?:number;scannedAt?:string;checkedAt?:string};
+  source:{received:boolean;confirmed:boolean;included?:boolean;confirmations:number;policy:'zcash-10-confirmations'|'base-finalized'|'base-included';requiredConfirmations:number|null;scannedHeight?:number;scannedAt?:string;checkedAt?:string};
   escrowFunding?:EscrowFunding;
-  destination?:{network:'base-sepolia'|'zcash-testnet';status:'FINALIZED'|'PAYOUT_PENDING'|'RESERVING'|'NOT_SUBMITTED';transactionHash?:string;blockNumber?:number};
+  destination?:{network:'base-sepolia'|'zcash-testnet';status:'INCLUDED'|'FINALIZED'|'PAYOUT_PENDING'|'RESERVING'|'NOT_SUBMITTED';transactionHash?:string;blockNumber?:number};
   funding?:{network:'zcash-testnet';receiver:string;memo:string;cutoffHeight:number|null;cutoffTime:string|null;cancellationAvailableAt:string|null};
 }
 /** New fixed-flow quotes cannot reinterpret a historical provider-priced order. */
@@ -72,13 +72,16 @@ export function decodeOrder(value:unknown):OrderView {
   if(typeof row.id!=='string'||!uuid(row.id)||!['ZCASH_TO_BASE','BASE_TO_ZCASH'].includes(String(row.direction))||!statuses.includes(row.status as OrderStatus)
     ||!atomic(row.inputAmount)||!atomic(row.outputAmount)||typeof row.executionMode!=='string'||!['fixture','market-reference','fixed-rate'].includes(String(row.priceMode))||typeof row.integrationOnly!=='boolean'
     ||typeof row.expiresAt!=='string'||!Number.isFinite(Date.parse(row.expiresAt))||typeof source.received!=='boolean'||typeof source.confirmed!=='boolean'
-    ||!nonnegative(source.confirmations)||!['zcash-10-confirmations','base-finalized'].includes(String(source.policy))||!(source.requiredConfirmations===null||nonnegative(source.requiredConfirmations)))throw Error('The service returned an unsupported order.');
+    ||!nonnegative(source.confirmations)||!['zcash-10-confirmations','base-finalized','base-included'].includes(String(source.policy))||!(source.requiredConfirmations===null||nonnegative(source.requiredConfirmations))
+    ||(source.included!==undefined&&typeof source.included!=='boolean')||(source.policy==='base-included'&&(row.direction!=='BASE_TO_ZCASH'||source.requiredConfirmations!==null))
+    ||(source.included===true&&(source.policy!=='base-included'||source.received!==true)))throw Error('The service returned an unsupported order.');
   if(['scannedHeight','scannedAt','checkedAt'].some(key=>source[key]!==undefined)){
     if(!nonnegative(source.scannedHeight)||typeof source.scannedAt!=='string'||!Number.isFinite(Date.parse(source.scannedAt))||typeof source.checkedAt!=='string'||!Number.isFinite(Date.parse(source.checkedAt)))throw Error('The service returned an unsupported source-height check.');
   }
-  if(row.destination!==undefined){const d=object(row.destination);if(!['base-sepolia','zcash-testnet'].includes(String(d.network))||(d.network==='base-sepolia'&&row.direction!=='ZCASH_TO_BASE')||(d.network==='zcash-testnet'&&row.direction!=='BASE_TO_ZCASH')||!['FINALIZED','PAYOUT_PENDING','RESERVING','NOT_SUBMITTED'].includes(String(d.status))
+  if(row.destination!==undefined){const d=object(row.destination);if(!['base-sepolia','zcash-testnet'].includes(String(d.network))||(d.network==='base-sepolia'&&row.direction!=='ZCASH_TO_BASE')||(d.network==='zcash-testnet'&&row.direction!=='BASE_TO_ZCASH')||!['INCLUDED','FINALIZED','PAYOUT_PENDING','RESERVING','NOT_SUBMITTED'].includes(String(d.status))
     ||(d.transactionHash!==undefined&&(typeof d.transactionHash!=='string'||!(d.network==='base-sepolia'?/^0x[0-9a-fA-F]{64}$/:/^[0-9a-f]{64}$/).test(d.transactionHash)))||(d.blockNumber!==undefined&&!nonnegative(d.blockNumber))
-    ||(d.status==='FINALIZED'&&(typeof d.transactionHash!=='string'||!nonnegative(d.blockNumber))))throw Error('The service returned an unsupported destination.');}
+    ||(['INCLUDED','FINALIZED'].includes(String(d.status))&&(typeof d.transactionHash!=='string'||!nonnegative(d.blockNumber)))
+    ||(d.status==='INCLUDED'&&(d.network!=='base-sepolia'||row.status!=='READY'||source.confirmed!==true||d.blockNumber===0)))throw Error('The service returned an unsupported destination.');}
   if(row.escrowFunding!==undefined){if(row.direction!=='BASE_TO_ZCASH'||row.status!=='AWAITING_FUNDS'||row.executionMode!=='base-escrow-v1')throw Error('Unsupported escrow order.');validateEscrowFunding(row.escrowFunding,row.inputAmount as string);}
   if(row.funding!==undefined){const f=object(row.funding);if(row.status!=='AWAITING_FUNDS'||row.direction!=='ZCASH_TO_BASE'||f.network!=='zcash-testnet'
     ||typeof f.receiver!=='string'||typeof f.memo!=='string'||f.memo.length>512||f.receiver.length>512||!(f.cutoffHeight===null||nonnegative(f.cutoffHeight))
@@ -96,12 +99,16 @@ export function capability():string { const bytes=crypto.getRandomValues(new Uin
 export interface PrivateOrder {id:string;token:string;}
 export function decodePrivateOrders(value:unknown):PrivateOrder[]{if(!Array.isArray(value)||value.length>20)throw Error('Invalid private order file.');return value.map(item=>{const r=object(item);if(typeof r.id!=='string'||!uuid(r.id)||typeof r.token!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(r.token))throw Error('Invalid private order key.');return{id:r.id,token:r.token};});}
 export const terminal=(status:OrderStatus)=>['SETTLED','REFUNDED','EXPIRED_UNFUNDED'].includes(status);
+export function sourceConfirmationCopy(source:OrderView['source']):string {
+  if(source.policy==='base-finalized'||source.policy==='base-included')return source.confirmed?'Finalized':source.included?'Included · Base L2':'Pending';
+  return source.confirmed?`Confirmed · ${source.confirmations} confirmations`:`${source.confirmations} / ${source.requiredConfirmations??10}`;
+}
 export function statusCopy(order:OrderView):{title:string;description:string;tone:'waiting'|'success'|'warning'} {
   switch(order.status){
     case 'QUOTED':return{title:'Your quote is ready',description:'Review the exact amounts and destinations before accepting.',tone:'waiting'};
     case 'AWAITING_FUNDS':return{title:'Waiting for your deposit',description:'Use the exact testnet funding instructions for this order.',tone:'waiting'};
     case 'CONFIRMING':return{title:'Deposit found. Confirming…',description:'Your source payment must meet the confirmation policy before delivery.',tone:'waiting'};
-    case 'READY':return order.destination?.status==='FINALIZED'?{title:'Destination delivered',description:'The confirmed receipt is recorded. The service is finishing settlement bookkeeping.',tone:'waiting'}:{title:'Source confirmed',description:'The service is preparing delivery. Your destination receipt is still pending.',tone:'waiting'};
+    case 'READY':return order.destination?.status==='INCLUDED'?{title:'USDC delivered · Finalizing',description:'The Base payout succeeded in a canonical block. Waiting for Base finality before settlement completes.',tone:'waiting'}:order.destination?.status==='FINALIZED'?{title:'Destination delivered',description:'The confirmed receipt is recorded. The service is finishing settlement bookkeeping.',tone:'waiting'}:{title:order.source.included&&!order.source.confirmed?'Source included · Delivering TAZ':'Source confirmed',description:order.source.included&&!order.source.confirmed?'The Base funding succeeded in a canonical L2 block. The operator accepts Base reorg risk while shielded TAZ delivery proceeds.':order.destination?.status==='RESERVING'?'The service is reserving the exact Base payout. No USDC payment receipt is recorded yet.':order.destination?.status==='PAYOUT_PENDING'?'The Base payment is being reconciled. A successful canonical payout receipt is not available yet.':'The service is preparing delivery. Your destination receipt is still pending.',tone:'waiting'};
     case 'SETTLED':return{title:order.destination?.status==='FINALIZED'?'Delivery finalized':'Service reports settlement',description:order.destination?.status==='FINALIZED'?'The API has verified the destination receipt.':'A finalized destination receipt is not available in this API response.',tone:order.destination?.status==='FINALIZED'?'success':'waiting'};
     case 'REFUNDED':return{title:'Source refund confirmed',description:'The service reports your source principal returned. This is separate from a destination swap.',tone:'success'};
     case 'EXPIRED_UNFUNDED':return{title:'Order expired without funding',description:'Do not send to its old instructions. Start a new quote when you are ready.',tone:'warning'};

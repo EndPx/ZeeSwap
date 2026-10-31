@@ -49,6 +49,13 @@ def native_notes():
 
 
 class BridgeProtocolTest(unittest.TestCase):
+    def test_optional_fast_base_pin_remains_exact_root_scoped(self):
+        p, q = fixture();p['fastBaseL2'] = {'path': ROOT+'/private/base-l2.private.json', 'sha256': H}
+        self.assertIs(validate_profile(p, q), p)
+        for pin in ({'path':'/tmp/proof.private.json','sha256':H}, {'path':ROOT+'/private/base-l2.private.json','sha256':'bad'}, {'path':ROOT+'/private/base-l2.private.json','sha256':H,'enabled':True}):
+            bad=copy.deepcopy(p);bad['fastBaseL2']=pin
+            with self.assertRaises(ValueError):validate_profile(bad,q)
+
     def test_both_purposes_bind_salted_private_recipient_and_integer_amount(self):
         for purpose in ('bridge-redemption', 'bridge-refund'):
             p, q = fixture(purpose)

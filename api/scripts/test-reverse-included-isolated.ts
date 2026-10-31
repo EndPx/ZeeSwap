@@ -1,0 +1,48 @@
+/** Reverse L2 admission tests in an empty schema-only disposable clone. */
+import {readFile} from 'node:fs/promises';import {randomUUID,randomBytes} from 'node:crypto';import assert from 'node:assert/strict';import pg from 'pg';
+const cfg=JSON.parse(await readFile(process.argv[2]!,'utf8')) as {databaseUrl:string;caPath:string};const url=new URL(cfg.databaseUrl);assert.match(url.pathname,/^\/zee_reverse_included_test_[0-9]+$/);
+const connection={host:url.hostname,port:Number(url.port||5432),database:url.pathname.slice(1),user:decodeURIComponent(url.username),password:decodeURIComponent(url.password),ssl:{rejectUnauthorized:true,servername:url.hostname,ca:await readFile(cfg.caPath,'utf8')},connectionTimeoutMillis:15000,statement_timeout:15000};
+const root=new pg.Client(connection),worker=new pg.Client(connection),api=new pg.Client(connection),payload=Buffer.alloc(64,1),canonical='a'.repeat(64),fundBlock='b'.repeat(64),commitBlock='c'.repeat(64),settleBlock='d'.repeat(64),contract='0x'+'1'.repeat(40);
+try{
+ await Promise.all([root,worker,api].map(c=>c.connect()));assert.equal((await root.query('SELECT count(*)::int n FROM zee.orders')).rows[0].n,0);
+ for(const file of ['0035_base_included_dispatch.sql','0036_reverse_included_dispatch.sql'])if(!(await root.query('SELECT to_regclass($1) installed',[file.startsWith('0035')?'zee.base_inclusions':'zee.escrow_inclusions'])).rows[0].installed)await root.query(await readFile(new URL('../migrations/'+file,import.meta.url),'utf8'));
+ await root.query("INSERT INTO zee.assets VALUES('TAZ',8,2100000000000000,'zcash-testnet',NULL,true),('mockUSDC',6,1e77,'base-sepolia',$1,true),('baseETH',18,1e77,'base-sepolia',NULL,false)",['0x'+'2'.repeat(40)]);await root.query('INSERT INTO zee.runtime_control VALUES(true,true,true,false,100)');
+ await root.query("INSERT INTO zee.inventory_accounts VALUES('TAZ','principal',1000000,0),('TAZ','fee',1000000,0),('mockUSDC','principal',1000000,0),('baseETH','fee',1000000000000000,0)");
+ await root.query("INSERT INTO zee.scanner_checkpoints VALUES('zcash-testnet',1000,$1,991,clock_timestamp(),clock_timestamp()),('base-sepolia',1100,$1,1000,clock_timestamp(),clock_timestamp())",[canonical]);
+ await root.query("INSERT INTO zee.chain_observations VALUES('zcash-testnet',991,$1,clock_timestamp()),('base-sepolia',1050,$2,clock_timestamp()),('base-sepolia',1051,$3,clock_timestamp()),('base-sepolia',1052,$4,clock_timestamp())",[canonical,fundBlock,commitBlock,settleBlock]);
+ await worker.query('SET ROLE zeeswap_worker');await api.query('SET ROLE zeeswap_api');await assert.rejects(api.query('SELECT * FROM zee.escrow_inclusions'),/permission denied/);await assert.rejects(worker.query('INSERT INTO zee.escrow_inclusions DEFAULT VALUES'),/permission denied/);
+ const id=randomUUID(),ref=randomBytes(32),receiver=randomBytes(32),deposit=randomUUID(),fundHash=randomBytes(32),commitHash=randomBytes(32),nativeHash=randomBytes(32),settleHash=randomBytes(32);
+ await root.query(`INSERT INTO zee.quotes(id,direction,source_asset,destination_asset,input_amount,output_amount,payout_fee_asset,payout_fee,refund_fee_asset,refund_fee,private_payload,deposit_reference_hash,receiver_hash,access_hash,settlement_id,execution_mode,base_contract,created_at,expires_at) VALUES($1,'BASE_TO_ZCASH','mockUSDC','TAZ',100000,100000,'TAZ',10000,'baseETH',100000000000000,$2,$3,$4,$5,$6,'base-escrow-v1',$7,statement_timestamp(),statement_timestamp()+interval '120 seconds')`,[id,payload,ref,receiver,randomBytes(32),randomUUID(),contract]);
+ await root.query('SELECT zee.accept_quote($1)',[id]);await worker.query('SELECT zee.pin_escrow_terms($1,$2)',[id,payload]);
+ await worker.query("SELECT zee.observe_deposit($1,$2,'base-sepolia',$3,$4,100000,1050,$5,clock_timestamp(),false,$6)",[deposit,randomBytes(32),ref,receiver,fundBlock,payload]);
+ const observe=(phase:string,hash:Buffer,dep:string|null,height:number,b:string,fee='0')=>worker.query('SELECT zee.observe_escrow_inclusion($1,$2,$3,$4,$5,$6,$7,$8)',[id,phase,hash,dep,height,b,fee,payload]);
+ await assert.rejects(observe('FUND',fundHash,deposit,1050,commitBlock),/not canonical/);
+ await assert.rejects(observe('FUND',fundHash,deposit,1051,commitBlock),/included source mismatch/);
+ await observe('FUND',fundHash,deposit,1050,fundBlock);await observe('FUND',fundHash,deposit,1050,fundBlock);
+ assert.equal((await worker.query('SELECT state FROM zee.orders WHERE id=$1',[id])).rows[0].state,'READY');assert.equal((await worker.query('SELECT confirmed_at FROM zee.deposits WHERE id=$1',[deposit])).rows[0].confirmed_at,null);
+ const lease=(await worker.query('SELECT * FROM zee.claim_escrow_job_for_order($1,$2)',[randomUUID(),id])).rows[0];assert.ok(lease);const leaseArgs=[id,lease.id,lease.lease_owner,lease.fence];
+ const storeCommit=()=>worker.query('SELECT zee.store_escrow_commit($1,$2,$3,$4,$5,$6,$7)',[...leaseArgs,commitHash,payload,'1000']);
+ await root.query("UPDATE zee.escrow_inclusions SET observed_at=clock_timestamp()-interval '16 seconds' WHERE order_id=$1",[id]);await assert.rejects(storeCommit(),/invalid source/);await observe('FUND',fundHash,deposit,1050,fundBlock);
+ await storeCommit();await storeCommit();
+ const signing=()=>worker.query('SELECT zee.check_reverse_signing($1,$2,$3,$4)',leaseArgs);
+ await assert.rejects(signing(),/canonical commitment missing/);await assert.rejects(observe('COMMIT',randomBytes(32),null,1051,commitBlock,'100'),/attempt mismatch/);await assert.rejects(observe('COMMIT',commitHash,null,1051,commitBlock,'1001'),/attempt mismatch/);
+ await observe('COMMIT',commitHash,null,1051,commitBlock,'100');await signing();
+ assert.equal((await worker.query('SELECT confirmed FROM zee.escrow_commits WHERE order_id=$1',[id])).rows[0].confirmed,false);assert.equal((await worker.query('SELECT chain_authorization_verified FROM zee.operations WHERE order_id=$1',[id])).rows[0].chain_authorization_verified,false);
+ await root.query("UPDATE zee.escrow_inclusions SET observed_at=clock_timestamp()-interval '16 seconds' WHERE order_id=$1 AND phase='COMMIT'",[id]);await assert.rejects(signing(),/canonical commitment missing/);await observe('COMMIT',commitHash,null,1051,commitBlock,'100');
+ await root.query("UPDATE zee.scanner_checkpoints SET observed_at=clock_timestamp()-interval '61 seconds' WHERE network='zcash-testnet'");await assert.rejects(signing(),/observers stale/);await root.query('UPDATE zee.scanner_checkpoints SET observed_at=clock_timestamp()');
+ await worker.query('SELECT zee.store_reverse_payout($1,$2,$3,$4,$5,$6,$7,$8)',[...leaseArgs,nativeHash,payload,'1000',2000]);
+ await assert.rejects(worker.query('SELECT zee.confirm_reverse_payout($1,$2,$3,$4,$5,$6)',[id,nativeHash,995,canonical,'1000',payload]),/fresh canonical finality/);
+ await worker.query('SELECT zee.confirm_reverse_payout($1,$2,$3,$4,$5,$6)',[id,nativeHash,991,canonical,'1000',payload]);
+ const storeSettle=(max='1000')=>worker.query('SELECT zee.store_escrow_settlement($1,$2,$3,$4,$5,$6,$7)',[...leaseArgs,settleHash,payload,max]);
+ await assert.rejects(storeSettle('99999999999500'),/total Base gas reserve exceeded/);await storeSettle();
+ await observe('SETTLE',settleHash,null,1052,settleBlock,'200');assert.equal((await worker.query('SELECT state FROM zee.orders WHERE id=$1',[id])).rows[0].state,'READY');
+ const confirmSettle=()=>worker.query('SELECT zee.confirm_escrow_settlement($1,$2,$3,$4,$5,$6) result',[id,settleHash,1052,settleBlock,'200',payload]);
+ await assert.rejects(confirmSettle(),/not finalized canonical/);await root.query("UPDATE zee.scanner_checkpoints SET finalized_height=1100,observed_at=clock_timestamp() WHERE network='base-sepolia'");
+ await assert.rejects(confirmSettle(),/source is not finalized/);await worker.query('SELECT zee.confirm_deposit($1)',[deposit]);await assert.rejects(confirmSettle(),/Base execution reserve insufficient/);
+ await worker.query('SELECT zee.confirm_escrow_commit($1,$2,$3,$4,$5,$6)',[id,commitHash,1051,commitBlock,'100',payload]);assert.equal((await confirmSettle()).rows[0].result,true);assert.equal((await confirmSettle()).rows[0].result,false);
+ assert.equal((await worker.query('SELECT state FROM zee.orders WHERE id=$1',[id])).rows[0].state,'SETTLED');assert.equal((await worker.query("SELECT sum(amount)::text amount FROM zee.ledger_entries WHERE order_id=$1 AND asset='baseETH' AND bucket='fee:spent'",[id])).rows[0].amount,'300');
+ assert.equal((await worker.query("SELECT sum(amount)::text amount FROM zee.ledger_entries WHERE order_id=$1 AND asset='TAZ' AND bucket='fee:spent'",[id])).rows[0].amount,'1000');
+ assert.equal((await api.query('SELECT count(*)::int n FROM zee.escrow_inclusion_status WHERE order_id=$1 AND valid',[id])).rows[0].n,3);
+ await assert.rejects(observe('COMMIT',commitHash,null,1052,settleBlock,'100'),/receipt changed/);await worker.query('SELECT zee.invalidate_escrow_inclusion($1,$2)',[id,'COMMIT']);assert.equal((await worker.query('SELECT reconciliation_required FROM zee.runtime_control')).rows[0].reconciliation_required,true);
+ console.log(JSON.stringify({status:'ISOLATED_REVERSE_INCLUDED_SQL_PASSED',checks:['projection-only API and no direct worker inclusion writes','canonical exact FUND source required','included FUND dispatches without confirmed_at','stale FUND COMMIT source fail closed','COMMIT exact hash fee and dedup','included COMMIT leaves authorization unconfirmed','native delivery still10 canonical blocks','SETTLE counts COMMIT maximum until final fee exists','all three L1 finality and native delivery required to close','exact fees booked once','changed original receipt enters reconciliation'],liveDatabaseTouched:false}));
+}finally{await Promise.all([root,worker,api].map(c=>c.end().catch(()=>{})));}

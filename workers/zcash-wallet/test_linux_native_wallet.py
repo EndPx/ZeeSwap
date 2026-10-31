@@ -50,6 +50,32 @@ def fixture(purpose='reverse'):
 
 
 class LinuxNativeScope(unittest.TestCase):
+    def test_fast_overlay_binds_original_profile_policy_parent_and_manifest(self):
+        from types import SimpleNamespace
+        p, c, original_pinned = fixture()
+        root = json.loads(original_pinned({'path': c['rootConfigPath']}))
+        execution_root = ROOT + '/releases/fast-test/app'
+        native_pin = {'path': ROOT + '/state/service-policy/native.private.json', 'sha256': H}
+        parent_pin = {'path': ROOT + '/state/service-policy/root.private.json', 'sha256': H}
+        manifest_pin = {'path': ROOT + '/state/service-policy/manifest.private.json', 'sha256': H}
+        scripts = {name: {**pin, 'path': execution_root + pin['path'][len(RELEASE + '/app'):]} for name, pin in root['scripts'].items()}
+        overlay = {'version': 1, 'purpose': 'ROOT_BASE_L2_FAST_NATIVE_EXECUTION', 'originalNativeProfileSha256': H,
+                   'profileSha256': H, 'policySha256': H, 'activeEpoch': '9', 'executionRoot': execution_root,
+                   'publicCommit': 'a' * 40, 'executionManifest': manifest_pin, 'scripts': scripts}
+        parent = {**overlay, 'purpose': 'ROOT_BASE_L2_FAST_EXECUTION', 'nativeExecution': native_pin}
+        manifest = {'publicCommit': 'a' * 40, 'files': [{'relativePath': pin['path'][len(execution_root) + 1:], 'sha256': pin['sha256']} for pin in scripts.values()]}
+        c.update(fastBaseInclusion=True, nativeFastExecution=native_pin, baseFastRoot=parent_pin,
+                 linuxProfilePath=profiles.PROFILE, linuxProfileSha256=H, policyContext={'policySha256': H, 'activeEpoch': '9'})
+        values = {native_pin['path']: overlay, parent_pin['path']: parent, manifest_pin['path']: manifest}
+        def pinned(pin, private=True):
+            return json.dumps(values[pin['path']]).encode() if pin['path'] in values else original_pinned(pin, private)
+        with patch.object(profiles, 'pinned', pinned), patch.object(profiles, 'root_reviewed'), patch.object(Path, 'lstat', return_value=SimpleNamespace(st_mode=0o600)):
+            self.assertEqual(profiles.fast_native_overlay(c, p, root), overlay)
+            for changed in [{**c, 'nativePurpose': 'refund'}, {**c, 'policyContext': {'policySha256': 'f' * 64, 'activeEpoch': '9'}}, {**c, 'linuxProfileSha256': 'e' * 64}]:
+                with self.assertRaises(ValueError): profiles.fast_native_overlay(changed, p, root)
+            manifest['files'][0]['sha256'] = 'f' * 64
+            with self.assertRaises(ValueError): profiles.fast_native_overlay(c, p, root)
+
     def test_policy_prepared_context_keeps_original_exact_guard_contract(self):
         for purpose in ('reverse', 'refund'):
             p, c, pinned = fixture(purpose)

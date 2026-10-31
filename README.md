@@ -57,6 +57,14 @@ representation of TAZ, not the swap's USDC output.
 5. Follow the private order as source verification and destination delivery
    advance independently. An uncertain payment stays pending reconciliation.
 
+The approved fast testnet execution mode uses successful canonical Base L2
+inclusion for dispatch in both swap directions and the bridge. Delivery can
+therefore precede Ethereum finality. The operator accepts that reorganization
+exposure; the interface distinguishes included delivery from finalized
+settlement, and Zcash's ten-confirmation requirement remains. See the
+[implementation and live activation evidence](docs/evidence/fast-forward-delivery.md)
+and the [separate bridge activation boundary](docs/evidence/base-l2-bridge-execution.md).
+
 For a desktop wallet, the [official Zingo PC NU7 release notes](https://github.com/zingolabs/zingo-pc/releases/tag/zingo-pc-2.0.26-196)
 provide a compatible testnet-support starting point. On an Intel/AMD Windows PC,
 choose the **Windows x64** package; ARM64 packages are for ARM devices. Select
@@ -93,6 +101,12 @@ they do not authorize payouts. See [architecture and trust](docs/architecture.md
 Historical operator experiments completed a shielded TAZ → USDC swap, a USDC →
 shielded TAZ swap, a same-user roundtrip and both full-principal source refunds.
 The reports preserve original receipts, recipient deltas and ledger checks.
+On 31 October a user-funded shielded testnet deposit also reached its exact
+0.1 USDC destination under the original finalized-only worker. The original
+PAY was subsequently reconciled to `SETTLED`; an independent closing check
+verified both finalized receipts, unchanged original journals, released
+reservations and balanced per-asset accounting. This does not prove a funded
+execution of the new fast mode.
 The larger G5 soak was stopped before completion. Its partial results are
 retained with their original limits in the [evidence index](docs/evidence-index.md).
 

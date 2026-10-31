@@ -30,7 +30,7 @@ export async function verifyNativeAuthority(base:CanonicalBridgeBase,q:NativeBri
  const o=nativeAuthorityOrder(q,approvedDigest),p=base.profile;
  for(const key of ['contract','runtimeCodeHash','admin','operator','authorizer'] as const)if(q.base[key].toLowerCase()!==(key==='contract'?p.contractAddress:p[key]).toLowerCase())throw Error('BRIDGE_NATIVE_BASE_PROFILE_BINDING');
  if(q.base.chainId!==84532)throw Error('BRIDGE_NATIVE_BASE_CHAIN');
- const anchor=await base.finalized();if(anchor.height<q.paired.base.height)throw Error('BRIDGE_NATIVE_BASE_REGRESSION');
+ const anchor=await base.settlementAnchor();if(anchor.height<q.paired.base.height)throw Error('BRIDGE_NATIVE_BASE_REGRESSION');
  // Check the admitted original checkpoint, not just the source transaction.
  for(const c of base.clients)if((await c.getBlock({blockNumber:BigInt(q.paired.base.height)})).hash!==q.paired.base.hash)throw Error('BRIDGE_NATIVE_BASE_CHECKPOINT_REORG');
  const b={pair:{base:anchor,zcash:q.paired.zcash}} as Books;
@@ -46,6 +46,6 @@ export async function verifyNativeAuthority(base:CanonicalBridgeBase,q:NativeBri
   const fact=await base.verify({kind:'CANCEL',transactionHash:q.base.transactionHash},o,b);
   if(fact.receipt.blockHeight!==Number(q.base.blockNumber)||fact.receipt.blockHash!==q.base.blockHash)throw Error('BRIDGE_NATIVE_SOURCE_RECEIPT_BINDING');
  }
- const current=await base.finalized();await base.readAt(current);
+ const current=await base.settlementAnchor();await base.readAt(current);
  return {version:1,status:'BRIDGE_AUTHORITY_VERIFIED',bridgeProofVerified:true,orderId:q.orderId,purpose:q.purpose,bridgeId:q.bridgeId,approvedDigest,principalAccount:p.principalAccount,feeAccount:p.feeAccount,paired:{base:current,zcash:q.paired.zcash},zcashRequiresNativeRecheck:true};
 }

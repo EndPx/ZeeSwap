@@ -52,7 +52,12 @@ test('real local Anvil bridge canonical reader, mint/cancel exclusion, authentic
  const b={...emptyBooks(),paused:false,feeCapital:'10000',principalAccount:profile.principalAccount,feeAccount:profile.feeAccount,swapAccount:profile.swapAccount},o=makeOrder({direction:'TAZ_TO_ZEETAZ',amountAtomic:'100000',recipient:payer,refundRecipient:'synthetic:shielded-refund'},'00'.repeat(32),'local-anvil-key',Date.now());
  o.status='DEPOSIT_FINALIZED';o.source={network:'zcash-testnet',transactionHash:'aa'.repeat(32),blockHeight:10,blockHash:'bb'.repeat(32)};b.orders[o.id]=o;b.controlled='100000';
  b.pair={zcash:{height:100,hash:'bb'.repeat(32),observedAt:new Date().toISOString()},base:await base.finalized()};
- const minted=await signer.prepare('MINT',o,b),mintTx=await signer.broadcast(minted,b);await client.waitForTransactionReceipt({hash:mintTx});await mine();
+ const minted=await signer.prepare('MINT',o,b),mintTx=await signer.broadcast(minted,b);await client.waitForTransactionReceipt({hash:mintTx});
+ await t.test('Root opted-in bridge observes real canonical mint inclusion while default final authority still refuses',async()=>{
+  const fast=new CanonicalBridgeBase(profile,true,{recheck:async()=>{}}),pair={...b.pair!,base:await fast.settlementAnchor()};
+  const event=await fast.verify({kind:'MINT',transactionHash:mintTx},o,{...b,pair});assert.equal(event.receipt.finality,'INCLUDED');assert.equal((await fast.readAt(pair.base)).supply,'100000');
+  const oldPair={...pair,base:await base.finalized()};await assert.rejects(()=>base.verify({kind:'MINT',transactionHash:mintTx},o,{...b,pair:oldPair}),/FACT_CANONICAL/);
+ });await mine();
  b.pair={zcash:{height:100,hash:'bb'.repeat(32),observedAt:new Date().toISOString()},base:await base.finalized()};
  await t.test('actual minted event/transaction/runtime is independently bound before book supply changes',async()=>{
   const event=await base.verify({kind:'MINT',transactionHash:mintTx},o,b);applyEvent(b,event,Date.now());assert.equal(b.supply,'100000');assert.equal((await base.readAt(b.pair!.base)).supply,'100000');assert.equal(coverage(b).covered,true);

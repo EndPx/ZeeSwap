@@ -45,8 +45,8 @@ class ReversePreflightTest(unittest.TestCase):
         if method == 'eth_getBlockByNumber':
             tag = params[0]
             if tag == 'finalized': return {'number': hex(self.final_height), 'hash': '0x' + '8' * 64}
-            if tag == 'latest': return {'number': '0x32', 'timestamp': hex(self.latest_time)}
-            return {'number': tag, 'hash': '0x' + ({10: '7', 30: '6', 40: '8'}[int(tag, 16)]) * 64}
+            if tag == 'latest': return {'number': '0x32', 'timestamp': hex(self.latest_time), 'hash': '0x' + 'c' * 64}
+            return {'number': tag, 'hash': '0x' + ({10: '7', 29: '8', 30: '6', 40: '8', 50: 'c'}[int(tag, 16)]) * 64}
         if method == 'eth_getTransactionReceipt': return self.receipt
         if method == 'eth_getTransactionByHash': return self.tx
         if method == 'eth_getCode': return '0x1234'
@@ -93,6 +93,21 @@ class ReversePreflightTest(unittest.TestCase):
             self.escrow[index] += 1
             with self.assertRaises(ValueError): self.verify()
             self.escrow[index] -= 1
+
+    def test_explicit_fast_snapshot_retains_actual_finality_and_exact_canonical_checks(self):
+        self.final_height = 29
+        proof = verify_commitment(self.request, self.registry, self.rpc, lambda _: '0x' + 'b' * 64, now=1000, fast_base_inclusion=True)
+        self.assertTrue(proof['commitmentVerified'])
+        self.assertFalse(proof['commitmentFinalized'])
+        self.assertEqual(proof['finalizedHeight'], '29')
+        self.assertEqual(proof['snapshotHeight'], '50')
+        self.assertFalse(proof['dispatchEnabled'])
+        for method, params in self.calls:
+            if method in ('eth_call', 'eth_getCode'):
+                self.assertEqual(params[1], {'blockHash': '0x' + 'c' * 64, 'requireCanonical': True})
+        self.receipt['status'] = '0x0'
+        with self.assertRaises(ValueError):
+            verify_commitment(self.request, self.registry, self.rpc, lambda _: '0x' + 'b' * 64, now=1000, fast_base_inclusion=True)
 
     def test_cancelled_settled_or_refunded_cannot_pass(self):
         for state in [0, 3, 4, 6, 7]:

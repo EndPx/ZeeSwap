@@ -85,6 +85,9 @@ class BridgeAdapter(Adapter):
         preflight = [profile['node']['path'], '--import', profile['tsxLoader']['path'], profile['preflight']['path'],
                      '--profile', profile['baseProfile']['path'], '--profile-sha256', profile['baseProfile']['sha256'],
                      '--request', profile['approvedRequest']['path'], '--approved-digest', profile['approvedDigest']]
+        if profile.get('fastBaseL2'):
+            pinned(profile['fastBaseL2'], profile['serviceUid'])
+            preflight += ['--fast-base-l2', profile['fastBaseL2']['path'], '--fast-base-l2-sha256', profile['fastBaseL2']['sha256']]
         self.config = {'approvedDigest': profile['approvedDigest'], 'capitalUfvkSha256': profile['walletUfvkSha256'],
                        'approvedCapitalNotes': profile['capitalNotes'] + extra_fee_notes(profile), 'operatorUfvkFile': profile['ufvkFile'],
                        'recipientProofMode': MODE, 'readCommand': [profile['reader']['path']],
@@ -117,6 +120,8 @@ class BridgeAdapter(Adapter):
     def recheck_artifacts(self):
         for key in ('approvedRequest', 'cli', 'reader', 'verifier', 'node', 'tsxLoader', 'preflight', 'baseProfile'):
             pinned(self.profile[key], self.profile['serviceUid'], key in ('cli', 'reader', 'verifier', 'node'))
+        if self.profile.get('fastBaseL2'):
+            pinned(self.profile['fastBaseL2'], self.profile['serviceUid'])
         pinned_modules(self.profile)
         need(json.loads(pinned(self.profile['approvedRequest'], self.profile['serviceUid'])) == self.request,
              'BRIDGE_IMMUTABLE_REQUEST_CHANGED')

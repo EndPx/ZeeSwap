@@ -27,7 +27,7 @@ export function requireBaseCanonicalPredicates(predicates:Record<string,boolean>
 }
 export class CanonicalBridgeBase {
  readonly clients;
- constructor(readonly profile:BridgeBaseProfile,readonly localTest=false){validateBridgeBaseProfile(profile,localTest);this.clients=profile.rpcUrls.map(url=>createPublicClient({chain:baseSepolia,transport:http(url,{timeout:15000,retryCount:0})}));}
+ constructor(readonly profile:BridgeBaseProfile,readonly localTest=false,readonly fastL2?:{recheck():Promise<void>}){validateBridgeBaseProfile(profile,localTest);this.clients=profile.rpcUrls.map(url=>createPublicClient({chain:baseSepolia,transport:http(url,{timeout:15000,retryCount:0})}));}
  async finalized():Promise<Anchor>{
   // Some independent public providers load-balance nodes with different
   // finalized views. Observe two finite rounds and retain the minimum ACTUAL
@@ -37,12 +37,22 @@ export class CanonicalBridgeBase {
   const anchors=await Promise.all(this.clients.map(c=>c.getBlock({blockNumber:height})));if(!anchors[0].hash||anchors.some(h=>h.hash!==anchors[0].hash)||height>BigInt(Number.MAX_SAFE_INTEGER))throw Error('BRIDGE_BASE_FINALIZED_DISAGREEMENT');
   return {height:Number(height),hash:anchors[0].hash,observedAt:new Date().toISOString()};
  }
+ async settlementAnchor():Promise<Anchor>{
+  if(!this.fastL2)return this.finalized();await this.fastL2.recheck();
+  const heads=await Promise.all(this.clients.map(c=>c.getBlock()));
+  if(heads.some(h=>typeof h.number!=='bigint'||h.number<1n||Date.now()-Number(h.timestamp)*1000>60000||Date.now()-Number(h.timestamp)*1000< -5000))throw Error('BRIDGE_BASE_L2_HEAD_INVALID');
+  const height=heads.reduce((n,h)=>h.number!<n?h.number!:n,heads[0].number!);
+  const blocks=await Promise.all(this.clients.map(c=>c.getBlock({blockNumber:height})));
+  if(!blocks[0].hash||blocks.some(b=>b.hash!==blocks[0].hash)||height>BigInt(Number.MAX_SAFE_INTEGER))throw Error('BRIDGE_BASE_L2_DISAGREEMENT');
+  return {height:Number(height),hash:blocks[0].hash,observedAt:new Date().toISOString()};
+ }
  async readAt(anchor:Anchor):Promise<BaseCounters>{
+  await this.fastL2?.recheck();
   validateAnchor(anchor,Date.now(),true);const p=this.profile,height=BigInt(anchor.height);
   const observations=await Promise.all(this.clients.map(async(c,reader)=>{
    const [chain,latest,finalized,block,code,receipt]=await Promise.all([c.getChainId(),c.getBlock(),c.getBlock({blockTag:'finalized'}),c.getBlock({blockNumber:height}),c.getCode({address:p.contractAddress,blockNumber:height}),c.getTransactionReceipt({hash:p.deployment.transactionHash})]);
    const latestAgeMs=Date.now()-Number(latest.timestamp)*1000;
-   requireBaseCanonicalPredicates({CHAIN_IDENTITY:chain===84532,ANCHOR_HASH_IDENTITY:block.hash===anchor.hash,FINALITY_COVERS_ANCHOR:finalized.number!>=height,LATEST_COVERS_FINALIZED:latest.number!>=finalized.number!,LATEST_NOT_STALE:this.localTest||latestAgeMs<=60000,LATEST_NOT_FUTURE:this.localTest||latestAgeMs>=-5000,RUNTIME_CODE_IDENTITY:!!code&&keccak256(code)===p.runtimeCodeHash,DEPLOYMENT_RECEIPT_SUCCESS:receipt.status==='success',DEPLOYMENT_ADDRESS_IDENTITY:receipt.contractAddress?.toLowerCase()===p.contractAddress.toLowerCase(),DEPLOYMENT_HEIGHT_IDENTITY:Number(receipt.blockNumber)===p.deployment.blockHeight,DEPLOYMENT_HASH_IDENTITY:receipt.blockHash===p.deployment.blockHash,ANCHOR_COVERS_DEPLOYMENT:height>=receipt.blockNumber},{reader,anchorHeight:anchor.height,anchorHash:anchor.hash,anchorObservedAt:anchor.observedAt,actualAnchorHash:block.hash,latestHeight:latest.number?.toString(),finalizedHeight:finalized.number?.toString(),latestAgeMs,actualRuntimeCodeHash:code?keccak256(code):null,expectedRuntimeCodeHash:p.runtimeCodeHash});
+   requireBaseCanonicalPredicates({CHAIN_IDENTITY:chain===84532,ANCHOR_HASH_IDENTITY:block.hash===anchor.hash,FINALITY_COVERS_ANCHOR:this.fastL2?latest.number!>=height:finalized.number!>=height,LATEST_COVERS_FINALIZED:latest.number!>=finalized.number!,LATEST_NOT_STALE:this.localTest||latestAgeMs<=60000,LATEST_NOT_FUTURE:this.localTest||latestAgeMs>=-5000,RUNTIME_CODE_IDENTITY:!!code&&keccak256(code)===p.runtimeCodeHash,DEPLOYMENT_FINALIZED:finalized.number!>=receipt.blockNumber,DEPLOYMENT_RECEIPT_SUCCESS:receipt.status==='success',DEPLOYMENT_ADDRESS_IDENTITY:receipt.contractAddress?.toLowerCase()===p.contractAddress.toLowerCase(),DEPLOYMENT_HEIGHT_IDENTITY:Number(receipt.blockNumber)===p.deployment.blockHeight,DEPLOYMENT_HASH_IDENTITY:receipt.blockHash===p.deployment.blockHash,ANCHOR_COVERS_DEPLOYMENT:height>=receipt.blockNumber},{reader,anchorHeight:anchor.height,anchorHash:anchor.hash,anchorObservedAt:anchor.observedAt,actualAnchorHash:block.hash,latestHeight:latest.number?.toString(),finalizedHeight:finalized.number?.toString(),latestAgeMs,actualRuntimeCodeHash:code?keccak256(code):null,expectedRuntimeCodeHash:p.runtimeCodeHash});
    const deploymentBlock=await c.getBlock({blockNumber:receipt.blockNumber});if(deploymentBlock.hash!==p.deployment.blockHash)throw Error('BRIDGE_BASE_DEPLOYMENT_REORG');
    const read=(functionName:'decimals'|'admin'|'operator'|'authorizer'|'totalSupply'|'unpaidRedemptionPrincipal'|'paused')=>c.readContract({address:p.contractAddress,abi:bridgeAbi,functionName,blockNumber:height});
    const [decimals,admin,operator,authorizer,supply,unpaid,paused,gas]=await Promise.all([read('decimals'),read('admin'),read('operator'),read('authorizer'),read('totalSupply'),read('unpaidRedemptionPrincipal'),read('paused'),c.getBalance({address:p.operator,blockNumber:height})]);
@@ -55,6 +65,7 @@ export class CanonicalBridgeBase {
  const r=request as {kind:'MINT'|'CANCEL'|'BURN'|'ACK';transactionHash:Hex};
   if(!r||Object.keys(r).sort().join()!=='kind,transactionHash'||!['MINT','CANCEL','BURN','ACK'].includes(r.kind)||!/^0x[a-f0-9]{64}$/.test(r.transactionHash)||!b.pair)throw Error('BRIDGE_BASE_FACT_REQUEST');
   const anchor=b.pair.base;await this.readAt(anchor);const p=this.profile;
+  const actualFinality=this.fastL2?await this.finalized():undefined;
   const receipts=await Promise.all(this.clients.map(async c=>{
    const receipt=await c.getTransactionReceipt({hash:r.transactionHash}),tx=await c.getTransaction({hash:r.transactionHash});
    if(receipt.status!=='success'||receipt.blockNumber>BigInt(anchor.height)||(await c.getBlock({blockNumber:receipt.blockNumber})).hash!==receipt.blockHash||tx.to?.toLowerCase()!==p.contractAddress.toLowerCase()||tx.value!==0n||(!('chainId' in tx)||Number(tx.chainId)!==84532))throw Error('BRIDGE_BASE_FACT_CANONICAL');
@@ -76,7 +87,7 @@ export class CanonicalBridgeBase {
     const state=await c.readContract({address:p.contractAddress,abi:bridgeAbi,functionName:'mintStates',args:[o.commitment as Hex],blockNumber:BigInt(anchor.height)});if(state!==(r.kind==='MINT'?1:2))throw Error('BRIDGE_BASE_MINT_STATE');
     if(r.kind==='MINT'&&(args.recipient.toLowerCase()!==o.recipient.toLowerCase()||args.amount!==integer(o.amountAtomic)))throw Error('BRIDGE_BASE_MINT_BINDING');
    }
-   if((await c.getBlock({blockNumber:BigInt(anchor.height)})).hash!==anchor.hash)throw Error('BRIDGE_BASE_REORG');return {receipt:{network:'base-sepolia' as const,transactionHash:r.transactionHash,blockHeight:Number(receipt.blockNumber),blockHash:receipt.blockHash},args};
+   if((await c.getBlock({blockNumber:BigInt(anchor.height)})).hash!==anchor.hash)throw Error('BRIDGE_BASE_REORG');return {receipt:{network:'base-sepolia' as const,transactionHash:r.transactionHash,blockHeight:Number(receipt.blockNumber),blockHash:receipt.blockHash,...(this.fastL2?{finality:(receipt.blockNumber<=BigInt(actualFinality!.height)?'FINALIZED':'INCLUDED') as 'INCLUDED'|'FINALIZED'}:{})},args};
   }));if(json(receipts[0])!==json(receipts[1]))throw Error('BRIDGE_BASE_RECEIPT_DISAGREEMENT');const {receipt,args}=receipts[0];
   return r.kind==='MINT'?{kind:'MINT',id:o.id,amount:args.amount.toString(),recipient:args.recipient,receipt}:r.kind==='CANCEL'?{kind:'CANCEL',id:o.id,receipt}:r.kind==='ACK'?{kind:'ACK',id:o.id,amount:args.amount.toString(),evidenceCommitment:args.evidenceCommitment,receipt}:{kind:'BURN',id:o.id,amount:args.amount.toString(),payer:args.payer,commitment:args.payoutCommitment,identity:`base:84532:${p.contractAddress.toLowerCase()}:${o.commitment}`,receipt};
  }
@@ -84,7 +95,7 @@ export class CanonicalBridgeBase {
   if(!o.source||!b.pair)throw Error('BRIDGE_BASE_SOURCE_REQUIRED');
   // Economic authority must reflect today's independently agreed finalized
   // state; a recently observed historical checkpoint cannot hide a newer ACK.
-  const current=await this.finalized();b={...b,pair:{...b.pair,base:current}};await this.readAt(current);
+  const current=await this.settlementAnchor();b={...b,pair:{...b.pair,base:current}};await this.readAt(current);
   if(o.direction==='ZEETAZ_TO_TAZ'){
    await this.verify({kind:'BURN',transactionHash:o.source.transactionHash},o,b);
    const records=await Promise.all(this.clients.map(c=>c.readContract({address:this.profile.contractAddress,abi:bridgeAbi,functionName:'redemptions',args:[o.commitment as Hex],blockNumber:BigInt(b.pair!.base.height)})));

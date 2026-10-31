@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { createPublicClient, http, parseAbi, encodeFunctionData, decodeEventLog, keccak256, toHex,
+import { createPublicClient, http, parseAbi, encodeFunctionData, decodeEventLog, decodeFunctionData, keccak256, toHex,
   getAddress, recoverTypedDataAddress, type Address, type Hex } from 'viem';
 import { baseSepolia } from 'viem/chains';
 
@@ -39,7 +39,9 @@ export function payoutCall(registry:BaseRegistry,terms:PayoutTerms,signature:Hex
  return phase==='RESERVE'?encodeFunctionData({abi:settlementAbi,functionName:'reservePayout',args:[payoutTypedData(registry,terms).message,signature]}):
   encodeFunctionData({abi:settlementAbi,functionName:'executePayout',args:[terms.id]});
 }
-export interface ConfirmedBaseReceipt {hash:Hex;blockNumber:number;blockHash:Hex;fee:string;phase:BasePhase;id:Hex;recipient:Address;amount:string}
+export interface IncludedBaseReceipt {hash:Hex;blockNumber:number;blockHash:Hex;fee:string;phase:BasePhase;id:Hex;recipient:Address;amount:string}
+
+export interface ConfirmedBaseReceipt extends IncludedBaseReceipt {}
 
 export class BaseContract {
  readonly client;
@@ -85,16 +87,32 @@ export class BaseContract {
  }
  state(id:Hex){return this.client.readContract({address:this.registry.contracts.ZeeSwapSettlement.address,abi:settlementAbi,functionName:'states',args:[id]});}
  async receipt(hash:Hex,phase:BasePhase,terms:PayoutTerms):Promise<ConfirmedBaseReceipt|null>{
+  const receipt=await this.includedReceipt(hash,phase,terms);
+  if(!receipt)return null;
+  const {finalized}=await this.heads();
+  return BigInt(receipt.blockNumber)<=finalized.number?receipt:null;
+ }
+ /** Successful canonical L2 inclusion, deliberately separate from final confirmation. */
+ async includedReceipt(hash:Hex,phase:BasePhase,terms:PayoutTerms):Promise<IncludedBaseReceipt|null>{
   const receipt=await this.client.getTransactionReceipt({hash}).catch(error=>{
    if(error.name==='TransactionReceiptNotFoundError')return null;throw error;
   });
   if(!receipt)return null;
   if(receipt.status!=='success')throw Error('BASE_TRANSACTION_REVERTED');
-  const {finalized}=await this.heads();
+  await this.heads();
   if((await this.client.getBlock({blockNumber:receipt.blockNumber})).hash!==receipt.blockHash)throw Error('BASE_REORG');
-  if(receipt.blockNumber>finalized.number)return null;
   const transaction=await this.client.getTransaction({hash});
+  if(transaction.hash!==hash||transaction.blockHash!==receipt.blockHash||transaction.blockNumber!==receipt.blockNumber)throw Error('BASE_RECEIPT_MISMATCH');
   if(transaction.from.toLowerCase()!==this.registry.operator.toLowerCase()||transaction.to?.toLowerCase()!==this.registry.contracts.ZeeSwapSettlement.address.toLowerCase()||transaction.value!==0n)throw Error('BASE_RECEIPT_MISMATCH');
+  const call=decodeFunctionData({abi:settlementAbi,data:transaction.input});
+  if(phase==='PAY'){
+   if(transaction.input!==payoutCall(this.registry,terms,'0x','PAY'))throw Error('BASE_RECEIPT_CALLDATA_MISMATCH');
+  }else{
+   if(call.functionName!=='reservePayout')throw Error('BASE_RECEIPT_CALLDATA_MISMATCH');
+   const [q,signature]=call.args as readonly [any,Hex];
+   if(q.id!==terms.id||getAddress(q.token)!==getAddress(terms.token)||getAddress(q.recipient)!==getAddress(terms.recipient)||q.amount!==BigInt(terms.amount)||q.nonce!==BigInt(terms.nonce)||q.deadline!==BigInt(terms.deadline))throw Error('BASE_RECEIPT_CALLDATA_MISMATCH');
+   await this.assertSignature(terms,signature);
+  }
   const events=receipt.logs.filter(log=>log.address.toLowerCase()===this.registry.contracts.ZeeSwapSettlement.address.toLowerCase()).flatMap(log=>{
    try{return [decodeEventLog({abi:settlementAbi,data:log.data,topics:log.topics})];}catch{return [];}
   });

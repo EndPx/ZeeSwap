@@ -5,10 +5,11 @@ import {createHash} from 'node:crypto';
 import {connect} from './db.ts';
 import {PrivateData} from './private-data.ts';
 import {BaseContract} from './base-contract.ts';
-import {loadLinuxNativeDispatch,nativeOrderDirectory,type NativePurpose} from './linux-native-dispatch.ts';
+import {loadLinuxNativeDispatch,nativeOrderDirectory,applyLinuxNativeFastExecution,type NativePurpose} from './linux-native-dispatch.ts';
 import {assertReverseAuthority,approvalDigest} from './reverse-authority.ts';
-import {escrowTerms} from './base-escrow.ts';
+import {escrowTerms,refreshIncludedEscrowFunding,observeEscrowCommit} from './base-escrow.ts';
 import {reversePayoutTerms,validatePreparedZcash,type PreparedZcashTransaction} from './reverse-settlement.ts';
+import {readPolicyExecutionEpoch} from './testnet-policy-execution.ts';
 import {requireFreshLiveDispatchObservers} from './live-dispatch-scope.ts';
 import {sourceRefundTerms,forwardRefundPayoutTerms,refundContext,verifyBaseRefund} from './source-refunds.ts';
 import type {PreparedBaseTransaction} from './base-signer.ts';
@@ -23,6 +24,14 @@ export async function runLinuxNativeGuard(purpose:NativePurpose,path:string,requ
  need(state.orderId===guard.orderId&&state.approvedDigest===guard.approvedDigest&&state.operatorProfileSha256===verified.profileSha256&&Number.isSafeInteger(state.operatorBackendPid));
  const preparedBytes=await readFile(directory+'/prepared.private.json');need(state.nativeConfigSha256===createHash('sha256').update(preparedBytes).digest('hex'));
  const preparedConfig=JSON.parse(preparedBytes.toString());need(JSON.stringify(preparedConfig.policyContext)===JSON.stringify(state.policyContext));
+ if(preparedConfig.fastBaseInclusion){
+  need(purpose==='reverse'&&preparedConfig.fastBaseInclusion===true&&state.policyContext);
+  const rootPin=preparedConfig.baseFastRoot,stat=await (await import('node:fs/promises')).lstat(rootPin.path),raw=await readFile(rootPin.path);
+  need(stat.isFile()&&!stat.isSymbolicLink()&&stat.uid===0&&(stat.mode&0o077)===0&&await (await import('node:fs/promises')).realpath(rootPin.path)===rootPin.path&&createHash('sha256').update(raw).digest('hex')===rootPin.sha256);
+  const root=JSON.parse(raw.toString());need(root.purpose==='ROOT_BASE_L2_FAST_EXECUTION'&&root.profileSha256===verified.profileSha256&&root.policySha256===state.policyContext.policySha256&&root.activeEpoch===state.policyContext.activeEpoch);
+  const fast=await applyLinuxNativeFastExecution(loaded,rootPin,root);need(JSON.stringify(fast.nativeFastExecution?.pin)===JSON.stringify(preparedConfig.nativeFastExecution));
+ }
+
  const {runtime,registry}=verified,pool=connect(runtime.workerUrl,1),keys=new PrivateData(Buffer.from(runtime.payloadKeyHex,'hex'),Buffer.from(runtime.lookupKeyHex,'hex')),base=new BaseContract(registry);
  try{
   const identity=(await pool.query('SELECT current_database() database,current_user role')).rows[0];need(identity?.database==='zee_app_20261023'&&identity.role==='zee_app_worker_20261023');
@@ -35,7 +44,9 @@ export async function runLinuxNativeGuard(purpose:NativePurpose,path:string,requ
    const row=(await pool.query('SELECT * FROM zee.reverse_payouts WHERE order_id=$1',[state.orderId])).rows[0];need(row&&!row.confirmed&&keys.lookup('zcash-tx',request.txid).equals(row.tx_hash));
    const prepared=keys.open(row.signed_payload,`reverse-payout:${state.orderId}:v1`) as PreparedZcashTransaction,terms=await reversePayoutTerms(pool,keys,state.orderId),funding=await escrowTerms(pool,keys,base,state.orderId);
    assertReverseAuthority(request,approved,guard.approvedDigest,state.orderId,prepared,terms,funding,registry.contracts.ZeeSwapSettlement.address,String(checkpoint.scanned_height));
+   if(state.policyContext)need(state.dispatchEpoch===await readPolicyExecutionEpoch(pool,state.policyContext.policySha256,state.policyContext.activeEpoch));
    await requireFreshLiveDispatchObservers(pool,state.dispatchEpoch);const lease=state.currentLease;
+   if(preparedConfig.fastBaseInclusion){await refreshIncludedEscrowFunding(pool,keys,base,state.orderId);need(['COMMIT_INCLUDED','COMMIT_FINALIZED'].includes((await observeEscrowCommit(pool,keys,base,state.orderId,true)).status));}
    await pool.query('SELECT zee.check_reverse_signing($1,$2,$3,$4)',[state.orderId,lease.jobId,lease.owner,lease.fence]);
   }else{
    need(typeof state.refundEpoch==='string');const row=(await pool.query('SELECT * FROM zee.source_refunds WHERE order_id=$1',[state.orderId])).rows[0];need(row?.zcash_payload&&!row.confirmed&&row.base_confirmed&&row.base_phase==='CANCEL');

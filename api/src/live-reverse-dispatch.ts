@@ -4,25 +4,25 @@ import type {BaseContract} from './base-contract.ts';
 import type {PrivateData} from './private-data.ts';
 import type {LocalReverseBaseSigner,PreparedBaseTransaction} from './base-signer.ts';
 import type {LocalReverseWalletAdapter} from './reverse-wallet-adapter.ts';
-import {escrowTerms,observeEscrowCommit,storeEscrowCommit} from './base-escrow.ts';
+import {escrowTerms,observeEscrowCommit,storeEscrowCommit,refreshIncludedEscrowFunding} from './base-escrow.ts';
 import {reversePayoutTerms,storeReversePayout,observeReversePayout,storeEscrowSettlement,observeEscrowSettlement,requireFreshReverseDelivery,type PreparedZcashTransaction} from './reverse-settlement.ts';
 import {withLeaseHeartbeat} from './lease-heartbeat.ts';
 import {withLiveOperatorLock,requireFreshLiveDispatchObservers} from './live-dispatch-scope.ts';
 import {isObserverWait} from './observer-frontiers.ts';
 
 export type LiveReverseState={version:1;orderId:string;approvedDigest?:string;dispatchEpoch?:string;operatorBackendPid?:number;currentLease?:{jobId:string;owner:string;fence:string};broadcasts?:Record<string,'UNKNOWN'|'ACKNOWLEDGED'>};
-export type ReverseProgress={orderState:string;commit?:{confirmed:boolean};payout?:{confirmed:boolean};settle?:{confirmed:boolean};approved:boolean};
+export type ReverseProgress={orderState:string;commit?:{confirmed:boolean;included?:boolean};payout?:{confirmed:boolean};settle?:{confirmed:boolean};approved:boolean};
 export type ReverseStep='COMMIT'|'APPROVE_NATIVE'|'NATIVE'|'ACK_BASE'|'COMPLETE'|'WAIT_ORDER';
 export function nextLiveReverseStep(p:ReverseProgress):ReverseStep {
  if(p.orderState==='SETTLED')return 'COMPLETE';
  if(p.orderState!=='READY')return 'WAIT_ORDER';
- if(!p.commit?.confirmed)return 'COMMIT';
+ if(!p.commit?.confirmed&&!p.commit?.included)return 'COMMIT';
  if(!p.approved)return 'APPROVE_NATIVE';
  if(!p.payout?.confirmed)return 'NATIVE';
  return 'ACK_BASE';
 }
 export interface LiveReverseContext {
- pool:pg.Pool;keys:PrivateData;base:BaseContract;maxAmountZatoshi:string;
+ pool:pg.Pool;keys:PrivateData;base:BaseContract;maxAmountZatoshi:string;fastBaseInclusion?:boolean;
  load(orderId:string):Promise<LiveReverseState>;save(state:LiveReverseState):Promise<void>;
  baseSigner(state:LiveReverseState):Promise<LocalReverseBaseSigner>;
  wallet(state:LiveReverseState):Promise<LocalReverseWalletAdapter>;
@@ -42,6 +42,12 @@ export async function dispatchLiveReverseOnce(c:LiveReverseContext,orderId:strin
   if(!order||order.direction!=='BASE_TO_ZCASH'||order.execution_mode!=='base-escrow-v1'||BigInt(order.output_amount)>BigInt(c.maxAmountZatoshi))throw Error('LIVE_REVERSE_ORDER_SCOPE');
   const state=await c.load(orderId);if(state.orderId!==orderId)throw Error('LIVE_REVERSE_STATE_BINDING');
   const [commit,payout,settle]=await Promise.all(['escrow_commits','reverse_payouts','escrow_settlements'].map(table=>c.pool.query(`SELECT * FROM zee.${table} WHERE order_id=$1`,[orderId]).then(r=>r.rows[0])));
+  async function refreshIncluded(){
+   if(!c.fastBaseInclusion)return;
+   await refreshIncludedEscrowFunding(c.pool,c.keys,c.base,orderId);
+   if(commit){const observed=await observeEscrowCommit(c.pool,c.keys,c.base,orderId,true);commit.included=['COMMIT_INCLUDED','COMMIT_FINALIZED'].includes(observed.status);}
+  }
+  if(c.fastBaseInclusion&&order.state==='READY')await refreshIncluded();
   const step=nextLiveReverseStep({orderState:order.state,commit,payout,settle,approved:!!state.approvedDigest});
   if(requested&&requested!==step)throw Error('LIVE_REVERSE_STEP_MISMATCH');
   if(allowSameBytesRetry&&!(step==='COMMIT'?commit:step==='NATIVE'?payout:step==='ACK_BASE'?settle:false))throw Error('LIVE_REVERSE_RETRY_REQUIRES_ORIGINAL_ATTEMPT');
@@ -61,7 +67,7 @@ export async function dispatchLiveReverseOnce(c:LiveReverseContext,orderId:strin
    if(!Number.isSafeInteger(lock.backendPid)||lock.backendPid!<=0)throw Error('LIVE_OPERATOR_BACKEND_IDENTITY_REQUIRED');
    state.currentLease={jobId:job.id,owner:owner!,fence:String(job.fence)};state.dispatchEpoch=epoch;state.operatorBackendPid=lock.backendPid;await c.save(state);
    return withLeaseHeartbeat(()=>c.pool.query('SELECT zee.renew_base_lease($1,$2,$3)',[job.id,owner,job.fence]),async heartbeat=>{
-    const check=async()=>{await heartbeat();await lock.check();await requireFreshLiveDispatchObservers(c.pool,epoch);};await check();return run(job,owner!,check);
+    const check=async()=>{await heartbeat();await lock.check();await requireFreshLiveDispatchObservers(c.pool,epoch);await refreshIncluded();};await check();return run(job,owner!,check);
    });
   }
   async function broadcastBase(phase:'COMMIT'|'SETTLE',row:any){
@@ -82,7 +88,7 @@ export async function dispatchLiveReverseOnce(c:LiveReverseContext,orderId:strin
   }
   let awaitWallet:LocalReverseWalletAdapter|undefined;
   if(step==='COMMIT'){
-   if(commit){const observed=await observeEscrowCommit(c.pool,c.keys,c.base,orderId);if(observed.status==='COMMIT_FINALIZED')return observed;return await broadcastBase('COMMIT',commit);}
+   if(commit){const observed=await observeEscrowCommit(c.pool,c.keys,c.base,orderId,!!c.fastBaseInclusion);if(['COMMIT_FINALIZED','COMMIT_INCLUDED'].includes(observed.status))return observed;return await broadcastBase('COMMIT',commit);}
    return await leased(async(job,owner,check)=>{
     await c.pool.query('SELECT zee.check_escrow_dispatch($1,$2,$3,$4)',[orderId,job.id,owner,job.fence]);
     const terms=await escrowTerms(c.pool,c.keys,c.base,orderId),signed=await(await c.baseSigner(state)).prepareEscrow(terms,'COMMIT');await check();
@@ -90,7 +96,7 @@ export async function dispatchLiveReverseOnce(c:LiveReverseContext,orderId:strin
    });
   }
   if(step==='APPROVE_NATIVE'){
-   if((await observeEscrowCommit(c.pool,c.keys,c.base,orderId)).status!=='COMMIT_FINALIZED')return {status:'AWAITING_BASE_FINALITY'};
+   if(!['COMMIT_FINALIZED',...(c.fastBaseInclusion?['COMMIT_INCLUDED']:[])].includes((await observeEscrowCommit(c.pool,c.keys,c.base,orderId,!!c.fastBaseInclusion)).status))return {status:'AWAITING_BASE_FINALITY'};
    await c.approve(state);return {status:'NATIVE_IMMUTABLE_APPROVAL_SAVED'};
   }
   awaitWallet=await c.wallet(state);
@@ -111,7 +117,7 @@ export async function dispatchLiveReverseOnce(c:LiveReverseContext,orderId:strin
     await storeReversePayout(c.pool,c.keys,orderId,job.id,owner,String(job.fence),prepared,awaitWallet!);return {status:'ZCASH_SIGNED_DURABLY'};
    });
   }
-  if(settle){const observed=await observeEscrowSettlement(c.pool,c.keys,c.base,orderId);if(observed.status==='SETTLED')return observed;return await broadcastBase('SETTLE',settle);}
+  if(settle){const observed=await observeEscrowSettlement(c.pool,c.keys,c.base,orderId,!!c.fastBaseInclusion);if(observed.status==='SETTLED')return observed;return await broadcastBase('SETTLE',settle);}
   return await leased(async(job,owner,check)=>{
    await requireFreshReverseDelivery(()=>observeReversePayout(c.pool,c.keys,orderId,awaitWallet!),()=>c.pool.query('SELECT zee.check_reverse_delivery($1)',[orderId]));
    await c.pool.query('SELECT zee.check_reverse_signing($1,$2,$3,$4)',[orderId,job.id,owner,job.fence]);

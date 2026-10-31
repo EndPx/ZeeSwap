@@ -46,15 +46,36 @@ export async function authorizeEscrow(pool:pg.Pool,keys:PrivateData,base:BaseCon
  return pinned;
 }
 
-export async function finalizedReceipt(base:BaseContract,hash:Hex){
+export async function finalizedReceipt(base:BaseContract,hash:Hex,included=false){
  const receipt=await base.client.getTransactionReceipt({hash}).catch(error=>{if(error.name==='TransactionReceiptNotFoundError')return null;throw error;});
  if(!receipt)return null;
+ if(receipt.transactionHash!==hash)throw Error('BASE_ESCROW_RECEIPT_IDENTITY_MISMATCH');
  if(receipt.status!=='success')throw Error('BASE_ESCROW_TRANSACTION_REVERTED');
  const heads=await base.heads(),block=await base.client.getBlock({blockNumber:receipt.blockNumber});
  if(block.hash!==receipt.blockHash)throw Error('BASE_REORG');
- if(heads.finalized.number<receipt.blockNumber)return null;
+ if(!included&&heads.finalized.number<receipt.blockNumber)return null;
  return {receipt,block,heads};
 }
+export const escrowInclusionContext=(id:string,phase:string)=>`escrow-inclusion:${id}:${phase}:v1`;
+/** Included observations remain separate from the existing final confirmation flags. */
+export async function includedEscrowReceipt(pool:pg.Pool,base:BaseContract,orderId:string,phase:'FUND'|'COMMIT'|'SETTLE',hash:Hex){
+ const old=(await pool.query('SELECT * FROM zee.escrow_inclusions WHERE order_id=$1 AND phase=$2',[orderId,phase])).rows[0];
+ try{
+  const p=await finalizedReceipt(base,hash,true);
+  if(old&&(!old.valid||!p||String(old.block_height)!==String(p.receipt.blockNumber)||old.block_hash!==p.receipt.blockHash.slice(2)))throw Error('BASE_ESCROW_INCLUDED_CHANGED');
+  return p;
+ }catch(e){
+  if(old&&e instanceof Error&&['BASE_ESCROW_INCLUDED_CHANGED','BASE_REORG','BASE_ESCROW_TRANSACTION_REVERTED','BASE_ESCROW_RECEIPT_IDENTITY_MISMATCH'].includes(e.message))await pool.query('SELECT zee.invalidate_escrow_inclusion($1,$2)',[orderId,phase]);
+  throw e;
+ }
+}
+export async function saveEscrowInclusion(pool:pg.Pool,keys:PrivateData,orderId:string,phase:'FUND'|'COMMIT'|'SETTLE',hash:Hex,depositId:string|null,p:NonNullable<Awaited<ReturnType<typeof finalizedReceipt>>>,fee:string){
+ const epoch=await canonicalCheckpoint(pool,p);
+ const proof={transactionHash:hash,blockHeight:Number(p.receipt.blockNumber),blockHash:p.receipt.blockHash,phase,fee};
+ await transaction(pool,async c=>{await requireObserverEpoch(c,epoch);await c.query('SELECT zee.observe_escrow_inclusion($1,$2,$3,$4,$5,$6,$7,$8)',[orderId,phase,keys.lookup('base-tx',hash),depositId,proof.blockHeight,proof.blockHash.slice(2),fee,keys.seal(proof,escrowInclusionContext(orderId,phase))]);});
+ return proof;
+}
+
 export function escrowEvents(base:BaseContract,receipt:any,name:string){return receipt.logs.filter((l:any)=>l.address.toLowerCase()===base.registry.contracts.ZeeSwapSettlement.address.toLowerCase()).flatMap((l:any)=>{
  try{const e=decodeEventLog({abi:settlementAbi,data:l.data,topics:l.topics});return e.eventName===name?[{args:e.args as any,index:l.logIndex}]:[];}catch{return [];}
 });}
@@ -77,17 +98,18 @@ export async function escrowState(base:BaseContract,terms:FundingTerms,blockNumb
 }
 
 /** Caller tx hash is only a lookup hint. Canonical calldata, signer and event establish funding. */
-export async function observeEscrowFunding(pool:pg.Pool,keys:PrivateData,base:BaseContract,orderId:string,hash:Hex){
+export async function observeEscrowFunding(pool:pg.Pool,keys:PrivateData,base:BaseContract,orderId:string,hash:Hex,fastBaseInclusion=false){
  const terms=await escrowTerms(pool,keys,base,orderId);
  const row=(await pool.query('SELECT terms_payload FROM zee.escrow_bindings WHERE order_id=$1',[orderId])).rows[0];
  if(!row)throw Error('BASE_ESCROW_AUTHORIZATION_MISSING');
  const pinned=keys.open(row.terms_payload,context(orderId)) as {terms:FundingTerms;signature:Hex};
  if(JSON.stringify(pinned.terms)!==JSON.stringify(terms))throw Error('BASE_ESCROW_TERMS_MISMATCH');
- const proof=await finalizedReceipt(base,hash);if(!proof)return {status:'AWAITING_BASE_FINALITY'};
- const state=await escrowState(base,terms,proof.heads.finalized.number);
- if((await base.client.getBlock({blockNumber:proof.heads.finalized.number})).hash!==proof.heads.finalized.hash)throw Error('BASE_REORG');
- if(state!==4&&state!==5)throw Error('BASE_ESCROW_NOT_FUNDED');
+ const proof=fastBaseInclusion?await includedEscrowReceipt(pool,base,orderId,'FUND',hash):await finalizedReceipt(base,hash);if(!proof)return {status:'AWAITING_BASE_FINALITY'};
+ const state=await escrowState(base,terms,fastBaseInclusion?proof.heads.latest.number:proof.heads.finalized.number);
+ if((await base.client.getBlock({blockNumber:(fastBaseInclusion?proof.heads.latest:proof.heads.finalized).number})).hash!==(fastBaseInclusion?proof.heads.latest:proof.heads.finalized).hash)throw Error('BASE_REORG');
+ if(state!==4&&state!==5&&!(fastBaseInclusion&&state===6))throw Error('BASE_ESCROW_NOT_FUNDED');
  const tx=await base.client.getTransaction({hash}),matches=escrowEvents(base,proof.receipt,'Funded'),args=matches[0]?.args;
+ if(tx.hash!==hash||tx.blockHash!==proof.receipt.blockHash||tx.blockNumber!==proof.receipt.blockNumber)throw Error('BASE_ESCROW_RECEIPT_IDENTITY_MISMATCH');
  if(tx.from.toLowerCase()!==terms.payer.toLowerCase()||tx.to?.toLowerCase()!==base.registry.contracts.ZeeSwapSettlement.address.toLowerCase()
   ||tx.value!==0n||tx.input!==fundingCall(base,terms,pinned.signature)||matches.length!==1||args.id!==terms.id
   ||getAddress(args.payer)!==terms.payer||args.amount!==BigInt(terms.amount)||args.cancellationAvailableAt!==BigInt(terms.cancellationAvailableAt)
@@ -100,7 +122,12 @@ export async function observeEscrowFunding(pool:pg.Pool,keys:PrivateData,base:Ba
   const id=await repo.observe({network:'base-sepolia',txid:hash.slice(2),index:matches[0].index,emitter:base.registry.contracts.ZeeSwapSettlement.address,
    reference:q.reference,receiver:q.depositReceiver,amount:terms.amount,height:Number(proof.receipt.blockNumber),blockHash:proof.receipt.blockHash.slice(2),
    blockTime:new Date(Number(proof.block.timestamp)*1000),shielded:false});
-  await repo.confirm(id);return {status:'READY',depositId:id};
+  if(fastBaseInclusion){
+   const included={transactionHash:hash,blockHeight:Number(proof.receipt.blockNumber),blockHash:proof.receipt.blockHash,phase:'FUND',fee:'0'};
+   await c.query('SELECT zee.observe_escrow_inclusion($1,$2,$3,$4,$5,$6,$7,$8)',[orderId,'FUND',keys.lookup('base-tx',hash),id,included.blockHeight,included.blockHash.slice(2),'0',keys.seal(included,escrowInclusionContext(orderId,'FUND'))]);
+  }
+  if(proof.heads.finalized.number>=proof.receipt.blockNumber)await repo.confirm(id);
+  return {status:'READY',depositId:id};
  });
 }
 
@@ -116,22 +143,32 @@ export async function storeEscrowCommit(pool:pg.Pool,keys:PrivateData,base:BaseC
 }
 
 /** Reconciles existing bytes while paused; never signs, broadcasts or frees customer funds. */
-export async function observeEscrowCommit(pool:pg.Pool,keys:PrivateData,base:BaseContract,orderId:string){
+export async function observeEscrowCommit(pool:pg.Pool,keys:PrivateData,base:BaseContract,orderId:string,fastBaseInclusion=false){
  const row=(await pool.query('SELECT * FROM zee.escrow_commits WHERE order_id=$1',[orderId])).rows[0];if(!row)throw Error('BASE_ESCROW_COMMIT_MISSING');
  const signed=keys.open(row.signed_payload,attemptContext(orderId)) as PreparedBaseTransaction;
- const terms=await escrowTerms(pool,keys,base,orderId),p=await finalizedReceipt(base,signed.hash);if(!p)return {status:'AWAITING_BASE_FINALITY'};
+ const terms=await escrowTerms(pool,keys,base,orderId),p=fastBaseInclusion?await includedEscrowReceipt(pool,base,orderId,'COMMIT',signed.hash):await finalizedReceipt(base,signed.hash);if(!p)return {status:'AWAITING_BASE_FINALITY'};
  const tx=await base.client.getTransaction({hash:signed.hash}),matches=escrowEvents(base,p.receipt,'PayoutCommitted');
- const state=await escrowState(base,terms,p.heads.finalized.number);
- if((await base.client.getBlock({blockNumber:p.heads.finalized.number})).hash!==p.heads.finalized.hash)throw Error('BASE_REORG');
- if(matches.length!==1||matches[0].args.id!==terms.id||state!==5||tx.from.toLowerCase()!==base.registry.operator.toLowerCase()
+ const state=await escrowState(base,terms,fastBaseInclusion?p.heads.latest.number:p.heads.finalized.number);
+ if((await base.client.getBlock({blockNumber:(fastBaseInclusion?p.heads.latest:p.heads.finalized).number})).hash!==(fastBaseInclusion?p.heads.latest:p.heads.finalized).hash)throw Error('BASE_REORG');
+ if(tx.hash!==signed.hash||tx.blockHash!==p.receipt.blockHash||tx.blockNumber!==p.receipt.blockNumber)throw Error('BASE_ESCROW_RECEIPT_IDENTITY_MISMATCH');
+ if(matches.length!==1||matches[0].args.id!==terms.id||(state!==5&&!(fastBaseInclusion&&state===6))||tx.from.toLowerCase()!==base.registry.operator.toLowerCase()
   ||tx.to?.toLowerCase()!==base.registry.contracts.ZeeSwapSettlement.address.toLowerCase()||tx.value!==0n
   ||tx.input!==encodeFunctionData({abi:settlementAbi,functionName:'commitPayout',args:[terms.id]}))throw Error('BASE_ESCROW_COMMIT_MISMATCH');
  const l1=(p.receipt as any).l1Fee;if(!base.localTest&&typeof l1!=='bigint')throw Error('BASE_FEE_UNAVAILABLE');
  const fee=(p.receipt.gasUsed*p.receipt.effectiveGasPrice+BigInt(l1??0)).toString();
+ if(fastBaseInclusion){await saveEscrowInclusion(pool,keys,orderId,'COMMIT',signed.hash,null,p,fee);if(p.heads.finalized.number<p.receipt.blockNumber)return {status:'COMMIT_INCLUDED'};}
  const proof={transactionHash:signed.hash,blockHeight:Number(p.receipt.blockNumber),blockHash:p.receipt.blockHash,fee,state:'PAYOUT_COMMITTED',
  finalizedHeight:Number(p.heads.finalized.number),finalizedHash:p.heads.finalized.hash};
  const epoch=await canonicalCheckpoint(pool,p);
  await transaction(pool,async c=>{await requireObserverEpoch(c,epoch);await c.query('SELECT zee.confirm_escrow_commit($1,$2,$3,$4,$5,$6)',
   [orderId,keys.lookup('base-tx',signed.hash),proof.blockHeight,proof.blockHash.slice(2),fee,keys.seal(proof,proofContext(orderId))]);});
  return {status:'COMMIT_FINALIZED'};
+}
+
+/** Revalidate the original FUND transaction; no replacement or customer hint is accepted. */
+export async function refreshIncludedEscrowFunding(pool:pg.Pool,keys:PrivateData,base:BaseContract,orderId:string){
+ const row=(await pool.query("SELECT receipt_payload FROM zee.escrow_inclusions WHERE order_id=$1 AND phase='FUND'",[orderId])).rows[0];
+ if(!row)throw Error('BASE_ESCROW_INCLUDED_FUND_REQUIRED');
+ const proof=keys.open(row.receipt_payload,escrowInclusionContext(orderId,'FUND')) as {transactionHash:Hex};
+ return observeEscrowFunding(pool,keys,base,orderId,proof.transactionHash,true);
 }

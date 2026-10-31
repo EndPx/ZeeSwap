@@ -13,10 +13,26 @@ import re
 import subprocess
 import sys
 import time
-from signer import save
+from signer import save, finalized_header, rpc_integer, cast_object
 
 FIELDS = ('id', 'token', 'payer', 'refundRecipient', 'amount', 'nonce', 'fundingCutoff', 'cancellationAvailableAt')
 TYPES = [{'name': key, 'type': kind} for key, kind in zip(FIELDS, ('bytes32', 'address', 'address', 'address', 'uint256', 'uint256', 'uint256', 'uint256'))]
+
+
+def reverse_state_snapshot(config, cast):
+    if config.get('fastBaseInclusion') is not True:
+        return 'finalized', None
+    raw = cast('block', 'latest', '--json', '--rpc-url', config['rpcUrl'])
+    latest = finalized_header(raw)
+    finalized = finalized_header(cast('block', 'finalized', '--json', '--rpc-url', config['rpcUrl']))
+    if latest['number'] < finalized['number'] or not -5 <= time.time() - rpc_integer(cast_object(raw).get('timestamp')) <= 60:
+        raise ValueError('Fresh coherent Base L2 snapshot required')
+    return str(latest['number']), latest
+
+
+def require_snapshot(config, cast, snapshot):
+    if snapshot and finalized_header(cast('block', str(snapshot['number']), '--json', '--rpc-url', config['rpcUrl'])) != snapshot:
+        raise ValueError('Canonical Base L2 snapshot changed')
 
 
 def validate_terms(config, terms):
@@ -95,8 +111,10 @@ def run(config, request):
         if request['phase'] == 'FUNDING':
             return {'signature': auth['signature']}
         phase = request['phase']
-        state = cast('call', config['settlement'], 'states(bytes32)(uint8)', terms['id'], '--block', 'finalized', '--rpc-url', config['rpcUrl'])
-        values = cast('call', config['settlement'], 'escrows(bytes32)(address,address,uint256,uint256)', terms['id'], '--block', 'finalized', '--rpc-url', config['rpcUrl']).splitlines()
+        block_tag, snapshot = reverse_state_snapshot(config, cast)
+        state = cast('call', config['settlement'], 'states(bytes32)(uint8)', terms['id'], '--block', block_tag, '--rpc-url', config['rpcUrl'])
+        values = cast('call', config['settlement'], 'escrows(bytes32)(address,address,uint256,uint256)', terms['id'], '--block', block_tag, '--rpc-url', config['rpcUrl']).splitlines()
+        require_snapshot(config, cast, snapshot)
         if (state != ('4' if phase == 'COMMIT' else '5') or len(values) != 4 or values[0].lower() != terms['payer'].lower()
                 or values[1].lower() != terms['refundRecipient'].lower() or int(values[2].split()[0]) != int(terms['amount'])
                 or int(values[3].split()[0]) != int(terms['cancellationAvailableAt'])):
@@ -120,6 +138,7 @@ def run(config, request):
             prepared = {'terms': terms, 'nonce': pending, 'data': data, 'gas': '450000', 'gasPrice': '20000000', 'maxCost': '10000000000000'}
             save(path, prepared)
         if 'raw' not in prepared:
+            require_snapshot(config, cast, snapshot)
             prepared['raw'] = cast('mktx', config['settlement'], prepared['data'], '--legacy', '--gas-limit', prepared['gas'], '--gas-price', prepared['gasPrice'],
                                    '--nonce', str(prepared['nonce']), '--chain', '84532', '--value', '0', '--rpc-url', config['rpcUrl'], *wallet)
             prepared['hash'] = cast('keccak', prepared['raw']); save(path, prepared)

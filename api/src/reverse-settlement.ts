@@ -2,7 +2,7 @@ import { publishObserverBatch,requireObserverEpoch } from './observer-frontiers.
 import type pg from 'pg';
 import { encodeFunctionData,getAddress,keccak256,parseTransaction,recoverTransactionAddress,type TransactionSerialized } from 'viem';
 import { BaseContract,settlementAbi } from './base-contract.ts';
-import { escrowTerms,escrowState,escrowEvents,finalizedReceipt,canonicalCheckpoint } from './base-escrow.ts';
+import { escrowTerms,escrowState,escrowEvents,finalizedReceipt,canonicalCheckpoint,includedEscrowReceipt,saveEscrowInclusion } from './base-escrow.ts';
 import type { PreparedBaseTransaction } from './base-signer.ts';
 import { PrivateData } from './private-data.ts';
 import { transaction } from './db.ts';
@@ -110,18 +110,20 @@ export async function storeEscrowSettlement(pool:pg.Pool,keys:PrivateData,base:B
  await pool.query('SELECT zee.store_escrow_settlement($1,$2,$3,$4,$5,$6,$7)',[orderId,jobId,owner,fence,keys.lookup('base-tx',signed.hash),keys.seal(signed,settleContext(orderId)),signed.maxCost]);
 }
 
-export async function observeEscrowSettlement(pool:pg.Pool,keys:PrivateData,base:BaseContract,orderId:string){
+export async function observeEscrowSettlement(pool:pg.Pool,keys:PrivateData,base:BaseContract,orderId:string,fastBaseInclusion=false){
  const row=(await pool.query('SELECT * FROM zee.escrow_settlements WHERE order_id=$1',[orderId])).rows[0];if(!row)throw Error('BASE_ESCROW_SETTLE_MISSING');
  const signed=keys.open(row.signed_payload,settleContext(orderId)) as PreparedBaseTransaction;
- const terms=await escrowTerms(pool,keys,base,orderId),p=await finalizedReceipt(base,signed.hash);if(!p)return {status:'AWAITING_BASE_FINALITY'};
+ const terms=await escrowTerms(pool,keys,base,orderId),p=fastBaseInclusion?await includedEscrowReceipt(pool,base,orderId,'SETTLE',signed.hash):await finalizedReceipt(base,signed.hash);if(!p)return {status:'AWAITING_BASE_FINALITY'};
  const tx=await base.client.getTransaction({hash:signed.hash}),matches=escrowEvents(base,p.receipt,'EscrowSettled');
- const state=await escrowState(base,terms,p.heads.finalized.number);
- if((await base.client.getBlock({blockNumber:p.heads.finalized.number})).hash!==p.heads.finalized.hash)throw Error('BASE_REORG');
+ const state=await escrowState(base,terms,fastBaseInclusion?p.heads.latest.number:p.heads.finalized.number);
+ if((await base.client.getBlock({blockNumber:(fastBaseInclusion?p.heads.latest:p.heads.finalized).number})).hash!==(fastBaseInclusion?p.heads.latest:p.heads.finalized).hash)throw Error('BASE_REORG');
+ if(tx.hash!==signed.hash||tx.blockHash!==p.receipt.blockHash||tx.blockNumber!==p.receipt.blockNumber)throw Error('BASE_ESCROW_RECEIPT_IDENTITY_MISMATCH');
  if(matches.length!==1||matches[0].args.id!==terms.id||matches[0].args.amount!==BigInt(terms.amount)||state!==6
  ||tx.from.toLowerCase()!==base.registry.operator.toLowerCase()||tx.to?.toLowerCase()!==base.registry.contracts.ZeeSwapSettlement.address.toLowerCase()
  ||tx.value!==0n||tx.input!==encodeFunctionData({abi:settlementAbi,functionName:'settleEscrow',args:[terms.id]}))throw Error('BASE_ESCROW_SETTLE_MISMATCH');
  const l1=(p.receipt as any).l1Fee;if(!base.localTest&&typeof l1!=='bigint')throw Error('BASE_FEE_UNAVAILABLE');
  const fee=(p.receipt.gasUsed*p.receipt.effectiveGasPrice+BigInt(l1??0)).toString();
+ if(fastBaseInclusion){await saveEscrowInclusion(pool,keys,orderId,'SETTLE',signed.hash,null,p,fee);if(p.heads.finalized.number<p.receipt.blockNumber)return {status:'SETTLE_INCLUDED'};}
  const proof={transactionHash:signed.hash,blockHeight:Number(p.receipt.blockNumber),blockHash:p.receipt.blockHash,fee,state:'SETTLED',finalizedHeight:Number(p.heads.finalized.number),finalizedHash:p.heads.finalized.hash};
  const epoch=await canonicalCheckpoint(pool,p);
  await transaction(pool,async c=>{await requireObserverEpoch(c,epoch);await c.query('SELECT zee.confirm_escrow_settlement($1,$2,$3,$4,$5,$6)',[orderId,keys.lookup('base-tx',signed.hash),proof.blockHeight,proof.blockHash.slice(2),fee,keys.seal(proof,`escrow-settle-proof:${orderId}:v1`)]);});

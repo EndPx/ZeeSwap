@@ -14,7 +14,7 @@ function setup(){
  const accounts={principalAccount:'bridge:p',feeAccount:'bridge:f',swapAccount:'swap'};
  const state={supply:'0',unpaid:'0',paused:true,snapshot:{version:1,status:'BRIDGE_NATIVE_READ_VERIFIED',...accounts,notes:[],deposits:[],controlledZatoshi:'0',feeCapitalZatoshi:'0',zcash:anchor()} as NativeReadSnapshot,outgoing:false};
  const native:BridgeNativeRead={...accounts,assertNoOutgoing:async()=>{if(state.outgoing)throw Error('BRIDGE_NATIVE_OUTGOING_RECONCILIATION_REQUIRED');},validate:async()=>{},funding:async()=>{throw Error('unused');},snapshot:async(_orders,checkpoint)=>({...structuredClone(state.snapshot),...(checkpoint?{verifiedCheckpoint:{height:checkpoint.height,hash:checkpoint.hash}}:{})})};
- const base={profile:{...accounts,contractAddress:address,runtimeCodeHash:'0x'+hash,authorizer:address},finalized:async()=>({...anchor(200),hash:'0x'+hash}),readAt:async(a:Anchor)=>({anchor:a,supply:state.supply,unpaid:state.unpaid,gasBalanceWei:'10000000000000',paused:state.paused})} as unknown as CanonicalBridgeBase;
+ const base={profile:{...accounts,contractAddress:address,runtimeCodeHash:'0x'+hash,authorizer:address},settlementAnchor:async()=>({...anchor(200),hash:'0x'+hash}),readAt:async(a:Anchor)=>({anchor:a,supply:state.supply,unpaid:state.unpaid,gasBalanceWei:'10000000000000',paused:state.paused})} as unknown as CanonicalBridgeBase;
  const store=new MemoryBridgeStore(emptyBooks()),runtime=new PausedBridgeRuntime(base,native);return {state,native,base,store,runtime};
 }
 test('actual-zero reconciliation initializes account bindings and remains HTTP paused',async()=>{
@@ -28,7 +28,7 @@ test('unexpected physical capital cannot create a book credit or a successful in
 });
 test('a conservatively lower current finality observation cannot move the accepted paired checkpoint backward',async()=>{
  const {store,runtime,base}=setup();await runtime.refreshPaused(store);const before=JSON.stringify(await store.read());
- base.finalized=async()=>({...anchor(199),hash:'0x'+hash});
+ base.settlementAnchor=async()=>({...anchor(199),hash:'0x'+hash});
  await assert.rejects(()=>runtime.refreshPaused(store),/BASE_CHECKPOINT_REGRESSION/);assert.equal(JSON.stringify(await store.read()),before);
 });
 function note(role:'principal'|'fee',value:string){return {pool:'ironwood' as const,txid:(role==='principal'?'b':'c').repeat(64),index:0,value,height:90,ownChange:false,unspent:true as const,role,blockHash:hash};}

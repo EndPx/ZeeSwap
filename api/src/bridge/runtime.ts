@@ -99,7 +99,7 @@ export class PausedBridgeRuntime implements BridgeRuntime,BridgeEvidenceVerifier
   for(const k of ['principalAccount','feeAccount','swapAccount'] as const)if(p[k]!==native[k])throw Error('BRIDGE_RUNTIME_ACCOUNT_BINDING');}
  async validateShieldedRecipient(address:string){await this.native.validate(address);}
  async funding(o:Readonly<Order>){if(o.direction!=='TAZ_TO_ZEETAZ')throw Error('BRIDGE_NATIVE_AUTHORITY_NOT_QUALIFIED');return this.native.funding(o);}
- async observe(b:Readonly<Books>){noOutgoing(b);await this.native.assertNoOutgoing();const orders=scanOrders(b),s=validateNativeSnapshot(await this.native.snapshot(orders,b.pair?.zcash),this.native,orders,Date.now(),b.pair?.zcash),anchor=await this.base.finalized();if(b.pair&&anchor.height<b.pair.base.height)throw Error('BRIDGE_BASE_CHECKPOINT_REGRESSION');const c=await this.base.readAt(anchor);if(b.pair)await this.base.readAt({...b.pair.base,observedAt:new Date().toISOString()});return {s,c};}
+ async observe(b:Readonly<Books>){noOutgoing(b);await this.native.assertNoOutgoing();const orders=scanOrders(b),s=validateNativeSnapshot(await this.native.snapshot(orders,b.pair?.zcash),this.native,orders,Date.now(),b.pair?.zcash),anchor=await this.base.settlementAnchor();if(b.pair&&anchor.height<b.pair.base.height)throw Error('BRIDGE_BASE_CHECKPOINT_REGRESSION');const c=await this.base.readAt(anchor);if(b.pair)await this.base.readAt({...b.pair.base,observedAt:new Date().toISOString()});return {s,c};}
  protected assertBooks(b:Readonly<Books>,s:NativeReadSnapshot,c:{supply:string;unpaid:string}){
   const r=coverage(b);let reserved=0n;for(const o of Object.values(b.orders))if(o.feeReservation){if(o.feeReservation.charged!==undefined)throw Error('BRIDGE_NATIVE_FEE_RECONCILIATION_REQUIRED');reserved+=integer(o.feeReservation.maximum);}
   if(s.controlledZatoshi!==b.controlled||c.supply!==b.supply||integer(c.unpaid)!==integer(r.unpaidRedemptionsZatoshi)+integer(r.pendingAcknowledgmentsZatoshi)||integer(s.feeCapitalZatoshi)<reserved||integer(s.feeCapitalZatoshi)-reserved!==integer(b.feeCapital))throw Error('BRIDGE_RUNTIME_BOOKS_MISMATCH');
@@ -170,7 +170,7 @@ export class BridgeMintCoordinator {
   for(const direction of ['TAZ_TO_ZEETAZ','ZEETAZ_TO_TAZ'])if(Object.values(b.orders).filter(x=>x.accepted&&x.direction===direction).length>1)throw Error('BRIDGE_FIRST_CIRCLE_ORDER_LIMIT');
   if(digest(b.orders[o.id])!==digest(o))throw Error('BRIDGE_MINT_ORDER_BOOK_BINDING');
   await this.runtime.assertMintSource(o,b);
-  const current=await base.readAt(await base.finalized());if(current.paused)throw Error('BRIDGE_CONTRACT_PAUSED');
+  const current=await base.readAt(await base.settlementAnchor());if(current.paused)throw Error('BRIDGE_CONTRACT_PAUSED');
  }
 }
 export function createPausedBridge(pool:pg.Pool,keys:PrivateData,base:CanonicalBridgeBase,native:BridgeNativeRead){const store=new BridgeRepository(pool,keys),runtime=new PausedBridgeRuntime(base,native);return {store,runtime,service:new BridgeService(store,runtime)};}

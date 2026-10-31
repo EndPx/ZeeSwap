@@ -10,6 +10,7 @@ import {LIVE_DISPATCH_SCOPE as scope,withLiveOperatorLock,requireFreshLiveDispat
 import {isObserverWait} from './observer-frontiers.ts';
 import {linuxRawSha256,verifyLinuxOperatorProfile,type LinuxOperatorProfile,type PinnedFile} from './linux-testnet-profile.ts';
 import {mainDatabaseTransportFor} from './main-database-relocation.ts';
+import {HttpRequestError,TimeoutError} from 'viem';
 export type LinuxForwardConfig={version:1;mode:'LINUX_TESTNET_FORWARD';enabled:boolean;operatorProfile:string;signerConfig:PinnedFile;supervisor:PinnedFile;signerScript:PinnedFile;handoffProof:string;python:string;pollSeconds:5};
 function need(value:unknown,code:string):asserts value{if(!value)throw Error(code);}
 export function validateLinuxForwardScope(c:LinuxForwardConfig,p:LinuxOperatorProfile,r:LiveRuntime,b:BaseRegistry,s:LiveBaseSignerConfig){
@@ -44,7 +45,28 @@ export async function loadLinuxForward(path:string){
  need(process.env.HOME===p.roots.base+'/home','LINUX_FORWARD_KEYSTORE_HOME');
  return{c,verified};
 }
-const safeWait=(e:unknown)=>isObserverWait(e)||['LIVE_DISPATCH_PAUSED','LIVE_OBSERVER_REQUIRED','LIVE_OBSERVER_STALE'].includes((e as Error).message);
+const baseReadMethods=new Set(['eth_chainId','eth_getBlockByNumber','eth_getBlockByHash','eth_getCode','eth_call','eth_getTransactionReceipt','eth_getTransactionByHash','eth_getTransactionCount','eth_getBalance']);
+const networkReadCodes=new Set(['ECONNRESET','ECONNREFUSED','ETIMEDOUT','ENETUNREACH','EHOSTUNREACH','EAI_AGAIN','UND_ERR_CONNECT_TIMEOUT','UND_ERR_HEADERS_TIMEOUT','UND_ERR_BODY_TIMEOUT','UND_ERR_SOCKET']);
+export type BaseReadWaitCode='BASE_RPC_READ_HTTP_429'|'BASE_RPC_READ_HTTP_502'|'BASE_RPC_READ_HTTP_503'|'BASE_RPC_READ_HTTP_504'|'BASE_RPC_READ_TIMEOUT'|'BASE_RPC_READ_NETWORK';
+/** Classify only a proven idempotent request to the pinned Base endpoint.
+ * No message/body/URL is returned or logged. Broadcast errors stay fenced by
+ * their existing fixed reconciliation code, regardless of nested causes. */
+export function transientBaseReadWaitCode(error:unknown):BaseReadWaitCode|undefined{
+ const chain:Record<string,any>[]=[],seen=new Set<unknown>();let current=error;
+ while(current&&typeof current==='object'&&!seen.has(current)&&chain.length<12){seen.add(current);const item=current as Record<string,any>;chain.push(item);current=item.cause;}
+ if(current&&typeof current==='object')return;
+ if(chain.some(e=>/^(BASE_|LINUX_|LIVE_|POLICY_)/.test(String(e.message))||e instanceof SyntaxError||['ContractFunctionRevertedError','ExecutionRevertedError','InvalidInputRpcError','InvalidParamsRpcError','ParseRpcError','InvalidRequestRpcError','InvalidResponseError','AbiDecodingDataSizeTooSmallError','AbiDecodingZeroDataError','ContractFunctionZeroDataError','ResponseBodyTooLargeError'].includes(e.name)||typeof e.code==='string'&&/^[0-9A-Z]{5}$/.test(e.code)||typeof e.status==='number'&&![429,502,503,504].includes(e.status)))return;
+ const request=chain.find(e=>e instanceof HttpRequestError||e instanceof TimeoutError);
+ if(!request||!['https://sepolia.base.org','https://sepolia.base.org/'].includes(request.url))return;
+ let body:unknown=request instanceof HttpRequestError?request.body:undefined;
+ // viem TimeoutError retains its exact request only in structured metadata.
+ if(request instanceof TimeoutError){const raw=request.metaMessages?.find((m:unknown)=>typeof m==='string'&&m.startsWith('Request body: '));if(typeof raw!=='string'||raw.length>32768)return;try{body=JSON.parse(raw.slice('Request body: '.length));}catch{return;}}
+ if(!body||typeof body!=='object'||Array.isArray(body)||!baseReadMethods.has(String((body as Record<string,unknown>).method)))return;
+ if(request instanceof TimeoutError)return 'BASE_RPC_READ_TIMEOUT';
+ if(typeof request.status==='number'&&[429,502,503,504].includes(request.status))return `BASE_RPC_READ_HTTP_${request.status}` as BaseReadWaitCode;
+ if(request.status===undefined&&chain.some(e=>networkReadCodes.has(e.code)))return 'BASE_RPC_READ_NETWORK';
+}
+const safeWait=(e:unknown)=>isObserverWait(e)||!!transientBaseReadWaitCode(e)||['LIVE_DISPATCH_PAUSED','LIVE_OBSERVER_REQUIRED','LIVE_OBSERVER_STALE'].includes((e as Error).message);
 /** Paused controls return before constructing or calling any financial adapter. */
 export async function linuxForwardStep(pool:pg.Pool,run:(refresh:()=>Promise<void>)=>Promise<unknown>,reconcileOnly=false,preflight?:()=>Promise<unknown>){
  try{return await withLiveOperatorLock(pool,async lock=>{
@@ -57,7 +79,7 @@ export async function linuxForwardStep(pool:pg.Pool,run:(refresh:()=>Promise<voi
    // a paused recovery remains an operator task through the existing tools.
    await refresh();if(reconcileOnly)await preflight?.();return run(refresh);
   },()=>pool.query('SELECT zee.enter_reconciliation()'),safeWait);
- });}catch(e){if(safeWait(e))return{status:'WAIT_OBSERVERS_OR_POLICY',financialAction:false};throw e;}
+ });}catch(e){const code=transientBaseReadWaitCode(e);if(code)return{status:'WAIT_BASE_RPC_READ',code,financialAction:false};if(safeWait(e))return{status:'WAIT_OBSERVERS_OR_POLICY',financialAction:false};throw e;}
 }
 export function linuxForwardAdapters(pool:pg.Pool,keys:PrivateData,base:BaseContract,signer:BaseSigner,reconcileOnly:boolean){
  return linuxForwardStep(pool,refresh=>reconcileOnly?reconcileBaseReceipts(pool,keys,base):dispatchBaseOnce(pool,keys,base,signer,refresh),reconcileOnly,()=>base.preflight());

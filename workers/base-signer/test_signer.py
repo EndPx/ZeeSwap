@@ -135,6 +135,23 @@ class ForwardSignerTest(unittest.TestCase):
         wait=trace.wait(error.exception);self.assertEqual(wait['status'],'BASE_SIGNER_FINALITY_WAIT');self.assertEqual(wait['code'],'RESERVE_AHEAD_OF_FINALIZED')
         self.assertEqual(before,{p.name:p.read_bytes() for p in self.root.iterdir()});self.assertFalse(trace.nonce_started);self.assertFalse(trace.signing_started)
         self.assertFalse(any(a[1] in ('nonce','mktx') for a,o in self.calls))
+    def test_explicit_fast_forward_inclusion_signs_once_and_preserves_reserve(self):
+        fake=self.lag_fixture();reserve=self.root/(self.identifier+'.RESERVE.tx.json');before=reserve.read_bytes()
+        with patch.object(signer.subprocess,'run',side_effect=fake):
+            first=signer.run({**self.config,'forwardFastSettlement':True},self.request())
+            second=signer.run({**self.config,'forwardFastSettlement':True},self.request())
+        self.assertEqual(first,second);self.assertEqual(first['nonce'],5);self.assertEqual(reserve.read_bytes(),before)
+        self.assertEqual(len([a for a,o in self.calls if a[1]=='mktx']),1)
+    def test_fast_forward_reserve_contradiction_still_refuses_before_nonce(self):
+        for change in (lambda f:f['receipt'].update(status='0x0'),lambda f:f.update(latestState='0'),lambda f:f.update(changed=True)):
+            fake=self.lag_fixture(change);trace=SignerTrace()
+            with patch.object(signer.subprocess,'run',side_effect=fake):
+                with self.assertRaises(ValueError): signer.run({**self.config,'forwardFastSettlement':True},self.request(),trace)
+            self.assertFalse(trace.nonce_started);self.assertFalse(trace.new_mutation)
+    def test_nonboolean_fast_flag_does_not_opt_in(self):
+        fake=self.lag_fixture()
+        with patch.object(signer.subprocess,'run',side_effect=fake):
+            with self.assertRaises(OwnedFinalityWait): signer.run({**self.config,'forwardFastSettlement':'true'},self.request())
     def test_reserve_lag_contradictions_stay_hard_without_new_pay(self):
         changes=[lambda f:f['tx'].update(nonce='0x5'),lambda f:f['tx'].update(input='0xbad'),lambda f:f['receipt'].update(status='0x0'),
                  lambda f:f['receipt'].update(l1Fee=hex(10000000000000)),lambda f:f['receipt']['logs'][0].update(removed=True),

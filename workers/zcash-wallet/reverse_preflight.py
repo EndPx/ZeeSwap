@@ -86,7 +86,7 @@ def words(value, count):
     return [int(value[2 + i * 64:2 + (i + 1) * 64], 16) for i in range(count)]
 
 
-def verify_commitment(request, registry, rpc, hash_code, now=None):
+def verify_commitment(request, registry, rpc, hash_code, now=None, fast_base_inclusion=False):
     """Read canonical finalized state, receipt, escrow and deployment identities.
 
     rpc and hash_code are local infrastructure, not payout-request callbacks.
@@ -101,16 +101,17 @@ def verify_commitment(request, registry, rpc, hash_code, now=None):
             raise ValueError('Wrong canonical Base deployment')
     finalized = rpc('eth_getBlockByNumber', ['finalized', False])
     latest = rpc('eth_getBlockByNumber', ['latest', False])
-    height = int(finalized['number'], 16)
+    finalized_height = int(finalized['number'], 16)
+    height = int(latest['number'], 16) if fast_base_inclusion is True else finalized_height
     latest_time = int(latest['timestamp'], 16)
     observed_time = time.time() if now is None else now
-    if height > int(latest['number'], 16) or not -15 <= observed_time - latest_time <= 120:
+    if type(fast_base_inclusion) is not bool or finalized_height > int(latest['number'], 16) or not -15 <= observed_time - latest_time <= 120:
         raise ValueError('Fresh coherent Base chain heads required')
-    block_hash = hexadecimal(finalized['hash'], 64)
+    block_hash = hexadecimal((latest if fast_base_inclusion else finalized)['hash'], 64)
     pinned = {'blockHash': block_hash, 'requireCanonical': True}
     commit_height = atomic(base['commitBlockNumber'])
     if height < commit_height:
-        raise ValueError('Commitment is not finalized')
+        raise ValueError('Commitment is not covered by the authorized canonical snapshot')
     canonical = rpc('eth_getBlockByNumber', [hex(commit_height), False])
     receipt = rpc('eth_getTransactionReceipt', [base['commitTxHash']])
     if (not receipt or receipt['transactionHash'].lower() != base['commitTxHash'].lower()
@@ -138,7 +139,7 @@ def verify_commitment(request, registry, rpc, hash_code, now=None):
         deployment = contracts[name]
         deployed_block = rpc('eth_getBlockByNumber', [hex(deployment['blockNumber']), False])
         code = rpc('eth_getCode', [deployment['address'], pinned])
-        if (deployment['blockNumber'] > height or deployed_block['hash'].lower() != deployment['blockHash'].lower()
+        if (deployment['blockNumber'] > finalized_height or deployed_block['hash'].lower() != deployment['blockHash'].lower()
                 or code == '0x' or hash_code(code).lower() != deployment['runtimeCodeHash'].lower()):
             raise ValueError('Canonical finalized deployment code required')
     def call(address, data, count):
@@ -154,7 +155,11 @@ def verify_commitment(request, registry, rpc, hash_code, now=None):
     final_check = rpc('eth_getBlockByNumber', [hex(height), False])
     if final_check['hash'].lower() != block_hash:
         raise ValueError('Finalized snapshot lost canonicality')
-    return {'commitmentVerified': True, 'finalizedHeight': str(height), 'dispatchEnabled': False,
+    if fast_base_inclusion and rpc('eth_getBlockByNumber', [hex(finalized_height), False])['hash'].lower() != hexadecimal(finalized['hash'], 64):
+        raise ValueError('Actual finalized deployment anchor lost canonicality')
+    return {'commitmentVerified': True, 'commitmentFinalized': finalized_height >= commit_height,
+            'sourcePolicy': 'base-included' if fast_base_inclusion else 'base-finalized',
+            'snapshotHeight': str(height), 'finalizedHeight': str(finalized_height), 'dispatchEnabled': False,
             'blocker': 'SIGNED_RAW_JOURNAL_AND_ISOLATED_CAPITAL_WALLET_REQUIRED'}
 
 
@@ -191,6 +196,14 @@ def main():
     parser.add_argument('--registry', type=Path, required=True)
     args = parser.parse_args()
     config = json.loads(args.config.read_text())
+    fast = config.get('fastBaseInclusion') is True
+    if fast:
+        from linux_operator_profile import load_operator_profile, fast_native_overlay, pinned
+        profile = load_operator_profile(config.get('linuxProfilePath'), config.get('linuxProfileSha256'))
+        root = json.loads(pinned(profile['configPins']['reverseProfile']))
+        fast_native_overlay(config, profile, root)
+    elif any(key in config for key in ('fastBaseInclusion', 'nativeFastExecution', 'baseFastRoot')):
+        raise ValueError('Explicit protected fast execution proof required')
     request = json.loads(args.approved_request.read_text())
     validate_request(request, args.approved_digest)
     def command(prefix, payload=None):
@@ -205,7 +218,7 @@ def main():
     def rpc(method, params):
         return rpc_call(config['rpcUrl'], method, params)
     proof = verify_commitment(request, json.loads(args.registry.read_text()), rpc,
-                              lambda code: command(config['hashCommand'] + [code]))
+                              lambda code: command(config['hashCommand'] + [code]), fast_base_inclusion=fast)
     proof['approvedDigest'] = args.approved_digest
     proof['orderId'] = request['orderId']
     print(json.dumps(proof))

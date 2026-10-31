@@ -10,6 +10,8 @@ import {BaseContract} from '../src/base-contract.ts';
 import {createApi} from '../src/http-api.ts';
 import {loadContinuationApi,continuationQuoteBounds} from '../src/continuation-api.ts';
 import {loadServicePolicyApi} from '../src/testnet-service-policy.ts';
+import {fileURLToPath} from 'node:url';
+import {requireForwardFastExecution,workerExecutionPins,type ForwardFastExecutionApproval} from '../src/testnet-policy-execution.ts';
 
 const path=process.argv[2];if(process.argv.length!==3||!path)throw Error('Explicit Linux API profile required');
 const configBytes=await readFile(path),config=JSON.parse(configBytes.toString());
@@ -32,7 +34,22 @@ const signer=new LocalReverseBaseSigner(config.walletPython,[config.fundingAutho
 const policyScope={profileSha256:verified.profileSha256,handoffSha256:linuxRawSha256(handoffBytes),openingProofSha256:profile.immutable.openingProof.sha256};
 if(process.env.ZEESWAP_MARKET_POLICY_PROOF||process.env.ZEESWAP_MARKET_POLICY_SHA256)throw Error('LINUX_MARKET_ADMISSION_DISABLED_FIXED_RATE_REQUIRED');
 const servicePolicy=await loadServicePolicyApi(process.env,{...policyScope,settlementContract:registry.contracts.ZeeSwapSettlement.address.toLowerCase(),tokenContract:registry.contracts.MockUSDC.address.toLowerCase()},worker);
+let fastBaseInclusion:{rootApprovalSha256:string}|undefined;
+const fastPath=process.env.ZEESWAP_BASE_L2_EXECUTION_PROOF,fastSha=process.env.ZEESWAP_BASE_L2_EXECUTION_SHA256;
+if(fastPath||fastSha){
+ if(!fastPath||!fastSha||!servicePolicy)throw Error('LINUX_API_FAST_PAIRED_ROOT_POLICY_REQUIRED');
+ async function rootPin(pin:{path:string;sha256:string}){const s=await lstat(pin.path);if(!s.isFile()||s.isSymbolicLink()||s.uid!==0||(s.mode&0o077)!==0||s.size>1048576||await realpath(pin.path)!==pin.path||!/^[a-f0-9]{64}$/.test(pin.sha256))throw Error('LINUX_API_FAST_ROOT_FILE');const b=await readFile(pin.path);if(linuxRawSha256(b)!==pin.sha256)throw Error('LINUX_API_FAST_ROOT_SHA');return b;}
+ const approval=JSON.parse((await rootPin({path:fastPath,sha256:fastSha})).toString()) as ForwardFastExecutionApproval;
+ const entry=await realpath(fileURLToPath(import.meta.url)),suffix='/api/scripts/serve-linux-testnet.ts';
+ if(!entry.endsWith(suffix))throw Error('LINUX_API_FAST_ENTRY');
+ const executionRoot=entry.slice(0,-suffix.length);
+ requireForwardFastExecution(approval,{executionRoot,publicCommit:approval.publicCommit,executionManifest:approval.executionManifest,forwardFastExecution:{path:fastPath,sha256:fastSha}},{sha256:servicePolicy.sha256,activeEpoch:servicePolicy.approval.activeEpoch,publicCommit:servicePolicy.approval.publicCommit},verified.profileSha256);
+ const pins=workerExecutionPins(JSON.parse((await rootPin(approval.executionManifest)).toString()),executionRoot,approval.publicCommit);
+ if(!pins.some(pin=>pin.path===entry))throw Error('LINUX_API_FAST_ENTRY_MANIFEST');
+ for(const pin of pins){const s=await lstat(pin.path);if(!s.isFile()||s.isSymbolicLink()||s.uid!==0||(s.mode&0o022)!==0||await realpath(pin.path)!==pin.path||linuxRawSha256(await readFile(pin.path))!==pin.sha256)throw Error('LINUX_API_FAST_EXECUTION_PIN');}
+ await servicePolicy.recheck();fastBaseInclusion={rootApprovalSha256:fastSha};
+}
 const continuation=servicePolicy?undefined:await loadContinuationApi(process.env,policyScope,async approval=>{const c=(await worker.query('SELECT epoch::text,accepting_orders,dispatch_enabled,reconciliation_required FROM zee.runtime_control WHERE singleton')).rows[0];if(!c||c.epoch!==approval.resumedEpoch||!c.accepting_orders||!c.dispatch_enabled||c.reconciliation_required)throw Error('LINUX_CONTINUATION_ACTIVE_EPOCH_REQUIRED');if(approval.version===3)await requireRootAdmissionAuthorization(worker,approval,process.env.ZEESWAP_CIRCLE_CONTINUATION_SHA256!);});
-const server=createApi({pool:api,keys,wallet,base,fixedRate:true,...(servicePolicy?{servicePolicy}:continuation?{continuation,quoteBounds:continuationQuoteBounds(continuation.approval,continuation.sha256)}:{readOnly:true}),baseFeeBudget:'100000000000000',allowedOrigin:config.allowedOrigin,escrow:{pool:worker,authorize:terms=>signer.authorizeFunding(terms)}});
+const server=createApi({pool:api,keys,wallet,base,fixedRate:true,fastBaseInclusion,...(servicePolicy?{servicePolicy}:continuation?{continuation,quoteBounds:continuationQuoteBounds(continuation.approval,continuation.sha256)}:{readOnly:true}),baseFeeBudget:'100000000000000',allowedOrigin:config.allowedOrigin,escrow:{pool:worker,authorize:terms=>signer.authorizeFunding(terms)}});
 server.listen(3031,'127.0.0.1',()=>{console.log(JSON.stringify({status:'LINUX_TESTNET_API_LISTENING',port:3031,branchId:profile.identity.branchId,profileSha256:verified.profileSha256,controlActivation:false}));});
 let stopping=false;const stop=()=>{if(stopping)return;stopping=true;server.close(()=>{void Promise.all([api.end(),worker.end()]);});};process.on('SIGINT',stop);process.on('SIGTERM',stop);

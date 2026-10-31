@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import type {Pool} from 'pg';
-import {linuxForwardStep,linuxForwardAdapters,validateLinuxForwardScope,type LinuxForwardConfig} from '../../src/linux-forward-dispatch.ts';
+import {linuxForwardStep,linuxForwardAdapters,validateLinuxForwardScope,transientBaseReadWaitCode,type LinuxForwardConfig} from '../../src/linux-forward-dispatch.ts';
+import {HttpRequestError,TimeoutError,BaseError,createPublicClient,http} from 'viem';
 import {LIVE_DISPATCH_SCOPE as s,type LiveRuntime,type LiveBaseSignerConfig} from '../../src/live-dispatch-scope.ts';
 import type {LinuxOperatorProfile} from '../../src/linux-testnet-profile.ts';
 import type {BaseRegistry} from '../../src/base-contract.ts';
@@ -33,6 +34,33 @@ function fake(options:{paused?:boolean;stale?:boolean;wrongIdentity?:boolean}={}
   if(sql.includes('enter_reconciliation')){events.push('pause');return{rows:[]};}throw Error('UNEXPECTED_SQL');
  }} as unknown as Pool;return{pool,events};
 }
+const readBody={method:'eth_getTransactionReceipt',params:['0x'+'a'.repeat(64)]},rpcUrl='https://sepolia.base.org';
+test('only exact pinned Base idempotent reads classify temporary HTTP and bounded network waits',()=>{
+ for(const status of [429,502,503,504]){
+  const cause=new HttpRequestError({body:readBody,status,url:rpcUrl});
+  assert.equal(transientBaseReadWaitCode(new BaseError('Read failed',{cause})),`BASE_RPC_READ_HTTP_${status}`);
+ }
+ assert.equal(transientBaseReadWaitCode(new TimeoutError({body:readBody,url:rpcUrl})),'BASE_RPC_READ_TIMEOUT');
+ for(const code of ['ECONNRESET','ETIMEDOUT','UND_ERR_CONNECT_TIMEOUT'])assert.equal(transientBaseReadWaitCode(new HttpRequestError({body:readBody,url:rpcUrl,cause:Object.assign(Error('socket transport failed'),{code})})),'BASE_RPC_READ_NETWORK');
+ for(const error of [new HttpRequestError({body:readBody,status:403,url:rpcUrl}),new HttpRequestError({body:readBody,status:503,url:'https://other.invalid'}),new TimeoutError({body:{method:'eth_sendRawTransaction',params:[]},url:rpcUrl}),new HttpRequestError({body:{method:'eth_sendRawTransaction',params:[]},status:503,url:rpcUrl}),new HttpRequestError({body:[readBody,{method:'eth_sendRawTransaction'}],status:503,url:rpcUrl}),new HttpRequestError({body:readBody,url:rpcUrl,cause:new SyntaxError('Invalid JSON')}),Object.assign(Error('timeout'),{name:'TimeoutError'}),new HttpRequestError({body:readBody,url:rpcUrl,cause:Error('fetch failed')})])assert.equal(transientBaseReadWaitCode(error),undefined);
+});
+test('actual viem HTTP transport normalization and nested receipt errors retain read-only wait scope',async()=>{
+ const client=createPublicClient({transport:http(rpcUrl,{retryCount:0,fetchFn:async()=>new Response('Service unavailable',{status:503})})});
+ await assert.rejects(client.getTransactionReceipt({hash:`0x${'a'.repeat(64)}`}),error=>{assert.equal(transientBaseReadWaitCode(error),'BASE_RPC_READ_HTTP_503');return true;});
+ await assert.rejects(client.sendRawTransaction({serializedTransaction:'0x01'}),error=>{assert.equal(transientBaseReadWaitCode(error),undefined);return true;});
+});
+test('transient canonical receipt read returns a finite safe wait without pausing or invoking another operation',async()=>{
+ const f=fake();let calls=0;const error=new BaseError('Read failed',{cause:new HttpRequestError({body:readBody,status:429,url:rpcUrl})});
+ const result=await linuxForwardStep(f.pool,async()=>{calls++;throw error;});
+ assert.deepEqual(result,{status:'WAIT_BASE_RPC_READ',code:'BASE_RPC_READ_HTTP_429',financialAction:false});assert.equal(calls,1);assert.deepEqual(f.events,['lock','unlock','release']);assert.doesNotMatch(JSON.stringify(result),/https|transaction|params|aaaa/);
+});
+test('uncertain broadcast, SQL, schema, revert, identity and fee failures still pause under the original lock',async()=>{
+ const read=new HttpRequestError({body:readBody,status:503,url:rpcUrl});
+ for(const error of [new Error('BASE_BROADCAST_UNCERTAIN_RECONCILE_OR_REBROADCAST_SAME_BYTES',{cause:read}),new Error('BASE_REORG',{cause:read}),new Error('BASE_ACTUAL_FEE_CAP',{cause:read}),Object.assign(new Error('constraint violation',{cause:read}),{code:'23514'}),Object.assign(new Error('execution reverted',{cause:read}),{name:'ContractFunctionRevertedError'}),new SyntaxError('Invalid JSON')]){
+  assert.equal(transientBaseReadWaitCode(error),undefined);const f=fake();let calls=0;
+  await assert.rejects(linuxForwardStep(f.pool,async()=>{calls++;throw error;}),e=>e===error);assert.equal(calls,1);assert.deepEqual(f.events,['lock','pause','unlock','release']);
+ }
+});
 test('paused or stale Linux step makes zero financial and reconcile preflight calls',async()=>{
  for(const options of [{paused:true},{stale:true}])for(const reconcile of [false,true]){
   const f=fake(options);let calls=0;const result=await linuxForwardStep(f.pool,async()=>{calls++;throw Error('FINANCIAL_CALL_FORBIDDEN');},reconcile,async()=>{calls++;});

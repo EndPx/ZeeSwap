@@ -127,6 +127,8 @@ def require_reserve_ahead(config, terms, auth, root, identifier, finalized, cast
         require(finalized_header(cast('block', str(header['number']), '--json', '--rpc-url', config['rpcUrl'], stage='PAY_CANONICAL_READ', read=True)) == header)
     require(trace.safe_read() and -5 <= time.time() - timestamp <= 60)
     trace.stage = 'PAY_RESERVE_AHEAD'
+    if config.get('forwardFastSettlement') is True:
+        return
     raise OwnedFinalityWait()
 
 
@@ -233,7 +235,8 @@ def run(config, request, trace=None):
                     if (state == '0' and len(values) == 3 and values[0].lower() == '0x'+'0'*40
                             and int(values[1].split()[0]) == 0 and int(values[2].split()[0]) == 0 and trace.safe_read()):
                         require_reserve_ahead(config, terms, auth, root, identifier, finalized, cast, trace)
-                    raise ValueError("Finalized reservation missing or changed")
+                    else:
+                        raise ValueError("Finalized reservation missing or changed")
                 canonical = finalized_header(cast("block", block, "--json", "--rpc-url", config["rpcUrl"], stage="PAY_CANONICAL_READ", read=True))
                 if canonical != finalized:
                     raise ValueError("Canonical finalized header changed")

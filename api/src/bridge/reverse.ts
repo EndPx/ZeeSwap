@@ -29,7 +29,7 @@ export class BridgeReverseCoordinator {
  }
  protected async inventory(o:Readonly<Order>,b:Readonly<Books>){
   const native=this.runtime.native,orders=Object.values(b.orders).filter(x=>x.accepted&&x.direction==='TAZ_TO_ZEETAZ'&&x.funding?.kind==='shielded-deposit');await native.assertNoOutgoing();
-  const s=validateNativeSnapshot(await native.snapshot(orders,b.pair?.zcash),native,orders,Date.now(),b.pair?.zcash),base=this.runtime.base,c=await base.readAt(await base.finalized());
+  const s=validateNativeSnapshot(await native.snapshot(orders,b.pair?.zcash),native,orders,Date.now(),b.pair?.zcash),base=this.runtime.base,c=await base.readAt(await base.settlementAnchor());
   let reserved=0n;for(const x of Object.values(b.orders))if(x.feeReservation){if(x.feeReservation.charged!==undefined)throw Error('BRIDGE_REVERSE_PRIOR_SPEND_RECONCILIATION_REQUIRED');reserved+=integer(x.feeReservation.maximum);}
   const report=coverage(b);if(s.controlledZatoshi!==b.controlled||c.supply!==b.supply||integer(c.unpaid)!==integer(report.unpaidRedemptionsZatoshi)+integer(report.pendingAcknowledgmentsZatoshi)||integer(s.feeCapitalZatoshi)!==integer(b.feeCapital)+reserved||!report.covered||integer(s.controlledZatoshi)<100000n)throw Error('BRIDGE_REVERSE_INVENTORY_MISMATCH');
   if(c.paused)throw Error('BRIDGE_CONTRACT_PAUSED');return {s,c};
@@ -63,11 +63,11 @@ export class BridgeReverseCoordinator {
  async assertPayout(o:Readonly<Order>,b:Readonly<Books>){
   this.scope(o,b);if(!b.paused||!o.accepted||!['REDEMPTION_PENDING','PAYOUT_PENDING'].includes(o.status)||!o.source)throw Error('BRIDGE_REVERSE_PAYOUT_SCOPE');
   const c=await this.capital(o,b);if(c.included||c.controlledZatoshi!=='100000')throw Error('BRIDGE_REVERSE_ORIGINAL_ALREADY_INCLUDED');await this.runtime.base.assertCanonicalOrder(o,b);
-  const base=await this.runtime.base.readAt(await this.runtime.base.finalized());this.assertCapitalBook(c,b,o,base.unpaid,base.supply);
+  const base=await this.runtime.base.readAt(await this.runtime.base.settlementAnchor());this.assertCapitalBook(c,b,o,base.unpaid,base.supply);
  }
- async refreshPayout(store:BridgeStore,id:string){return store.update(async b=>{const o=b.orders[id];await this.assertPayout(o,b);const c=await this.capital(o,b),base=await this.runtime.base.readAt(await this.runtime.base.finalized());b.pair={zcash:c.zcash,base:base.anchor};return b.pair;});}
+ async refreshPayout(store:BridgeStore,id:string){return store.update(async b=>{const o=b.orders[id];await this.assertPayout(o,b);const c=await this.capital(o,b),base=await this.runtime.base.readAt(await this.runtime.base.settlementAnchor());b.pair={zcash:c.zcash,base:base.anchor};return b.pair;});}
  async reconcileNative(store:BridgeStore,id:string){return store.update(async b=>{
-  const o=b.orders[id];this.scope(o,b);if(!b.paused||!o.attempt?.txid||!this.native)throw Error('BRIDGE_REVERSE_ORIGINAL_REQUIRED');const c=await this.capital(o,b),base=await this.runtime.base.readAt(await this.runtime.base.finalized());
+  const o=b.orders[id];this.scope(o,b);if(!b.paused||!o.attempt?.txid||!this.native)throw Error('BRIDGE_REVERSE_ORIGINAL_REQUIRED');const c=await this.capital(o,b),base=await this.runtime.base.readAt(await this.runtime.base.settlementAnchor());
   await this.runtime.base.assertCanonicalOrder(o,{...b,pair:{zcash:c.zcash,base:base.anchor}});b.pair={zcash:c.zcash,base:base.anchor};
   if(c.included){const i=c.included;if(i.txid!==o.attempt.txid||i.principalZatoshi!==o.amountAtomic||!Number.isSafeInteger(i.height)||i.height<1||!Number.isSafeInteger(i.confirmations)||i.confirmations<1||!/^[a-f0-9]{64}$/.test(i.blockHash))throw Error('BRIDGE_REVERSE_INCLUDED_BINDING');const receipt:Receipt={network:'zcash-testnet',transactionHash:i.txid,blockHeight:i.height,blockHash:i.blockHash};
    if(o.status==='PAYOUT_PENDING')applyEvent(b,{kind:'INCLUDE',id,receipt},Date.now());
@@ -81,15 +81,15 @@ export class BridgeReverseCoordinator {
  async assertAck(base:CanonicalBridgeBase,o:Readonly<Order>,b:Readonly<Books>){
   this.scope(o,b);if(base!==this.runtime.base||!b.paused||o.status!=='NATIVE_DELIVERED_AWAITING_ACK'||!o.destination||!this.native)throw Error('BRIDGE_REVERSE_ACK_SCOPE');
   const c=await this.capital(o,b),r=await this.native.command.run('receipt',o) as NativeReceipt;this.verifyReceipt(r,o,o.destination);this.verifyIncluded(c,o,o.destination);
-  await base.assertCanonicalOrder(o,b);const counters=await base.readAt(await base.finalized());this.assertCapitalBook(c,b,o,counters.unpaid,counters.supply);
+  await base.assertCanonicalOrder(o,b);const counters=await base.readAt(await base.settlementAnchor());this.assertCapitalBook(c,b,o,counters.unpaid,counters.supply);
  }
  async observeAck(store:BridgeStore,id:string,transactionHash:Hex){return store.update(async b=>{
-  const o=b.orders[id];this.scope(o,b);if(!b.paused||!o.destination||!this.native)throw Error('BRIDGE_REVERSE_ACK_SCOPE');const c=await this.capital(o,b),r=await this.native.command.run('receipt',o) as NativeReceipt;this.verifyReceipt(r,o,o.destination);this.verifyIncluded(c,o,o.destination);const base=await this.runtime.base.readAt(await this.runtime.base.finalized());b.pair={zcash:c.zcash,base:base.anchor};applyEvent(b,await this.runtime.base.verify({kind:'ACK',transactionHash},o,b),Date.now());this.assertCapitalBook(c,b,o,base.unpaid,base.supply);
+  const o=b.orders[id];this.scope(o,b);if(!b.paused||!o.destination||!this.native)throw Error('BRIDGE_REVERSE_ACK_SCOPE');const c=await this.capital(o,b),r=await this.native.command.run('receipt',o) as NativeReceipt;this.verifyReceipt(r,o,o.destination);this.verifyIncluded(c,o,o.destination);const base=await this.runtime.base.readAt(await this.runtime.base.settlementAnchor());b.pair={zcash:c.zcash,base:base.anchor};applyEvent(b,await this.runtime.base.verify({kind:'ACK',transactionHash},o,b),Date.now());this.assertCapitalBook(c,b,o,base.unpaid,base.supply);
  });}
  signerAdapter(journal:BridgeJournal,mode:'prepare'|'recover'='prepare'):BridgeDurableSigner{
   let original:Readonly<Order>|undefined;
   const coordinator=this;
-  return {assertFreshCanonical:async(o,b)=>{await coordinator.assertPayout(o,b);original=structuredClone(o);},refreshCanonicalPair:async(o,b)=>{await coordinator.assertPayout(o,b);const c=await coordinator.capital(o,b),base=await coordinator.runtime.base.readAt(await coordinator.runtime.base.finalized());return {zcash:c.zcash,base:base.anchor};},recoverOrPrepare:async intent=>{
+  return {assertFreshCanonical:async(o,b)=>{await coordinator.assertPayout(o,b);original=structuredClone(o);},refreshCanonicalPair:async(o,b)=>{await coordinator.assertPayout(o,b);const c=await coordinator.capital(o,b),base=await coordinator.runtime.base.readAt(await coordinator.runtime.base.settlementAnchor());return {zcash:c.zcash,base:base.anchor};},recoverOrPrepare:async intent=>{
    const o=original,n=coordinator.native;if(!o||!n||intent.orderId!==o.id||intent.intentId!==digest(['bridge-delivery-v1',o.id,o.commitment])||intent.amountAtomic!==o.amountAtomic||intent.recipient!==o.recipient||intent.maxFeeAtomic!=='10000'||intent.principalAccount!==coordinator.runtime.native.principalAccount||intent.feeAccount!==coordinator.runtime.native.feeAccount)throw Error('BRIDGE_REVERSE_NATIVE_INTENT_BINDING');
    const binding={orderId:o.id,commitment:o.commitment,source:o.source,permitSha256:coordinator.binding.sha256,profileSha256:n.command.pins.profile.sha256};
    const recover=async()=>{const p=await n.command.run(mode==='recover'?'recover':'prepare',o) as any;return {intentId:p.intentId,txid:p.txid,raw:p.rawTransaction,feeAtomic:p.feeZatoshi,expiryHeight:Number(p.expiryHeight)} as PreparedDelivery;};

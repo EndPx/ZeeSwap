@@ -3,7 +3,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 export type Direction = 'TAZ_TO_ZEETAZ' | 'ZEETAZ_TO_TAZ';
 export type Anchor = {height:number;hash:string;observedAt:string};
 export type Pair = {zcash:Anchor;base:Anchor};
-export type Receipt = {network:'zcash-testnet'|'base-sepolia';transactionHash:string;blockHeight:number;blockHash:string};
+export type Receipt = {network:'zcash-testnet'|'base-sepolia';transactionHash:string;blockHeight:number;blockHash:string;finality?:'INCLUDED'|'FINALIZED'};
 export type Funding = {kind:'shielded-deposit';network:'zcash-testnet';address:string;memo:string;cutoffHeight:number;cutoffTime:string} |
  {kind:'authenticated-burn';network:'base-sepolia';chainId:84532;contract:string;token:string;calldata:string;
  terms:{id:string;payer:string;amount:string;payoutCommitment:string;nonce:string;deadline:string};signature:string};

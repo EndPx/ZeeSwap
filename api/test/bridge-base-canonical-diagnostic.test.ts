@@ -12,6 +12,14 @@ function fixture(){
  (b.clients as any).splice(0,2,client,client);return {b,s,p,anchor};
 }
 test('canonical diagnostics preserve successful identity behavior',async()=>{const f=fixture();assert.equal((await f.b.readAt(f.anchor)).supply,'0');});
+
+test('Root opted-in L2 anchor uses the minimum independent latest canonical block without altering finalized()',async()=>{
+ const f=fixture();let checked=0;Object.assign(f.b,{fastL2:{recheck:async()=>{checked++;}}});
+ f.s.final=99n;await assert.doesNotReject(()=>f.b.readAt(f.anchor));assert.equal(checked,1);
+ const heads=[202n,200n];for(let i=0;i<2;i++)Object.assign(f.b.clients[i],{getBlock:async(q:any)=>q?.blockTag==='finalized'?{number:99n}:q?.blockNumber!==undefined?{number:q.blockNumber,hash:h('6')}:{number:heads[i],timestamp:BigInt(Math.floor(Date.now()/1000))}});
+ const selected=await f.b.settlementAnchor();assert.equal(selected.height,200);assert.equal(selected.hash,h('6'));
+ assert.equal((await f.b.finalized()).height,99);
+});
 test('two finite independent finalized rounds select only the minimum actual observation; a later lower view still refuses',async()=>{
  const f=fixture(),rounds=[[210n,205n],[208n,180n]],counts=[0,0],headerHash=h('a');
  for(let i=0;i<2;i++){

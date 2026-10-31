@@ -1,8 +1,19 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';import {posix} from 'node:path';
-import {POLICY_WORKER_EXECUTION_PATHS,workerExecutionRoot,workerExecutionPins,requireWorkerPolicyCommit} from '../src/testnet-policy-execution.ts';
+import {POLICY_WORKER_EXECUTION_PATHS,workerExecutionRoot,workerExecutionPins,requireWorkerPolicyCommit,requireForwardFastExecution,requireForwardFastSignerConfig,readPolicyExecutionEpoch,type ForwardFastExecutionApproval} from '../src/testnet-policy-execution.ts';
 const root='/opt/zeeswap-testnet/releases/swap-live-fixture-r1/app',commit='a'.repeat(40),hash='b'.repeat(64);
 const fixture=():{publicCommit:string;files:{relativePath:string;path:string;sha256:string}[]}=>({publicCommit:commit,files:POLICY_WORKER_EXECUTION_PATHS.map(relativePath=>({relativePath,path:root+'/'+relativePath,sha256:hash}))});
+
+test('Root forward execution amendment binds original policy and exact reviewed new execution without changing default commit gate',()=>{
+ const pin=(path:string)=>({path,sha256:hash}),c={executionRoot:root,publicCommit:commit,executionManifest:pin('/opt/zeeswap-testnet/state/service-policy/new-manifest.private.json'),forwardFastExecution:pin('/opt/zeeswap-testnet/state/service-policy/forward-fast.private.json')};
+ const policy={sha256:'c'.repeat(64),activeEpoch:'242',publicCommit:'d'.repeat(40)},a:ForwardFastExecutionApproval={version:1,purpose:'ROOT_BASE_L2_FAST_EXECUTION',policySha256:policy.sha256,activeEpoch:policy.activeEpoch,policyPublicCommit:policy.publicCommit,profileSha256:hash,executionRoot:root,publicCommit:commit,executionManifest:c.executionManifest,signerScript:pin(root+'/workers/base-signer/signer.py'),signerDiagnostics:pin(root+'/workers/base-signer/signer_diagnostics.py'),supervisor:pin(root+'/workers/zcash-wallet/owned_wallet_call.py'),signerConfig:pin('/opt/zeeswap-testnet/secrets/forward-fast-test.private.json'),originalSignerConfigSha256:hash};
+ requireForwardFastExecution(a,c,policy,hash);
+ for(const change of[{purpose:'OTHER'},{policySha256:hash},{activeEpoch:'243'},{policyPublicCommit:commit},{profileSha256:policy.sha256},{publicCommit:policy.publicCommit},{executionRoot:'/tmp/app'},{executionManifest:{...c.executionManifest,sha256:policy.sha256}},{signerScript:pin('/tmp/signer.py')},{supervisor:pin('/tmp/owned_wallet_call.py')},{signerConfig:pin('/tmp/config.private.json')}])assert.throws(()=>requireForwardFastExecution({...a,...change} as ForwardFastExecutionApproval,c,policy,hash),/EXECUTION_FORWARD_FAST/);
+ assert.throws(()=>requireWorkerPolicyCommit(commit,policy.publicCommit),/EXECUTION_POLICY_COMMIT/);
+ assert.throws(()=>requireForwardFastExecution(a,{...c,forwardFastExecution:undefined},policy,hash),/FORWARD_FAST_APPROVAL_PATH/);
+ const original={journalRoot:'/private/original',passwordFile:'/private/password',operator:'same'};requireForwardFastSignerConfig({...original,forwardFastSettlement:true},original);
+ for(const changed of[{...original,forwardFastSettlement:'true'},{...original,forwardFastSettlement:true,journalRoot:'/other'},{...original,forwardFastSettlement:true,extra:'x'}])assert.throws(()=>requireForwardFastSignerConfig(changed,original),/FORWARD_FAST_SIGNER_CONFIG/);
+});
 
 test('fresh execution root is independent of original native profile release and policy-bound',()=>{
  assert.equal(workerExecutionRoot(root+'/api/scripts/work-linux-testnet-policy.ts',root),root);
@@ -34,4 +45,13 @@ test('audited execution list covers the current worker relative import and liter
   for(const spec of [...imports,...assets])pending.push(posix.normalize(posix.join(posix.dirname(file),spec)));
  }
  assert.deepEqual([...seen].sort(),[...POLICY_WORKER_EXECUTION_PATHS].sort());
+});
+
+
+test('Root execution epoch is separate from immutable admission context and fails closed on malformed or regressed SQL mapping',async()=>{
+ const policy='a'.repeat(64),original='242';let calls=0;
+ const unmigrated={query:async()=>({rows:[{installed:false}]})};assert.equal(await readPolicyExecutionEpoch(unmigrated,policy,original),'242');
+ const resumed={query:async(sql:string,args?:any[])=>{calls++;if(sql.includes('to_regprocedure'))return {rows:[{installed:true}]};assert(Buffer.isBuffer(args?.[0])&&args![0].toString('hex')===policy);return {rows:[{epoch:'244'}]};}};
+ assert.equal(await readPolicyExecutionEpoch(resumed,policy,original),'244');assert.equal(original,'242');assert.equal(calls,2);
+ for(const epoch of ['241','0','bad',null])await assert.rejects(readPolicyExecutionEpoch({query:async(sql:string)=>({rows:[sql.includes('to_regprocedure')?{installed:true}:{epoch}]})},policy,original),/EXECUTION_EPOCH/);
 });

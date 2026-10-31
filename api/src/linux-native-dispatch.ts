@@ -19,6 +19,8 @@ import type {BaseContract} from './base-contract.ts';
 import type {LiveReverseContext,LiveReverseState} from './live-reverse-dispatch.ts';
 import type {LiveRefundContext,LiveRefundState} from './live-source-refund.ts';
 import {refundContext} from './source-refunds.ts';
+import {workerExecutionPins,type ForwardFastExecutionApproval,type WorkerExecutionPin} from './testnet-policy-execution.ts';
+import {escrowInclusionContext} from './base-escrow.ts';
 
 export type NativePurpose='reverse'|'refund';
 export type LinuxNativeConfig={version:1;mode:'LINUX_TESTNET_REVERSE'|'LINUX_TESTNET_REFUND';enabled:boolean;operatorProfile:string;
@@ -26,6 +28,7 @@ export type LinuxNativeConfig={version:1;mode:'LINUX_TESTNET_REVERSE'|'LINUX_TES
  scripts:Record<'native'|'profile'|'supervisor'|'preparedKernel'|'refundKernel'|'outgoingKernel'|'preflight'|'guard'|'baseSigner',PinnedFile>};
 type NativeState=(LiveReverseState|LiveRefundState)&{operatorProfileSha256?:string;nativeConfigSha256?:string;policyContext?:PolicyWorkerOrderContext};
 export type LoadedLinuxNative=Awaited<ReturnType<typeof loadLinuxNativeDispatch>>;
+export interface NativeFastExecutionApproval {version:1;purpose:'ROOT_BASE_L2_FAST_NATIVE_EXECUTION';originalNativeProfileSha256:string;profileSha256:string;policySha256:string;activeEpoch:string;executionRoot:string;publicCommit:string;executionManifest:WorkerExecutionPin;scripts:LinuxNativeConfig['scripts'];}
 function need(value:unknown,code:string):asserts value{if(!value)throw Error(code);}
 const inside=(p:string,root:string)=>posix.isAbsolute(p)&&posix.normalize(p)===p&&p.startsWith(root+'/');
 async function pinned(pin:PinnedFile,secret:boolean){const s=await lstat(pin.path);need(s.isFile()&&!s.isSymbolicLink()&&await realpath(pin.path)===pin.path&&(!secret||(s.mode&0o027)===0),'LINUX_NATIVE_PROTECTED_FILE');const b=await readFile(pin.path);need(linuxRawSha256(b)===pin.sha256,'LINUX_NATIVE_PIN_CHANGED');return b;}
@@ -63,7 +66,19 @@ export async function loadLinuxNativeDispatch(path:string,purpose:NativePurpose)
  need(s.isFile()&&!s.isSymbolicLink()&&s.uid===0&&(s.mode&0o027)===0&&await realpath(c.handoffProof)===c.handoffProof
   &&proof.status==='PREFUNDING_RELOCATION_VERIFIED'&&proof.profileSha256===verified.profileSha256&&proof.openingProofSha256===p.immutable.openingProof.sha256
   &&proof.branchId===scope.branchId&&proof.database===scope.database,'LINUX_NATIVE_HANDOFF_PROOF');
- need(process.env.HOME===p.roots.base+'/home','LINUX_NATIVE_ISOLATED_HOME');return {c,purpose,verified,signer,path};
+ need(process.env.HOME===p.roots.base+'/home','LINUX_NATIVE_ISOLATED_HOME');return {c,purpose,verified,signer,path,originalProfileLoaderSha256:c.scripts.profile.sha256,nativeFastExecution:undefined as undefined|{pin:WorkerExecutionPin;rootPin:WorkerExecutionPin;approval:NativeFastExecutionApproval}};
+}
+/** A separately Root-approved script overlay retains the original native financial profile. */
+export async function applyLinuxNativeFastExecution(loaded:LoadedLinuxNative,rootPin:WorkerExecutionPin,root:ForwardFastExecutionApproval&{nativeExecution?:WorkerExecutionPin}){
+ const pin=root.nativeExecution;need(loaded.purpose==='reverse'&&pin,'LINUX_NATIVE_FAST_REVERSE_ONLY');
+ async function protectedPin(p:WorkerExecutionPin){const s=await lstat(p.path);need(s.isFile()&&!s.isSymbolicLink()&&s.uid===0&&(s.mode&0o077)===0&&await realpath(p.path)===p.path&&s.size<=1048576,'LINUX_NATIVE_FAST_ROOT_FILE');return pinned(p,true);}
+ need(JSON.stringify(JSON.parse((await protectedPin(rootPin)).toString()))===JSON.stringify(root),'LINUX_NATIVE_FAST_PARENT_CHANGED');
+ const a=JSON.parse((await protectedPin(pin)).toString()) as NativeFastExecutionApproval;
+ need(a.version===1&&a.purpose==='ROOT_BASE_L2_FAST_NATIVE_EXECUTION'&&a.originalNativeProfileSha256===linuxRawSha256(await readFile(loaded.path))&&a.profileSha256===loaded.verified.profileSha256&&a.profileSha256===root.profileSha256&&a.policySha256===root.policySha256&&a.activeEpoch===root.activeEpoch&&a.executionRoot===root.executionRoot&&a.publicCommit===root.publicCommit&&JSON.stringify(a.executionManifest)===JSON.stringify(root.executionManifest),'LINUX_NATIVE_FAST_BINDING');
+ const pins=workerExecutionPins(JSON.parse((await protectedPin(a.executionManifest)).toString()),a.executionRoot,a.publicCommit);
+ need(Object.keys(a.scripts).sort().join()===Object.keys(loaded.c.scripts).sort().join(),'LINUX_NATIVE_FAST_SCRIPT_SET');
+ for(const [name,original] of Object.entries(loaded.c.scripts)){const replacement=a.scripts[name as keyof typeof a.scripts],relative=original.path.slice(loaded.verified.profile.roots.release.length+'/app/'.length);need(replacement.path===a.executionRoot+'/'+relative&&pins.some(p=>p.path===replacement.path&&p.sha256===replacement.sha256),'LINUX_NATIVE_FAST_SCRIPT_MANIFEST');const s=await lstat(replacement.path);need(s.uid===0&&(s.mode&0o022)===0,'LINUX_NATIVE_FAST_SCRIPT_OWNER');await pinned(replacement,false);}
+ return {...loaded,c:{...loaded.c,scripts:a.scripts},nativeFastExecution:{pin,rootPin,approval:a}};
 }
 
 /** Root reviews this mutable per-order file. Pinned root profiles and the
@@ -80,7 +95,7 @@ export async function linuxPerOrderCapital(loaded:LoadedLinuxNative,pool:pg.Pool
   const pc=approval.policyCapital;need(pc?.version===1&&pc.policySha256===policyContext.policySha256&&inside(pc.capture?.path,directory+'/proofs')&&/^[0-9a-f]{64}$/.test(pc.capture?.sha256),'POLICY_CAPITAL_ROOT_BINDING');
   const stat=await lstat(pc.capture.path);need(stat.isFile()&&!stat.isSymbolicLink()&&stat.uid===0&&(stat.mode&0o027)===0&&stat.size<=1048576&&await realpath(pc.capture.path)===pc.capture.path,'POLICY_CAPITAL_ROOT_FILE');
   const raw=await readFile(pc.capture.path);need(linuxRawSha256(raw)===pc.capture.sha256,'POLICY_CAPITAL_RAW_CHANGED');
-  const current=validatePolicyCapitalProof(JSON.parse(raw.toString()),{policySha256:policyContext.policySha256,profileSha256:loaded.verified.profileSha256,loaderSha256:loaded.c.scripts.profile.sha256,captureScriptSha256:linuxRawSha256(await readFile(p.roots.release+'/app/workers/zcash-wallet/testnet_policy_capital.py'))});
+  const current=validatePolicyCapitalProof(JSON.parse(raw.toString()),{policySha256:policyContext.policySha256,profileSha256:loaded.verified.profileSha256,loaderSha256:loaded.originalProfileLoaderSha256,captureScriptSha256:linuxRawSha256(await readFile(p.roots.release+'/app/workers/zcash-wallet/testnet_policy_capital.py'))});
   need(pc.observedAt===current.observedAt&&JSON.stringify(pc.notes)===JSON.stringify(current.notes),'POLICY_CAPITAL_ROOT_CAPTURE_CHANGED');
   notes=requirePolicyCapitalProvenance(current.notes,notes);
  }
@@ -119,9 +134,11 @@ export function linuxNativeContexts(loaded:LoadedLinuxNative,pool:pg.Pool,keys:P
   const id=state.orderId,digest=approvalDigest(approved);
   if(policyContext)await requirePolicyWorkerOrder(pool,policyContext,id,{profileSha256:verified.profileSha256,handoffSha256:linuxRawSha256(await readFile(c.handoffProof)),openingProofSha256:p.immutable.openingProof.sha256,settlementContract:base.registry.contracts.ZeeSwapSettlement.address,tokenContract:base.registry.contracts.MockUSDC.address});need(!state.approvedDigest||state.approvedDigest===digest,'LINUX_NATIVE_APPROVAL_CHANGED');
   const approvedPath=file(id,'approved.private.json'),approvedRequestSha256=await exclusivePrivate(approvedPath,approved),capital=await linuxPerOrderCapital(loaded,pool,keys,id,policyContext);
-  const preflightPath=file(id,'preflight.private.json'),preflightConfigSha256=await exclusivePrivate(preflightPath,{readCommand:[p.artifacts.reader.path],rpcUrl:base.registry.rpcUrl,hashCommand:[p.artifacts.cast.path,'keccak']});
+  const nativeFast=purpose==='reverse'?loaded.nativeFastExecution:undefined;
+  const fastFields=nativeFast?{fastBaseInclusion:true,nativeFastExecution:nativeFast.pin,baseFastRoot:nativeFast.rootPin,policyContext,linuxProfilePath:c.operatorProfile,linuxProfileSha256:verified.profileSha256,rootConfigPath:loaded.path}:{};
+  const preflightPath=file(id,'preflight.private.json'),preflightConfigSha256=await exclusivePrivate(preflightPath,{readCommand:[p.artifacts.reader.path],rpcUrl:base.registry.rpcUrl,hashCommand:[p.artifacts.cast.path,'keccak'],...fastFields});
   const guardPath=file(id,'guard.private.json'),guardConfigSha256=await exclusivePrivate(guardPath,{configPath:loaded.path,orderId:id,statePath:file(id,'state.private.json'),approvedRequest:approvedPath,approvedDigest:digest});
-  const prepared={liveProfile:p.profile,nativePurpose:purpose,linuxProfilePath:c.operatorProfile,linuxProfileSha256:verified.profileSha256,rootConfigPath:loaded.path,
+  const prepared={...fastFields,liveProfile:p.profile,nativePurpose:purpose,linuxProfilePath:c.operatorProfile,linuxProfileSha256:verified.profileSha256,rootConfigPath:loaded.path,
    walletDir:p.paths.operatorWallet,operatorUfvkFile:p.paths.operatorUfvk,lockPath:p.paths.walletLock,capitalUfvkSha256:p.identity.sourceFingerprint,recipientProofMode:'operator-outgoing-recovery',
    cliCommand:[p.artifacts.zingo.path],readCommand:[p.artifacts.reader.path],verifyCommand:[p.artifacts.verify.path],protoDir:c.protoDir,
    approvedRequest:approvedPath,approvedDigest:digest,approvedRequestSha256,approvedCapitalNotes:capital.notes,capitalApprovalPath:capital.path,capitalApprovalSha256:capital.sha256,
@@ -131,14 +148,14 @@ export function linuxNativeContexts(loaded:LoadedLinuxNative,pool:pg.Pool,keys:P
   state.nativeConfigSha256=await exclusivePrivate(file(id,'prepared.private.json'),prepared);state.approvedDigest=digest;await save(state);
  }
  const shared={pool,keys,base,load,save,wallet,nativeJournal};
- const reverse:LiveReverseContext={...shared,maxAmountZatoshi:c.maxAmountZatoshi,
+ const reverse:LiveReverseContext={...shared,fastBaseInclusion:!!loaded.nativeFastExecution,maxAmountZatoshi:c.maxAmountZatoshi,
   async baseSigner(state:LiveReverseState){const path=file(state.orderId,'base-signer.private.json');
    // Receipt inherits the OUTER base supervisor's process group. A nested
    // supervisor would create a second session outside that cleanup boundary.
-   await savedState(path,{...signer,reverseApprovedRequest:file(state.orderId,'approved.private.json'),reverseApprovedDigest:state.approvedDigest??'0'.repeat(64),reverseReceiptCommand:[c.python,...nativeCommand(state.orderId)]});
+   await savedState(path,{...signer,...(loaded.nativeFastExecution?{fastBaseInclusion:true}:{}),reverseApprovedRequest:file(state.orderId,'approved.private.json'),reverseApprovedDigest:state.approvedDigest??'0'.repeat(64),reverseReceiptCommand:[c.python,...nativeCommand(state.orderId)]});
    return new LocalReverseBaseSigner(c.python,[c.scripts.supervisor.path,'--kind','base-reverse','--script',c.scripts.baseSigner.path,'--config',path],true);},
-  async approve(state:LiveReverseState){const id=state.orderId,terms=await escrowTerms(pool,keys,base,id),q=await reversePayoutTerms(pool,keys,id),row=(await pool.query('SELECT * FROM zee.escrow_commits WHERE order_id=$1 AND confirmed',[id])).rows[0];need(row,'LINUX_NATIVE_FINALIZED_COMMIT_REQUIRED');
-   const proof=keys.open(row.receipt_payload,`escrow-proof:${id}:v1`) as any;
+  async approve(state:LiveReverseState){const id=state.orderId,terms=await escrowTerms(pool,keys,base,id),q=await reversePayoutTerms(pool,keys,id),row=(await pool.query('SELECT * FROM zee.escrow_commits WHERE order_id=$1 AND confirmed',[id])).rows[0];let included:any;if(!row&&loaded.nativeFastExecution){need((await pool.query("SELECT zee.escrow_inclusion_ready($1,'COMMIT') ready",[id])).rows[0]?.ready,'LINUX_NATIVE_FRESH_COMMIT_REQUIRED');included=(await pool.query("SELECT receipt_payload FROM zee.escrow_inclusions WHERE order_id=$1 AND phase='COMMIT' AND valid",[id])).rows[0];}need(row||included,'LINUX_NATIVE_FINALIZED_COMMIT_REQUIRED');
+   const proof=row?keys.open(row.receipt_payload,`escrow-proof:${id}:v1`) as any:keys.open(included.receipt_payload,escrowInclusionContext(id,'COMMIT')) as any;
    await approveNative(state,{version:1,orderId:id,settlementId:terms.id,recipient:q.recipient,amountZatoshi:q.amountZatoshi,maxFeeZatoshi:q.maxFeeZatoshi,
     base:{chainId:84532,contract:base.registry.contracts.ZeeSwapSettlement.address,token:terms.token,payer:terms.payer,refundRecipient:terms.refundRecipient,amountAtomic:terms.amount,cancellationAvailableAt:terms.cancellationAvailableAt,commitTxHash:proof.transactionHash,commitBlockNumber:String(proof.blockHeight),commitBlockHash:proof.blockHash}});}
  };

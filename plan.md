@@ -2,6 +2,28 @@
 
 Last updated: 2026-10-29 (Asia/Jakarta), for the isolated Linux testnet deployment. Execution evidence below retains its recorded dates.
 
+Fast delivery (31 October, explicit user decision): a successful canonical
+L2 reservation may authorize the existing Zcash to Base PAY
+transaction without waiting for the reservation's Ethereum finality. Record
+inclusion separately from final confirmation, verify the original signed
+transaction, exact event/terms, current reservation state and fresh canonical
+anchors before PAY, and preserve signed-byte reuse and gas caps. Successful
+canonical PAY inclusion may be presented as delivered and still finalizing;
+SETTLED, liability discharge and final accounting continue to require the
+original finalized receipts. A missing or changed observed receipt requires
+reconciliation, never an automatic replacement payout. The user subsequently
+explicitly extended L2 inclusion dispatch to both swap directions and bridge
+transactions, accepting the operator's exposure if Base reorganizes after
+Zcash delivery. Keep this risk acceptance separate from an assertion of chain
+finality: source inclusion, delivery inclusion and finalized accounting must
+remain distinguishable. Preserve original transactions, mutual-exclusion
+contract transitions, exact reserves and recovery on a changed canonical
+receipt. Existing Zcash confirmation thresholds remain in force. Preserve the active original
+funded worker and journals; deploy a reviewed successor at an independently
+verified idle boundary, rather than silently replacing a funded process.
+See `docs/evidence/fast-forward-delivery.md` for actual implementation and
+deployment evidence; this decision alone does not claim live activation.
+
 Payment QR image export (31 October, explicit user decision): accepted Zcash
 funding instructions may be saved as an offline PNG for importing into Zingo.
 Export only the currently eligible canonical receiver, amount and memo request;

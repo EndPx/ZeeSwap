@@ -6,12 +6,13 @@ import { getAddress, type Hex } from 'viem';
 import { transaction } from './db.ts';
 import { PrivateData } from './private-data.ts';
 import { baseHead } from './observer.ts';
-import { BaseContract, publicSettlementId, authNonce, type PayoutTerms, type BasePhase, type ConfirmedBaseReceipt } from './base-contract.ts';
+import { BaseContract, publicSettlementId, authNonce, type PayoutTerms, type BasePhase, type IncludedBaseReceipt, type ConfirmedBaseReceipt } from './base-contract.ts';
 import { validatePrepared, type BaseSigner, type PreparedBaseTransaction } from './base-signer.ts';
 import { withLeaseHeartbeat } from './lease-heartbeat.ts';
 
 const termsContext=(id:string)=>`base-terms:${id}:v1`;
 const signedContext=(id:string,phase:string)=>`base-signed:${id}:${phase}:v1`;
+export const inclusionContext=(id:string,phase:string)=>`base-inclusion:${id}:${phase}:v1`;
 export const receiptContext=(id:string,phase:string)=>`base-receipt:${id}:${phase}:v1`;
 
 async function checkpoint(pool:pg.Pool,base:BaseContract){
@@ -34,14 +35,37 @@ async function saveReceipt(pool:pg.Pool,keys:PrivateData,base:BaseContract,order
  });
 }
 
+/** Preserve inclusion separately; a missing or changed original halts further dispatch. */
+async function observeInclusion(pool:pg.Pool,keys:PrivateData,base:BaseContract,orderId:string,phase:BasePhase,signed:PreparedBaseTransaction,terms:PayoutTerms){
+ const previous=(await pool.query('SELECT * FROM zee.base_inclusions WHERE order_id=$1 AND phase=$2',[orderId,phase])).rows[0];
+ let receipt:IncludedBaseReceipt|null;
+ try{
+  receipt=await base.includedReceipt(signed.hash,phase,terms);
+  if(previous&&(!previous.valid||!receipt||String(previous.block_height)!==String(receipt.blockNumber)||previous.block_hash!==receipt.blockHash.slice(2)||previous.fee!==receipt.fee))throw Error('BASE_INCLUDED_RECEIPT_CHANGED');
+ }catch(error){
+  if(previous&&error instanceof Error&&['BASE_INCLUDED_RECEIPT_CHANGED','BASE_REORG','BASE_TRANSACTION_REVERTED','BASE_RECEIPT_MISMATCH','BASE_RECEIPT_CALLDATA_MISMATCH'].includes(error.message))await pool.query('SELECT zee.invalidate_base_inclusion($1,$2)',[orderId,phase]);
+  throw error;
+ }
+ if(!receipt)return null;
+ const block=await base.client.getBlock({blockNumber:BigInt(receipt.blockNumber)});
+ if(block.hash!==receipt.blockHash){await pool.query('SELECT zee.invalidate_base_inclusion($1,$2)',[orderId,phase]);throw Error('BASE_REORG');}
+ const epoch=await publishObserverBatch(pool,'base-forward-inclusion',[],[{network:'base-sepolia',height:receipt.blockNumber,hash:receipt.blockHash.slice(2),time:new Date(Number(block.timestamp)*1000)}]);
+ await transaction(pool,async c=>{
+  await requireObserverEpoch(c,epoch);
+  await c.query('SELECT zee.observe_base_inclusion($1,$2,$3,$4,$5,$6,$7)',[orderId,phase,keys.lookup('base-tx',signed.hash),receipt.blockNumber,receipt.blockHash.slice(2),receipt.fee,keys.seal(receipt,inclusionContext(orderId,phase))]);
+ });
+ return receipt;
+}
+
 /** Reconcile recorded attempts even while dispatch is paused. Never signs or broadcasts. */
-export async function reconcileBaseReceipts(pool:pg.Pool,keys:PrivateData,base:BaseContract,orderId?:string){
+export async function reconcileBaseReceipts(pool:pg.Pool,keys:PrivateData,base:BaseContract,orderId?:string,fastForward=false){
  const rows=(await pool.query(`SELECT a.*,b.terms_payload FROM zee.base_attempts a JOIN zee.base_bindings b USING(order_id)
   WHERE NOT a.confirmed${orderId?' AND a.order_id=$1::uuid':''} ORDER BY b.created_at,CASE a.phase WHEN 'RESERVE' THEN 0 ELSE 1 END LIMIT 100`,orderId?[orderId]:undefined)).rows;
  let finalized=0;
  for(const row of rows){
   const terms=keys.open(row.terms_payload,termsContext(row.order_id)) as PayoutTerms;
   const signed=keys.open(row.signed_payload,signedContext(row.order_id,row.phase)) as PreparedBaseTransaction;
+  if(fastForward)await observeInclusion(pool,keys,base,row.order_id,row.phase,signed,terms);
   const receipt=await base.receipt(signed.hash,row.phase,terms);
   if(receipt){await saveReceipt(pool,keys,base,row.order_id,receipt);finalized++;}
  }
@@ -49,9 +73,9 @@ export async function reconcileBaseReceipts(pool:pg.Pool,keys:PrivateData,base:B
 }
 
 /** One fenced forward-settlement step. Its durable transaction is never replaced on retry. */
-export async function dispatchBaseOnce(pool:pg.Pool,keys:PrivateData,base:BaseContract,signer:BaseSigner,refreshObservers?:()=>Promise<unknown>,orderId?:string){
+export async function dispatchBaseOnce(pool:pg.Pool,keys:PrivateData,base:BaseContract,signer:BaseSigner,refreshObservers?:()=>Promise<unknown>,orderId?:string,fastForward=false){
  await base.preflight();
- await reconcileBaseReceipts(pool,keys,base,orderId);
+ await reconcileBaseReceipts(pool,keys,base,orderId,fastForward);
  if(refreshObservers)await refreshObservers();
  const owner=randomUUID();
  const job=(await pool.query(orderId?'SELECT * FROM zee.claim_base_job_for_order($1,$2)':'SELECT * FROM zee.claim_base_job($1)',orderId?[owner,orderId]:[owner])).rows[0];
@@ -73,7 +97,15 @@ export async function dispatchBaseOnce(pool:pg.Pool,keys:PrivateData,base:BaseCo
   ||getAddress(terms.token)!==getAddress(base.registry.contracts.MockUSDC.address)||terms.nonce!==authNonce(id,'Payout'))throw Error('BASE_IMMUTABLE_TERMS_MISMATCH');
  const attempts=(await pool.query('SELECT * FROM zee.base_attempts WHERE order_id=$1',[row.id])).rows;
  const reserve=attempts.find(a=>a.phase==='RESERVE');
- const phase:BasePhase=reserve?.confirmed?'PAY':'RESERVE';
+ const reserveIncluded=fastForward&&reserve?await observeInclusion(pool,keys,base,row.id,'RESERVE',keys.open(reserve.signed_payload,signedContext(row.id,'RESERVE')) as PreparedBaseTransaction,terms):null;
+ const phase:BasePhase=reserve?.confirmed||reserveIncluded?'PAY':'RESERVE';
+ const recheckReserve=async()=>{
+  if(!fastForward||phase!=='PAY')return;
+  if(!reserve||!await observeInclusion(pool,keys,base,row.id,'RESERVE',keys.open(reserve.signed_payload,signedContext(row.id,'RESERVE')) as PreparedBaseTransaction,terms))throw Error('BASE_RESERVATION_INCLUSION_REQUIRED');
+  const state=await base.state(id);
+  if(state!==1&&state!==2){await pool.query('SELECT zee.invalidate_base_inclusion($1,$2)',[row.id,'RESERVE']);throw Error('BASE_RESERVATION_CHANGED');}
+ };
+ await recheckReserve();
  const existing=attempts.find(a=>a.phase===phase);
  let signed:PreparedBaseTransaction;
  if(existing){signed=keys.open(existing.signed_payload,signedContext(row.id,phase)) as PreparedBaseTransaction;}
@@ -87,9 +119,11 @@ export async function dispatchBaseOnce(pool:pg.Pool,keys:PrivateData,base:BaseCo
   await validatePrepared(base.registry,terms,signature,phase,signed);
   if(refreshObservers)await refreshObservers();
   await checkLease();
+  await recheckReserve();
   await pool.query('SELECT zee.store_base_attempt($1,$2,$3,$4,$5,$6,$7,$8)',[row.id,job.id,owner,job.fence,phase,
    keys.lookup('base-tx',signed.hash),keys.seal(signed,signedContext(row.id,phase)),signed.maxCost]);
  }
+ if(fastForward)await observeInclusion(pool,keys,base,row.id,phase,signed,terms);
  const receipt=await base.receipt(signed.hash,phase,terms);
  if(receipt){await saveReceipt(pool,keys,base,row.id,receipt);return {status:phase==='PAY'?'SETTLED':'RESERVATION_FINALIZED'};}
  const known=await base.client.getTransaction({hash:signed.hash}).catch(error=>{
@@ -99,6 +133,8 @@ export async function dispatchBaseOnce(pool:pg.Pool,keys:PrivateData,base:BaseCo
   if(BigInt(terms.deadline)<=BigInt(Math.floor(Date.now()/1000)))throw Error('BASE_AUTHORIZATION_EXPIRED_RECONCILE');
   if(refreshObservers)await refreshObservers();
   await checkLease();
+  await recheckReserve();
+  if(phase==='PAY'&&await base.state(id)!==1)throw Error('BASE_RESERVATION_CHANGED');
   await pool.query('SELECT zee.check_base_dispatch($1,$2,$3,$4)',[row.id,job.id,owner,job.fence]);
   if(await base.client.getTransactionCount({address:base.registry.operator,blockTag:'latest'})>signed.nonce)throw Error('BASE_NONCE_CONFLICT_RECONCILE');
   try{

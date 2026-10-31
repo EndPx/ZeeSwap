@@ -40,6 +40,19 @@ class ReverseSignerTests(unittest.TestCase):
     def test_canonical_bounded_terms(self):
         for invalid in ['0100000', '1e5', '-1', '99999', '10000001']:
             with self.assertRaises(ValueError): signer.validate_terms(self.config, {**self.terms, 'amount': invalid})
+    def test_fast_snapshot_is_opt_in_fresh_and_rechecked_canonical(self):
+        self.assertEqual(signer.reverse_state_snapshot(self.config, lambda *args: self.fail('default performed fast read')), ('finalized', None))
+        latest = {'number': '0x32', 'hash': '0x' + 'a' * 64, 'timestamp': hex(int(time.time()))}
+        finalized = {'number': '0x20', 'hash': '0x' + 'b' * 64}
+        def cast(*args): return json.dumps(finalized if args[1] == 'finalized' else latest)
+        config = {**self.config, 'fastBaseInclusion': True}
+        tag, snapshot = signer.reverse_state_snapshot(config, cast)
+        self.assertEqual(tag, '50')
+        signer.require_snapshot(config, cast, snapshot)
+        latest['hash'] = '0x' + 'c' * 64
+        with self.assertRaises(ValueError): signer.require_snapshot(config, cast, snapshot)
+        latest['timestamp'] = hex(int(time.time()) - 61)
+        with self.assertRaises(ValueError): signer.reverse_state_snapshot(config, cast)
         with self.assertRaises(ValueError): signer.validate_terms(self.config, {**self.terms, 'cancellationAvailableAt': str(int(self.terms['fundingCutoff']) + 7199)})
     def test_authorization_is_immutable_and_replayed_without_resigning(self):
         with patch.object(signer.subprocess, 'run', side_effect=self.fake_cast):

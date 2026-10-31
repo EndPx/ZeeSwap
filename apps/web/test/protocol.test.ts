@@ -1,13 +1,33 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ApiError, apiOrigin, resolveApiOrigin, ZeeApi } from '../src/api.ts';
-import { amountForApi, capability, decodeOrder, formatUnits, indicativeOutput, parseUnits, quoteBody, statusCopy, type OrderView, type QuoteBody } from '../src/protocol.ts';
+import { amountForApi, capability, decodeOrder, formatUnits, indicativeOutput, parseUnits, quoteBody, sourceConfirmationCopy, statusCopy, terminal, type OrderView, type QuoteBody } from '../src/protocol.ts';
 import { OrderRequestFence, readPrivateSession, writePrivateSession } from '../src/session.ts';
 
 const id='00000000-0000-4000-8000-000000000001',token='a'.repeat(43),body:QuoteBody={direction:'ZCASH_TO_BASE',inputAmount:'1000000',recipient:'0x'+'1'.repeat(40),refundRecipient:'utest1'+'q'.repeat(100)};
 function view(status:OrderView['status']='QUOTED'):OrderView{return{id,direction:'ZCASH_TO_BASE',status,inputAmount:'1000000',outputAmount:'1000000',priceMode:'fixture',integrationOnly:true,executionMode:'base-settlement-v1',expiresAt:new Date(Date.now()+120000).toISOString(),source:{received:false,confirmed:false,confirmations:0,policy:'zcash-10-confirmations',requiredConfirmations:10}};}
 const json=(value:unknown,status=200)=>new Response(JSON.stringify(value),{status,headers:{'content-type':'application/json'}});
 test('decimal parsing and formatting retain exact integer atomic units',()=>{assert.equal(parseUnits('123456789.12345678',8),'12345678912345678');assert.equal(formatUnits('12345678912345678',8),'123456789.12345678');assert.equal(parseUnits('0.01',8),'1000000');for(const value of ['1e-8','-1','01','0.000000001','NaN','Infinity','0','.1','1.'])assert.throws(()=>parseUnits(value,8));});
+test('source confirmation copy distinguishes progress from confirmed depth',()=>{
+ const source=view('CONFIRMING').source;
+ assert.equal(sourceConfirmationCopy({...source,confirmations:9}),'9 / 10');
+ for(const confirmations of [10,26])assert.equal(sourceConfirmationCopy({...source,confirmed:true,confirmations}),`Confirmed · ${confirmations} confirmations`);
+ assert.equal(sourceConfirmationCopy({...source,policy:'base-finalized',requiredConfirmations:null,confirmed:true}),'Finalized');
+});
+test('reverse Base L2 inclusion enables delivery copy without reporting source finality',()=>{
+ const order={...view('READY'),direction:'BASE_TO_ZCASH',source:{received:true,confirmed:false,included:true,confirmations:0,policy:'base-included',requiredConfirmations:null}};
+ const decoded=decodeOrder(order);assert.equal(decoded.source.confirmed,false);assert.equal(sourceConfirmationCopy(decoded.source),'Included · Base L2');assert.equal(statusCopy(decoded).title,'Source included · Delivering TAZ');
+ assert.equal(sourceConfirmationCopy({...decoded.source,confirmed:true}),'Finalized');
+ assert.throws(()=>decodeOrder({...order,direction:'ZCASH_TO_BASE'}));assert.throws(()=>decodeOrder({...order,source:{...order.source,received:false}}));assert.throws(()=>decodeOrder({...order,source:{...order.source,included:'true'}}));
+});
+test('included forward payout is delivered while finality remains pending and rejects signed-only or reverse claims',()=>{
+ const included={...view('READY'),source:{...view().source,received:true,confirmed:true,confirmations:26},destination:{network:'base-sepolia',status:'INCLUDED',transactionHash:'0x'+'a'.repeat(64),blockNumber:123}};
+ const decoded=decodeOrder(included);assert.equal(statusCopy(decoded).title,'USDC delivered · Finalizing');assert.equal(statusCopy(decoded).tone,'waiting');assert.equal(terminal(decoded.status),false);
+ for(const destination of [{...included.destination,transactionHash:undefined},{...included.destination,blockNumber:undefined},{...included.destination,blockNumber:0},{...included.destination,network:'zcash-testnet',transactionHash:'a'.repeat(64)}])assert.throws(()=>decodeOrder({...included,destination}));
+ for(const status of ['CONFIRMING','SETTLED','REFUND_REQUIRED'])assert.throws(()=>decodeOrder({...included,status}));
+ assert.throws(()=>decodeOrder({...included,source:{...included.source,confirmed:false}}));
+ for(const status of ['RESERVING','PAYOUT_PENDING'] as const){const copy=statusCopy({...decoded,destination:{network:'base-sepolia',status}});assert.equal(copy.title,'Source confirmed');assert.doesNotMatch(copy.title,/delivered/i);}
+});
 test('fixture ranges and both directions match actual API integer rate',()=>{assert.equal(amountForApi('0.001','ZCASH_TO_BASE'),'100000');assert.equal(indicativeOutput('0.01','ZCASH_TO_BASE'),'1000000');assert.equal(indicativeOutput('1','BASE_TO_ZCASH'),'1000000');assert.equal(indicativeOutput('100','BASE_TO_ZCASH'),null);});
 test('receiver validation rejects mainnet/transparent Zcash and noncanonical EVM inputs',()=>{assert.deepEqual(quoteBody('ZCASH_TO_BASE','0.01',body.recipient,body.refundRecipient),body);for(const receiver of ['u1'+'q'.repeat(100),'tm'+ 'q'.repeat(100),'0x'+'1'.repeat(40)])assert.throws(()=>quoteBody('ZCASH_TO_BASE','0.01',body.recipient,receiver));assert.throws(()=>quoteBody('ZCASH_TO_BASE','0.01','0x'+'0'.repeat(40),body.refundRecipient));});
 test('capability is random 32-byte base64url without URL/identity meaning',()=>{const a=capability(),b=capability();assert.match(a,/^[A-Za-z0-9_-]{43}$/);assert.notEqual(a,b);assert.equal(Buffer.from(a,'base64url').length,32);});
