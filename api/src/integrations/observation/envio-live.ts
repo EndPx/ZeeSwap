@@ -6,7 +6,7 @@ import {observeEscrowFunding} from '../../base-escrow.ts';
 import {publishObserverBatch,type CanonicalBlock} from '../../observer-frontiers.ts';
 import {fetchEnvioExport} from './envio.ts';
 import {readJson,safeEndpoint,type CanonicalReader} from './chef.ts';
-import {fresh,requireThat,stable,type Policy,type ReplaceRange} from './types.ts';
+import {fresh,requireThat,stable,type Policy,type ReplaceRange,type Header} from './types.ts';
 import{requiredEnvioAnchors}from'./envio-required-anchors.ts';
 import {validateEventFirstState,sampleCanonicalFinalityAtLeast,type EventFirstReader} from './envio-event-first.ts';
 import {fetchEventFirstReplacement} from './envio-event-first-consumer.ts';
@@ -58,7 +58,7 @@ export async function observeEnvioOnce(pool:pg.Pool,keys:PrivateData,base:BaseCo
  const previous=(await pool.query("SELECT scanned_height::text,finalized_height::text FROM zee.scanner_checkpoints WHERE network='base-sepolia'")).rows[0];
  const accepted=Number((await pool.query('SELECT count(*)::text AS count FROM zee.orders')).rows[0]?.count);
  const from=envioAdmissionFrom(config.policy,producerThrough,previous?Number(previous.scanned_height):undefined,admission,accepted);
- const batch=config.eventFirst?await fetchEventFirstReplacement(config.url,config.token,from,producerThrough,config.policy,config.eventFirst.generation,config.eventFirst.reader,signal,request,{boundedFinalTail:true,preReadFreshness:true,fixedReadStartTarget:true}):await fetchEnvioExport(config.url,config.token,from,config.policy,config.canonical,Date.now(),fetch,config.verificationSourceId);
+ const batch=config.eventFirst?await fetchEventFirstReplacement(config.url,config.token,from,producerThrough,config.policy,config.eventFirst.generation,config.eventFirst.reader,signal,request,{boundedFinalTail:true,preReadFreshness:true,fixedReadStartTarget:true,...(config.eventFirst.ordinaryTransport?.version===2?{conservativeFinalityMinimum:Number(previous?.finalized_height??0)}:{})}):await fetchEnvioExport(config.url,config.token,from,config.policy,config.canonical,Date.now(),fetch,config.verificationSourceId);
  fresh(batch.coverage.sourceSampledAt,Date.now());
  requireThat(batch.coverage.sourceHead.height-batch.coverage.through.height<=40,'WAIT_ENVIO_BEHIND_HEAD');
  config.eventFirst?.beforeFinality?.();
@@ -66,7 +66,9 @@ export async function observeEnvioOnce(pool:pg.Pool,keys:PrivateData,base:BaseCo
  requireThat(sample.sourceId===(config.verificationSourceId??config.policy.canonicalSourceId),'WRONG_CANONICAL_SOURCE');fresh(sample.checkedAt,Date.now());
  if(config.eventFirst)requireThat(sample.head.height>=batch.coverage.through.height,'WAIT_ENVIO_BEHIND_HEAD');
  requireThat(sample.finalized&&sample.finalized.height<=batch.coverage.through.height,'WAIT_ENVIO_FINALITY');
- const finalized=sample.finalized;
+ const consumerFinalized=(batch as ReplaceRange&{consumerFinalized?:Header}).consumerFinalized;
+ const finalized=consumerFinalized&&consumerFinalized.height<sample.finalized.height?consumerFinalized:sample.finalized;
+ requireThat(finalized.height>=Number(previous?.finalized_height??0),'WAIT_ENVIO_FINALITY');
  requireThat(stable(await config.canonical.header(finalized.height,signal))===stable(finalized),'FINALIZED_HEADER_CONFLICT');
  const anchors=await requiredEnvioAnchors(pool,admission.hints);
  const blocks:CanonicalBlock[]=[];

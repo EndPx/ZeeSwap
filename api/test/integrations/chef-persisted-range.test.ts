@@ -8,17 +8,18 @@ const min=4531977,tip=4553427,final=4553418,money=4540000,hash=(h:number)=>h.toS
 const state=():ChefPersistedState=>({control:{epoch:'234'},checkpoint:{scanned_height:String(tip),finalized_height:String(final),tip_hash:hash(tip)},headers:[min,money,...Array.from({length:4552},(_,i)=>tip-4551+i)].map(h=>({height:String(h),block_hash:hash(h)})),financial:{deposits:[{block_height:String(money),block_hash:hash(money)}],reverse_payouts:[],source_refunds:[]}});
 const failure=()=>new ChefCanonicalHeadChanged({...header(tip+2),hash:'000002091b6f2da093e754c289937e207796def25a163622ff64ae67961b5574'},{...header(tip+2),hash:'000020386c5391a1d57e61ad36218c504c3eaefa611da6ca68db7579a93808f6'},'anchor-recheck');
 function reader(change?:(p:Awaited<ReturnType<ChefPersistedRangeReader>>)=>void){const calls:{from:number;through:number}[]=[],dense=new Set<number>();const read:ChefPersistedRangeReader=async(from,through,signal)=>{signal.throwIfAborted();assert.ok(from>=min&&through<=tip&&through-from<1000);calls.push({from,through});const proof={kind:'independent-persisted-range-v1' as const,sourceId:'native',latestHeight:tip+2,fromHeight:from,throughHeight:through,headers:Array.from({length:through-from+1},(_,i)=>{dense.add(from+i);return header(from+i);})};change?.(proof);return proof;};return{calls,dense,read};}
+const archivalRecheck=(read:ChefPersistedRangeReader)=>({...ordinaryChefCanonicalRecheck(unavailableFuture,'native',read),recentPrefix:undefined});
 const unavailableFuture=()=>({sample:async()=>{throw Error('VOLATILE_LATEST_GETBLOCK_UNAVAILABLE');},header:async()=>{throw Error('NO_LEGACY_HEADER_IO_ALLOWED');}});
 test('actual above-persisted VERIFY_ANCHORS conflict audits all4554 stored anchors/dense parents with no future block fetch',async()=>{
  const f=reader(),before=state(),bytes=JSON.stringify(before),error=failure();let rereads=0,witness=0;
- const canonical=ordinaryChefCanonicalRecheck(unavailableFuture,'native',f.read);
+ const canonical=archivalRecheck(f.read);
  assert.equal(await chefHeadChangeCanWait(error,false,before,{processedThrough:tip,tipHash:hash(tip)},canonical,async()=>{rereads++;return true;},AbortSignal.timeout(180000),'VERIFY_ANCHORS',async()=>{witness++;}),true);
  assert.equal(before.headers.length,4554);assert.equal(rereads,2);assert.equal(witness,1);assert.equal(JSON.stringify(before),bytes);for(let h=min;h<=tip;h++)assert.ok(f.dense.has(h));
  const chunks=f.calls.filter(c=>c.from!==c.through);for(const chunk of chunks)assert.equal(f.calls.filter(c=>c.from===chunk.through&&c.through===chunk.through).length,2);
 });
 test('persisted financial/tip fork, wrong identity, incomplete range, bad height and unavailable IO remain fatal',async()=>{
  for(const mode of ['financial','tip','identity','partial','height','unavailable']){
-  const f=reader(p=>{if(mode==='identity')p.sourceId='other';if(mode==='partial')p.headers.pop();if(mode==='height')p.headers[0]!.height++;if(mode==='financial'||mode==='tip'){const h=mode==='financial'?money:tip;const v=p.headers.find(v=>v.height===h);if(v)v.hash=hash(42);}}),error=failure(),canonical=ordinaryChefCanonicalRecheck(unavailableFuture,'native',mode==='unavailable'?async()=>{throw Error('TRANSPORT_FAILURE');}:f.read);let rereads=0;
+  const f=reader(p=>{if(mode==='identity')p.sourceId='other';if(mode==='partial')p.headers.pop();if(mode==='height')p.headers[0]!.height++;if(mode==='financial'||mode==='tip'){const h=mode==='financial'?money:tip;const v=p.headers.find(v=>v.height===h);if(v)v.hash=hash(42);}}),error=failure(),canonical=archivalRecheck(mode==='unavailable'?async()=>{throw Error('TRANSPORT_FAILURE');}:f.read);let rereads=0;
   const check=chefHeadChangeCanWait(error,false,state(),{processedThrough:tip,tipHash:hash(tip)},canonical,async()=>{rereads++;return true;},AbortSignal.timeout(180000),'VERIFY_ANCHORS');
   if(mode==='tip')assert.equal(await check,false);else await assert.rejects(check,e=>e===error);assert.equal(chefObserverExitStatus(error),78);assert.equal(rereads,0);
   if(mode!=='tip')await assert.rejects(canonical.header(min,AbortSignal.timeout(1000)),/CACHE_REQUIRED/);
@@ -30,7 +31,7 @@ test('fresh persisted endpoints and final seam rereads refuse a changed full hea
  }
 });
 test('post-publication, at-persisted mismatch, changed SQL/cursor world and deadline never produce safe wait',async()=>{
- const f=reader(),before=state(),cursor={processedThrough:tip,tipHash:hash(tip)},canonical=ordinaryChefCanonicalRecheck(unavailableFuture,'native',f.read);
+ const f=reader(),before=state(),cursor={processedThrough:tip,tipHash:hash(tip)},canonical=archivalRecheck(f.read);
  assert.equal(await chefHeadChangeCanWait(failure(),true,before,cursor,canonical,async()=>true,AbortSignal.timeout(1000),'VERIFY_ANCHORS'),false);assert.equal(f.calls.length,0);
  assert.equal(await chefHeadChangeCanWait(new ChefCanonicalHeadChanged(header(tip),{...header(tip),hash:hash(42)},'anchor-recheck'),false,before,cursor,canonical,async()=>true,AbortSignal.timeout(1000),'VERIFY_ANCHORS'),false);
  let rereads=0;assert.equal(await chefHeadChangeCanWait(failure(),false,before,cursor,canonical,async()=>++rereads===1,AbortSignal.timeout(180000),'VERIFY_ANCHORS',async()=>{}),false);assert.equal(rereads,2);

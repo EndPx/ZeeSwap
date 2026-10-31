@@ -95,20 +95,20 @@ function preReadFreshness(v:EventFirstVerifiedExport,reader:EventFirstReader,pre
  return pre.sample;
 }
 /** Safe scalar conjuncts retain the SAME public error code. No raw event/auth data. */
-export function requireIndependentEventFirstSource(v:EventFirstVerifiedExport,sample:Awaited<ReturnType<EventFirstReader['sample']>>,reader:EventFirstReader,preRead?:OrdinaryPreReadSample){
+export function requireIndependentEventFirstSource(v:EventFirstVerifiedExport,sample:Awaited<ReturnType<EventFirstReader['sample']>>,reader:EventFirstReader,preRead?:OrdinaryPreReadSample,minimumFinalizedHeight?:number){
  const freshnessSample=preRead?preReadFreshness(v,reader,preRead):sample;
- const checks={sourceId:sample.sourceId===reader.sourceId,hasFinalized:!!sample.finalized,headAtLeastClaimed:sample.head.height>=v.producer.sourceHead.height,headAtLeastM:sample.head.height>=v.producer.through.height,mLagWithin40:freshnessSample.head.height-v.producer.through.height<=40,finalityNotRegressed:!!sample.finalized&&v.verification.finalized.height<=sample.finalized.height&&(!preRead||preRead.sample.finalized!.height<=sample.finalized.height)};
+ const checks={sourceId:sample.sourceId===reader.sourceId,hasFinalized:!!sample.finalized,headAtLeastClaimed:sample.head.height>=v.producer.sourceHead.height,headAtLeastM:sample.head.height>=v.producer.through.height,mLagWithin40:freshnessSample.head.height-v.producer.through.height<=40,finalityNotRegressed:!!sample.finalized&&(minimumFinalizedHeight===undefined?v.verification.finalized.height<=sample.finalized.height&&(!preRead||preRead.sample.finalized!.height<=sample.finalized.height):Number.isSafeInteger(minimumFinalizedHeight)&&minimumFinalizedHeight>=0&&Math.min(sample.finalized.height,v.verification.finalized.height,preRead?.sample.finalized?.height??sample.finalized.height)>=minimumFinalizedHeight)};
  if(!Object.values(checks).every(Boolean)){const error=new ObservationError('EVENT_FIRST_INDEPENDENT_SOURCE');Object.assign(error,{details:{checks,source:{M:v.producer.through.height,head:v.producer.sourceHead.height,finalized:v.verification.finalized.height,readStartedAt:v.range.readStartedAt,readCompletedAt:v.range.readCompletedAt,sourceSampledAt:v.producer.sourceSampledAt},canonical:{head:sample.head.height,finalized:sample.finalized?.height??null,checkedAt:sample.checkedAt},mLag:freshnessSample.head.height-v.producer.through.height,...(preRead?{preRead:{head:preRead.sample.head.height,finalized:preRead.sample.finalized!.height,checkedAt:preRead.sample.checkedAt,exportRequestedAt:preRead.exportRequestedAt}}:{})}});throw error;}
 }
 /** PublicNode can return an older finalized view on an otherwise current head.
  * Retry only that sole failed conjunct, using actual responses and the SAME
  * deadline. The original head/clock stays fixed for finalized-only rereads;
  * chosen finalized/head hashes still undergo the normal explicit end fences. */
-export async function sampleIndependentEventFirstSource(v:EventFirstVerifiedExport,reader:EventFirstReader,signal:AbortSignal,preRead?:OrdinaryPreReadSample){
+export async function sampleIndependentEventFirstSource(v:EventFirstVerifiedExport,reader:EventFirstReader,signal:AbortSignal,preRead?:OrdinaryPreReadSample,minimumFinalizedHeight?:number){
  let sample=await reader.sample(signal);
  for(let attempt=0;;attempt++){
   signal.throwIfAborted();fresh(sample.checkedAt,Date.now());
-  try{requireIndependentEventFirstSource(v,sample,reader,preRead);return sample;}catch(error){
+  try{requireIndependentEventFirstSource(v,sample,reader,preRead,minimumFinalizedHeight);return sample;}catch(error){
    const d=safeIndependentSourceDetails(error),onlyFinality=d?.checks.finalityNotRegressed===false&&Object.entries(d.checks).every(([key,ok])=>key==='finalityNotRegressed'||ok===true);
    if(!onlyFinality||attempt>=2)throw error;await delay(250,undefined,{signal});
    if(reader.finalizedHeader){const finalized=await reader.finalizedHeader(signal);requireThat(finalized.height<=sample.head.height,'FINALIZED_HEAD_REGRESSION');sample={...sample,finalized};}

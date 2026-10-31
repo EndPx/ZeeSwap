@@ -1,4 +1,5 @@
 import type pg from "pg";
+import {ChefPersistedRangeChanged} from '../../chef-persisted-range-reader.ts';
 import type { PrivateData } from "../../private-data.ts";
 import { ingestSnapshot, observerCheckHeights,validateSnapshot,type Snapshot } from "../../observer.ts";
 import { ChefAdapter, ChefCanonicalHeadChanged, SourceCheckpointMismatch, requireChefCanonicalHead, type ChefConfig } from "./chef.ts";
@@ -123,8 +124,12 @@ export async function chefHeadChangeCanWait(error:unknown,publicationAttempted:b
    for(let h=scanned;h<=expectedHeight;h++){const actual=parseHeader(proof.get(h),'zcash-testnet');requireThat(actual.height===h&&(!previous||actual.parentHash===previous.hash),'CHEF_RECENT_PREFIX_FORK');if(headers.has(h)&&headers.get(h)!==actual.hash)return false;previous=actual;}
    recentWaitProofs.set(error,{kind:'RECENT_PREFIX_COMMITMENT',checkpointHeight:scanned,verifiedThrough:expectedHeight,allHistoricalHeadersAudited:false});
   }catch(failure){
-   if(!recentTransportUnavailable(failure,scanned,expectedHeight)){error.recheckFailure=failure;throw error;}
-   // No prefix/freshness witness exists. Retry only after two unchanged-world
+   const unpublishedFenceChanged=checkpointChange&&cyclePhase==='TRAVERSE'&&failure instanceof ChefPersistedRangeChanged
+    &&failure.expected.height===expectedHeight&&failure.actual.height===expectedHeight
+    &&failure.expected.hash!==failure.actual.hash;
+   if(!unpublishedFenceChanged&&!recentTransportUnavailable(failure,scanned,expectedHeight)){error.recheckFailure=failure;throw error;}
+   // An unpublished end fence may move while the persisted checkpoint remains
+   // exact. No prefix/freshness witness exists. Retry only after two unchanged-world
    // reads; malformed Source/configuration or generation changes stay fatal.
    let onAbort:()=>void=()=>{};const aborted=new Promise<never>((_,reject)=>{onAbort=()=>reject(signal.reason);signal.addEventListener('abort',onAbort,{once:true});});try{for(let n=0;n<2;n++){signal.throwIfAborted();if(await Promise.race([unchanged(),aborted])===false)return false;}signal.throwIfAborted();error.recheckFailure=failure;return'DEFERRED_UNVERIFIED_READ' as const;}catch(recheckFailure){error.recheckFailure=recheckFailure;throw error;}finally{signal.removeEventListener('abort',onAbort);}
   }

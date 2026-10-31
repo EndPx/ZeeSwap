@@ -236,5 +236,92 @@ class SupervisionTests(unittest.TestCase):
         self.assertIn('OnUnitInactiveSec=30s', timer)
 
 
+class ClosedEffects(Effects):
+    closed_enabled = True
+
+    def __init__(self, fresh=True, active=False, paused=True):
+        super().__init__(fresh=fresh, active=active)
+        self.info = {'status': 'CLOSED_SERVICE_QUALIFIED', 'paused': paused,
+                     'warm': not paused, 'open': False, 'sourceFresh': fresh,
+                     'financialWorkerLease': active}
+        self.refused = None
+
+    def closed(self, action, execute=False):
+        self.events.append(('closed', action, execute))
+        if action == self.refused:
+            return {'status': 'CLOSED_SERVICE_REFUSED'}
+        if action == 'inspect':
+            return dict(self.info)
+        if action == 'pause':
+            self.info.update(paused=True, warm=False)
+            return {'status': 'CLOSED_SERVICE_PAUSED'}
+        if action == 'resume':
+            self.info.update(paused=False, warm=True)
+            return {'status': 'CLOSED_SERVICE_DISPATCH_PREPARED'}
+        return {'status': 'POLICY_CLOSED_IDLE_RESTART_ALLOWED' if action == 'gate' else 'CLOSED_SERVICE_INTAKE_CHECKED'}
+
+    def stop_closed_worker(self):
+        self.events.append('stop-verified-closed-worker')
+        self.states[watchdog.WORKER] = {'ActiveState': 'inactive', 'MainPID': '0'}
+
+
+class ClosedSupervisionTests(unittest.TestCase):
+    def test_inspect_never_mutates_even_when_sources_stale(self):
+        e = ClosedEffects(fresh=False)
+        self.assertEqual(watchdog.supervise(e)['status'], 'WATCHDOG_INSPECTED_CLOSED')
+        self.assertEqual(e.events, [('closed', 'inspect', False)])
+
+    def test_metadata_ack_precedes_dispatch_and_gate_and_start(self):
+        e = ClosedEffects(fresh=False)
+        self.assertEqual(watchdog.supervise(e, True)['status'], 'WATCHDOG_CLOSED_WORKER_START_REQUESTED')
+        self.assertLess(e.events.index('recover-original'), e.events.index(('closed', 'resume', True)))
+        self.assertLess(e.events.index(('closed', 'resume', True)), e.events.index(('closed', 'gate', False)))
+        self.assertLess(e.events.index(('closed', 'gate', False)), e.events.index(('start', watchdog.WORKER)))
+        self.assertNotIn(('closed', 'intake', True), e.events)
+
+    def test_pause_and_exact_closed_recheck_required_before_stop(self):
+        e = ClosedEffects(fresh=False, active=True)
+        self.assertEqual(watchdog.supervise(e, True)['status'], 'WATCHDOG_CLOSED_IDLE_WORKER_STOPPED')
+        self.assertLess(e.events.index(('closed', 'pause', True)), e.events.index('stop-verified-closed-worker'))
+        e = ClosedEffects(fresh=False, active=True)
+        e.refused = 'pause'
+        self.assertEqual(watchdog.supervise(e, True)['status'], 'WATCHDOG_WAIT_CLOSED_FENCE')
+        self.assertNotIn('stop-verified-closed-worker', e.events)
+
+    def test_live_funded_or_changed_books_never_signalled(self):
+        e = ClosedEffects(fresh=False, active=True)
+        e.refused = 'inspect'
+        self.assertEqual(watchdog.supervise(e, True)['status'], 'WATCHDOG_CLOSED_REFUSED')
+        self.assertEqual(e.events, [('closed', 'inspect', False)])
+
+    def test_pending_original_or_failed_closed_resume_cannot_start(self):
+        e = ClosedEffects(fresh=False)
+        e.result = {'status': 'AUTO_SOURCE_MANUAL_REVIEW_REQUIRED', 'pendingPublication': True, 'resumeOrdinaryConsumers': False}
+        self.assertEqual(watchdog.supervise(e, True)['status'], 'WATCHDOG_CLOSED_RECOVERY_WAIT')
+        self.assertNotIn(('closed', 'resume', True), e.events)
+        self.assertNotIn(('start', watchdog.WORKER), e.events)
+        e = ClosedEffects()
+        e.refused = 'resume'
+        self.assertEqual(watchdog.supervise(e, True)['status'], 'WATCHDOG_WAIT_CLOSED_RESUME')
+        self.assertNotIn(('start', watchdog.WORKER), e.events)
+
+    def test_warm_actual_worker_may_only_enable_intake(self):
+        e = ClosedEffects(active=True, paused=False)
+        self.assertEqual(watchdog.supervise(e, True)['status'], 'WATCHDOG_CLOSED_INTAKE_CHECKED')
+        self.assertEqual(e.events, [('closed', 'inspect', False), ('closed', 'intake', True)])
+
+    def test_inactive_unpaused_generation_is_fenced_before_source_inspection(self):
+        e = ClosedEffects(paused=False)
+        self.assertEqual(watchdog.supervise(e, True)['status'], 'WATCHDOG_CLOSED_WORKER_START_REQUESTED')
+        self.assertLess(e.events.index(('closed', 'pause', True)), e.events.index('inspect'))
+
+    def test_start_backoff_does_not_append_a_new_dispatch_generation(self):
+        e = ClosedEffects()
+        e.budget = False
+        self.assertEqual(watchdog.supervise(e, True)['status'], 'WATCHDOG_START_BACKOFF')
+        self.assertNotIn(('closed', 'resume', True), e.events)
+        self.assertNotIn(('start', watchdog.WORKER), e.events)
+
+
 if __name__ == '__main__':
     unittest.main()

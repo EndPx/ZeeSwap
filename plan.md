@@ -2,6 +2,30 @@
 
 Last updated: 2026-10-29 (Asia/Jakarta), for the isolated Linux testnet deployment. Execution evidence below retains its recorded dates.
 
+Recurring service recovery (31 October, explicit request for continuous
+availability): replace the one-time, old-release-only restart assumption with
+a protected persistent Root path for fully closed financial books. Preserve
+all original quotas, capital clocks, signed bytes and journals. Historical
+terminal journals remain valid; later completed orders qualify only through
+their authenticated original SQL/journal/receipt closure. No funded, signed,
+uncertain or otherwise open financial operation permits automatic handoff.
+Only after atomic closed-book admission fencing and an independent repeated
+qualification may the supervisor stop an idle worker for Source recovery.
+Append immutable execution generations, recover actual consumer checkpoints,
+warm the pinned worker with intake disabled, and reopen only after genuine
+fresh capital and both real Sources. Do not force readiness or reset orders.
+
+Source continuity keeps raw exporter evidence intact. The separate ordinary
+Base transport opt-in may use the lowest canonical actual finalized witness,
+never below admitted SQL finality, while continuing complete header/event/log
+ingestion. A changed unpublished Chef end fence may discard an unverified read
+only after unchanged-world checks; persisted/financial anchor conflicts remain
+blocked. Preserve Core Zeer/Envio deployments, identities, keys and namespaces.
+See `docs/evidence/closed-service-recovery.md`,
+`docs/evidence/native-unpublished-moving-fence.md` and
+`docs/evidence/closed-service-dynamic-journals.md` for scoped checks and actual
+deployment results, recorded separately from implementation.
+
 Fast delivery (31 October, explicit user decision): a successful canonical
 L2 reservation may authorize the existing Zcash to Base PAY
 transaction without waiting for the reservation's Ethereum finality. Record

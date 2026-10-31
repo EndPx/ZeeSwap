@@ -39,6 +39,8 @@ def next_start_budget(starts, now):
 
 
 def supervise(effects, execute=False):
+    if getattr(effects, 'closed_enabled', False):
+        return supervise_closed(effects, execute)
     before = effects.inspect()
     if not eligible(before):
         # A source inspector cannot authorize financial recovery. Only the full
@@ -125,6 +127,77 @@ def supervise(effects, execute=False):
     return {'status': 'WATCHDOG_PREUSER_WORKER_START_REQUESTED', 'actorAction': True}
 
 
+def supervise_closed(effects, execute=False):
+    """Persistent opt-in. Only consumers are stopped; finance is never signalled."""
+    info = effects.closed('inspect')
+    if info.get('status') != 'CLOSED_SERVICE_QUALIFIED':
+        return {'status': 'WATCHDOG_CLOSED_REFUSED', 'actorAction': False}
+    if not inactive(effects.state(WORKER)):
+        if execute and (info.get('paused') is True or info.get('sourceFresh') is False):
+            fenced = effects.closed('pause', True)
+            if fenced.get('status') != 'CLOSED_SERVICE_PAUSED':
+                return {'status': 'WATCHDOG_WAIT_CLOSED_FENCE', 'actorAction': False}
+            effects.stop_closed_worker()
+            return {'status': 'WATCHDOG_CLOSED_IDLE_WORKER_STOPPED', 'actorAction': True}
+        if execute and info.get('warm') is True and not effects.recovery_marker_present():
+            result = effects.closed('intake', True)
+            return {'status': 'WATCHDOG_CLOSED_INTAKE_CHECKED' if result.get('status') == 'CLOSED_SERVICE_INTAKE_CHECKED' else 'WATCHDOG_WAIT_ACTUAL_CAPITAL', 'actorAction': result.get('status') == 'CLOSED_SERVICE_INTAKE_CHECKED'}
+        return {'status': 'WATCHDOG_WAIT_EXISTING_WORKER', 'actorAction': False}
+    if info.get('financialWorkerLease') is not False:
+        return {'status': 'WATCHDOG_UNKNOWN_WORKER_LEASE', 'actorAction': False}
+    if not execute:
+        return {'status': 'WATCHDOG_INSPECTED_CLOSED', 'actorAction': False}
+    # A worker may exit without a consumer having paused SQL first. Fence its
+    # old generation before qualifying metadata or starting a new one.
+    if info.get('paused') is not True:
+        if effects.closed('pause', True).get('status') != 'CLOSED_SERVICE_PAUSED':
+            return {'status': 'WATCHDOG_WAIT_CLOSED_FENCE', 'actorAction': False}
+    source = effects.inspect()
+    if not eligible(source):
+        return {'status': 'WATCHDOG_WAIT_CLOSED_SOURCE_QUALIFICATION', 'actorAction': False}
+    recovering = source.get('sourceFresh') is not True or source.get('pendingPublication') is True
+    if recovering:
+        result, started, safe = None, False, False
+        effects.ensure_recovery_marker()
+        try:
+            for unit in (NATIVE, BASE):
+                latest = effects.inspect()
+                if not eligible(latest) or not inactive(effects.state(WORKER)):
+                    return {'status': 'WATCHDOG_CLOSED_CHANGED_BEFORE_STOP', 'actorAction': True}
+                effects.stop(unit)
+                if not inactive(effects.state(unit)):
+                    return {'status': 'WATCHDOG_CONSUMER_NOT_STOPPED', 'actorAction': True}
+            started = True
+            result = effects.recover()
+        finally:
+            after = effects.inspect()
+            known = ((result is None and not started) or
+                     (result is not None and result.get('status') in ('AUTO_SOURCE_METADATA_COMMITTED_EXACT', 'AUTO_SOURCE_RETRYABLE_READ_FAILURE', 'AUTO_SOURCE_NOT_NEEDED')
+                      and result.get('resumeOrdinaryConsumers') is True and result.get('pendingPublication') is False))
+            safe = eligible(after) and after.get('pendingPublication') is False and known
+            if safe:
+                effects.clear_recovery_marker()
+                for unit in (NATIVE, BASE):
+                    if inactive(effects.state(unit)):
+                        effects.start(unit)
+        if not safe or result is None or result.get('status') not in ('AUTO_SOURCE_METADATA_COMMITTED_EXACT', 'AUTO_SOURCE_NOT_NEEDED'):
+            return {'status': 'WATCHDOG_CLOSED_RECOVERY_WAIT', 'actorAction': True}
+    if effects.recovery_marker_present() or not inactive(effects.state(WORKER)):
+        return {'status': 'WATCHDOG_CLOSED_CHANGED_BEFORE_RESUME', 'actorAction': recovering}
+    # Reserve one bounded start before appending a generation. A backoff timer
+    # must not churn execution generations while no worker can be started.
+    if not effects.consume_start_budget():
+        return {'status': 'WATCHDOG_START_BACKOFF', 'actorAction': recovering}
+    prepared = effects.closed('resume', True)
+    if prepared.get('status') != 'CLOSED_SERVICE_DISPATCH_PREPARED':
+        return {'status': 'WATCHDOG_WAIT_CLOSED_RESUME', 'actorAction': recovering}
+    if effects.closed('gate').get('status') != 'POLICY_CLOSED_IDLE_RESTART_ALLOWED':
+        return {'status': 'WATCHDOG_WAIT_CLOSED_GATE', 'actorAction': True}
+    effects.reset_failed(WORKER)
+    effects.start(WORKER)
+    return {'status': 'WATCHDOG_CLOSED_WORKER_START_REQUESTED', 'actorAction': True}
+
+
 def protected(path, secret=False):
     path = Path(path)
     if not path.is_absolute() or path.resolve() != path or not path.is_relative_to(ROOT):
@@ -151,6 +224,9 @@ def pinned(pin, secret=False):
 class RootEffects:
     def __init__(self, config, config_pin):
         self.c, self.config_pin = config, config_pin
+        self.closed_enabled = 'closedAuthority' in config or 'closedEntry' in config
+        if self.closed_enabled and not ('closedAuthority' in config and 'closedEntry' in config):
+            raise ValueError('WATCHDOG_CLOSED_CONFIG')
         if config.get('version') != 1 or config.get('purpose') != 'ROOT_PREUSER_SERVICE_SUPERVISION':
             raise ValueError('WATCHDOG_PURPOSE')
         self.env = dict(os.environ)
@@ -182,6 +258,12 @@ class RootEffects:
             if not pin['path'].startswith(str(ROOT / 'releases') + '/') or not pin['path'].endswith(expected):
                 raise ValueError('WATCHDOG_ENTRY')
             pinned(pin)
+        if self.closed_enabled:
+            pinned(self.c['closedAuthority'], True)
+            entry = self.c['closedEntry']
+            if not entry['path'].startswith(str(ROOT / 'releases') + '/') or not entry['path'].endswith('/api/scripts/recover-testnet-closed-service.ts'):
+                raise ValueError('WATCHDOG_CLOSED_ENTRY')
+            pinned(entry)
 
     def run_entry(self, entry, args, timeout):
         self.verify()
@@ -198,6 +280,11 @@ class RootEffects:
     def inspect(self):
         pin = self.c['sourceConfig']
         return self.run_entry('sourceEntry', ['--config', pin['path'], '--config-sha256', pin['sha256']], 60)[1]
+
+    def closed(self, action, execute=False):
+        pin = self.c['closedAuthority']
+        code, value = self.run_entry('closedEntry', [pin['path'], pin['sha256'], action, *(['--execute'] if execute else [])], 60)
+        return value if code == 0 else {'status': 'CLOSED_SERVICE_REFUSED', 'code': value.get('code', 'PRIVATE_CLOSED_FAILURE')}
 
     def recover(self):
         pin = self.c['sourceConfig']
@@ -261,6 +348,14 @@ class RootEffects:
         if unit not in (NATIVE, BASE):
             raise ValueError('WATCHDOG_NEVER_STOP_FINANCIAL')
         subprocess.run(['systemctl', 'stop', unit], check=True, timeout=180)
+
+    def stop_closed_worker(self):
+        # Admission is already fenced atomically; recheck all books and pinned
+        # terminal journals immediately before the sole opt-in finance signal.
+        info = self.closed('inspect')
+        if info.get('status') != 'CLOSED_SERVICE_QUALIFIED' or info.get('paused') is not True:
+            raise ValueError('WATCHDOG_CLOSED_STOP_REFUSED')
+        subprocess.run(['systemctl', 'stop', WORKER], check=True, timeout=180)
 
     def start(self, unit):
         if unit not in (NATIVE, BASE, WORKER):

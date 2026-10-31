@@ -1,7 +1,7 @@
 /** Opt-in consumer only. Source producer/runtime and serial verifier are unchanged. */
 import {readJson} from './chef.ts';
 import {validateEventFirstExport,sampleIndependentEventFirstSource,compareEventFirstLogs,type EventFirstReader,type EventFirstVerifiedExport,type OrdinaryPreReadSample} from './envio-event-first.ts';
-import {fresh,requireThat,stable,type Policy} from './types.ts';
+import {fresh,requireThat,stable,type Policy,type Header} from './types.ts';
 /** At most two workers; first failure aborts and drains both before returning.
  * A rejected Promise.all alone would leave an RPC group running. */
 export async function consumerGroups<T>(items:readonly T[],run:(item:T,signal:AbortSignal)=>Promise<void>,outer:AbortSignal){
@@ -9,12 +9,13 @@ export async function consumerGroups<T>(items:readonly T[],run:(item:T,signal:Ab
  async function worker(){try{for(;;){signal.throwIfAborted();const index=next++;if(index>=items.length)return;await run(items[index]!,signal);}}catch(error){if(first===undefined)first=error;stop.abort();}}
  await Promise.allSettled([worker(),worker()]);if(first!==undefined)throw first;signal.throwIfAborted();
 }
-export async function verifyEventFirstExportParallel(value:unknown,p:Policy,reader:EventFirstReader,outer=AbortSignal.timeout(30000),options?:{batchFences:true;ordinaryPreReadFreshness?:true;preReadSample?:OrdinaryPreReadSample}){
+export async function verifyEventFirstExportParallel(value:unknown,p:Policy,reader:EventFirstReader,outer=AbortSignal.timeout(30000),options?:{batchFences:true;ordinaryPreReadFreshness?:true;preReadSample?:OrdinaryPreReadSample;conservativeFinality?:{minimum:number;accept:(header:Header)=>void}}){
  const started=performance.now(),signal=AbortSignal.any([outer,AbortSignal.timeout(30000)]),proofSourceId=reader.sourceProofSourceId??reader.sourceId,v=validateEventFirstExport(value,p,Date.now(),proofSourceId);signal.throwIfAborted();
  requireThat(reader.headerBatchSize===10&&reader.headers,'ENVIO_CONSUMER_PARALLEL_READER');const headers=reader.headers;
  if(options?.ordinaryPreReadFreshness)requireThat(options.preReadSample,'EVENT_FIRST_PRE_READ_SAMPLE');
- const sample=await sampleIndependentEventFirstSource(v,reader,signal,options?.ordinaryPreReadFreshness?options.preReadSample:undefined);
+ const sample=await sampleIndependentEventFirstSource(v,reader,signal,options?.ordinaryPreReadFreshness?options.preReadSample:undefined,options?.conservativeFinality?.minimum);
  const initial=[{header:v.producer.through,code:'EVENT_FIRST_INDEPENDENT_M'},{header:v.producer.sourceHead,code:'EVENT_FIRST_INDEPENDENT_CLAIMED_HEAD_OR_FINALITY'},{header:v.verification.finalized,code:'EVENT_FIRST_INDEPENDENT_CLAIMED_HEAD_OR_FINALITY'}];
+ if(options?.conservativeFinality&&options.preReadSample)initial.push({header:options.preReadSample.sample.finalized!,code:'EVENT_FIRST_CONSERVATIVE_FINALITY_CONFLICT'});
  // Ordinary observation may group these same header methods into one HTTP
  // batch. No cached result is reused: the end fence is dispatched after logs.
  const fence=async(items:typeof initial)=>{const actual=await headers(items.map(item=>item.header.height),signal);requireThat(actual.length===items.length,'EVENT_FIRST_FENCE_RESPONSE');for(let i=0;i<items.length;i++)requireThat(stable(actual[i])===stable(items[i]!.header),items[i]!.code);};
@@ -24,6 +25,7 @@ export async function verifyEventFirstExportParallel(value:unknown,p:Policy,read
  compareEventFirstLogs(await reader.logs(v.range.fromHeight,v.range.through.height,signal),v.range.observations,p,v.range.headers,v.range.fromHeight,v.range.through.height);
  const end=[{header:v.producer.through,code:'EVENT_FIRST_INDEPENDENT_END_REORG'},{header:v.range.through,code:'EVENT_FIRST_INDEPENDENT_END_REORG'},{header:sample.head,code:'EVENT_FIRST_INDEPENDENT_SAMPLE_REORG'},{header:sample.finalized!,code:'EVENT_FIRST_INDEPENDENT_SAMPLE_REORG'}];
  if(options?.batchFences)await fence(end);else await consumerGroups(end,async(item,s)=>{requireThat(stable(await reader.header(item.header.height,s))===stable(item.header),item.code);},signal);
+ if(options?.conservativeFinality){const floor=[v.verification.finalized,sample.finalized!,...(options.preReadSample?[options.preReadSample.sample.finalized!]:[])].sort((a,b)=>a.height-b.height)[0]!;requireThat(floor.height>=options.conservativeFinality.minimum&&stable(await reader.header(floor.height,signal))===stable(floor),'EVENT_FIRST_CONSERVATIVE_FINALITY_CONFLICT');options.conservativeFinality.accept(floor);}
  signal.throwIfAborted();requireThat(performance.now()-started<=30000,'EVENT_FIRST_READ_BUDGET');return validateEventFirstExport(v,p,Date.now(),proofSourceId);
 }
 /** HTTP/structural stage only. Never marks an independent proof or writes files.

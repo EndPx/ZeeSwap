@@ -5,6 +5,12 @@ import {parseHeader,stable,requireThat,type Header} from './integrations/observa
 type Pin={path:string;sha256:string};
 export type ChefPersistedRangeProof={kind:'independent-persisted-range-v1';sourceId:string;latestHeight:number;fromHeight:number;throughHeight:number;headers:Header[]};
 export type ChefPersistedRangeReader=(from:number,through:number,signal:AbortSignal)=>Promise<ChefPersistedRangeProof>;
+/** A validated dense segment changed at its independent fence. This is not a
+ * successful prefix proof; callers must discard every header from that read. */
+export class ChefPersistedRangeChanged extends Error{
+ constructor(readonly expected:Header,readonly actual:Header){super('CHEF_PERSISTED_RANGE_CHANGED');this.name='ChefPersistedRangeChanged';}
+}
+function requireUnchangedFence(expected:Header,actual:Header){if(stable(actual)!==stable(expected))throw new ChefPersistedRangeChanged(expected,actual);}
 /** Only the persisted prefix is a header claim. latestHeight is never a Header. */
 export async function verifyChefPersistedRanges(heights:number[],read:ChefPersistedRangeReader,sourceId:string,signal:AbortSignal){
  requireThat(heights.length>0&&heights.length<=10004&&heights.every(h=>Number.isSafeInteger(h)&&h>=0),'CHEF_PERSISTED_STATE_BOUND');
@@ -12,9 +18,9 @@ export async function verifyChefPersistedRanges(heights:number[],read:ChefPersis
  const range=async(from:number,through:number)=>{signal.throwIfAborted();const proof=await read(from,through,signal);signal.throwIfAborted();requireThat(proof.kind==='independent-persisted-range-v1'&&proof.sourceId===sourceId&&proof.fromHeight===from&&proof.throughHeight===through&&Number.isSafeInteger(proof.latestHeight)&&proof.latestHeight>=through&&proof.latestHeight<=0xffffffff&&proof.headers.length===through-from+1,'CHEF_PERSISTED_RANGE_PROOF');return proof.headers.map((v,i)=>{const h=parseHeader(v,'zcash-testnet');requireThat(h.height===from+i,'CHEF_PERSISTED_RANGE_HEIGHT');return h;});};
  for(let from=min;from<=max;from+=1000){const through=Math.min(max,from+999),headers=await range(from,through);
   for(const h of headers){requireThat(!previous||h.parentHash===previous.hash,'CHEF_PERSISTED_RANGE_FORK');previous=h;if(wanted.has(h.height))complete.set(h.height,h);}
-  const end=headers.at(-1)!;requireThat(stable((await range(through,through))[0])===stable(end),'CHEF_PERSISTED_RANGE_CHANGED');ends.push(end);
+  const end=headers.at(-1)!;requireUnchangedFence(end,(await range(through,through))[0]!);ends.push(end);
  }
- for(const end of ends)requireThat(stable((await range(end.height,end.height))[0])===stable(end),'CHEF_PERSISTED_RANGE_CHANGED');
+ for(const end of ends)requireUnchangedFence(end,(await range(end.height,end.height))[0]!);
  signal.throwIfAborted();requireThat(heights.every(h=>complete.has(h)),'CHEF_PERSISTED_CANONICAL_CACHE_REQUIRED');return complete;
 }
 export function localChefPersistedRange(command:string,args:string[]):ChefPersistedRangeReader{return(from,through,signal)=>new Promise((done,reject)=>{

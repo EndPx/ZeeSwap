@@ -26,3 +26,26 @@ test('source proof provider and actual independent provider stay distinct; WithS
  const verified=await verifyEventFirstExportWithSample(packet,f.p,r);assert.equal(samples,1);assert.equal(verified.packet.verification.canonicalSourceId,sourceProofSourceId);assert.equal(verified.independentSample.sourceId,sourceId);assert.equal(verified.independentSample.finalized!.height,210);assert.equal(verified.packet.verification.finalized.height,200);
  await verifyEventFirstExportParallel(packet,f.p,r);await assert.rejects(verifyEventFirstExport(packet,f.p,{...r,sourceProofSourceId:sourceId}),/VERIFICATION/);
 });
+
+
+test('conservative ordinary finality ingests a complete current range with producer ahead and preserves raw proof',async()=>{
+ const f=fixture(),packet=await f.packet(369,400),raw=JSON.stringify(packet);let selected:Header|undefined;
+ const reader={...f.reader,sample:async()=>({sourceId:'independent',checkedAt:new Date().toISOString(),head:f.header(400),finalized:f.header(190)})};
+ const options={batchFences:true as const,conservativeFinality:{minimum:180,accept:(h:Header)=>{selected=h;}}};
+ assert.deepEqual(await verifyEventFirstExportParallel(packet,f.p,reader,AbortSignal.timeout(30000),options),packet);assert.equal(selected!.height,190);assert.equal(JSON.stringify(packet),raw);assert.equal(packet.verification.finalized.height,200);
+ const pre={sample:{sourceId:'independent',checkedAt:new Date().toISOString(),head:f.header(400),finalized:f.header(185)},exportRequestedAt:new Date().toISOString()};
+ await verifyEventFirstExportParallel(packet,f.p,reader,AbortSignal.timeout(30000),{...options,ordinaryPreReadFreshness:true,preReadSample:pre});assert.equal(selected!.height,185);
+ const conflictingPre={...pre,sample:{...pre.sample,finalized:{...f.header(200),hash:f.header(999).hash}}};await assert.rejects(verifyEventFirstExportParallel(packet,f.p,reader,AbortSignal.timeout(30000),{...options,ordinaryPreReadFreshness:true,preReadSample:conflictingPre}),/CONSERVATIVE_FINALITY_CONFLICT/);
+ const batch=await fetchEventFirstReplacement('http://127.0.0.1:8099','fixture',369,400,f.p,'g',reader,AbortSignal.timeout(30000),async()=>Response.json(packet),{boundedFinalTail:true,preReadFreshness:true,fixedReadStartTarget:true,conservativeFinalityMinimum:180});assert.equal(batch.coverage.through.height,400);assert.equal(batch.consumerFinalized!.height,190);assert.equal(batch.headers.length,32);
+});
+test('conservative finality retains stored floor, full canonical fences, wrong-source refusal and zero partial witnesses',async()=>{
+ for(const fault of ['stored-floor','producer-hash','selected-hash','headers','logs','source']){
+  const f=fixture(),packet=await f.packet(369,400);let selected=0;
+  const r={...f.reader,sample:async()=>({sourceId:fault==='source'?'wrong':'independent',checkedAt:new Date().toISOString(),head:f.header(400),finalized:f.header(190)})};
+  if(fault==='producer-hash')packet.verification.finalized.hash=f.header(999).hash;
+  if(fault==='selected-hash')r.header=async h=>({...f.header(h),hash:f.header(999).hash});
+  if(fault==='headers')r.headers=async hs=>hs.map(h=>({...f.header(h),hash:f.header(999).hash}));
+  if(fault==='logs')r.logs=async()=>[{}];
+  await assert.rejects(verifyEventFirstExportParallel(packet,f.p,r,AbortSignal.timeout(30000),{batchFences:true,conservativeFinality:{minimum:fault==='stored-floor'?191:180,accept:()=>{selected++;}}}));assert.equal(selected,0);
+ }
+});
