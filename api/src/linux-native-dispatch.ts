@@ -1,4 +1,5 @@
 import {requireContinuousCapitalApproval} from './testnet-policy-execution.ts';
+import {excludeDeliveredHeldNotes} from './testnet-delivered-capital.ts';
 import {validatePolicyCapitalProof,requirePolicyCapitalProvenance} from './testnet-policy-capital.ts';
 import {requirePolicyWorkerOrder,validatePolicyWorkerOrderContext,type PolicyWorkerOrderContext} from './testnet-policy-refund.ts';
 /** Linux physical transport for the existing native reverse/refund kernels. */
@@ -104,12 +105,15 @@ export async function linuxPerOrderCapital(loaded:LoadedLinuxNative,pool:pg.Pool
    requireContinuousCapitalApproval(a,{executionRoot:a.executionRoot},policyContext.policySha256,loaded.verified.profileSha256);
    need(a.originalCaptureScript.path===p.roots.release+'/app/workers/zcash-wallet/testnet_policy_capital.py'&&a.originalCaptureScript.sha256===captureScriptSha256,'POLICY_CONTINUOUS_ORIGINAL_CAPTURE');
    const script=await lstat(a.captureScript.path);need(script.isFile()&&!script.isSymbolicLink()&&script.uid===0&&(script.mode&0o022)===0&&await realpath(a.captureScript.path)===a.captureScript.path&&linuxRawSha256(await readFile(a.captureScript.path))===a.captureScript.sha256,'POLICY_CONTINUOUS_CAPTURE_SCRIPT');
-   need((await pool.query('SELECT zee.testnet_continuous_demo_enabled($1) AND EXISTS(SELECT 1 FROM zee.testnet_continuous_demo_authorizations WHERE policy_sha256=$1 AND capital_approval_sha256=$2) yes',[Buffer.from(policyContext.policySha256,'hex'),Buffer.from(pin.sha256,'hex')])).rows[0]?.yes===true,'POLICY_CONTINUOUS_CAPITAL_AUTHORITY');
+   need((await pool.query('SELECT zee.testnet_continuous_capital_authorized($1,$2) yes',[Buffer.from(policyContext.policySha256,'hex'),Buffer.from(pin.sha256,'hex')])).rows[0]?.yes===true,'POLICY_CONTINUOUS_CAPITAL_AUTHORITY');
    captureScriptSha256=a.captureScript.sha256;
   }
-  const current=validatePolicyCapitalProof(JSON.parse(raw.toString()),{policySha256:policyContext.policySha256,profileSha256:loaded.verified.profileSha256,loaderSha256:loaded.originalProfileLoaderSha256,captureScriptSha256});
-  need(pc.observedAt===current.observedAt&&JSON.stringify(pc.notes)===JSON.stringify(current.notes),'POLICY_CAPITAL_ROOT_CAPTURE_CHANGED');
-  notes=requirePolicyCapitalProvenance(current.notes,notes);
+  const physical=JSON.parse(raw.toString()),current=validatePolicyCapitalProof(physical,{policySha256:policyContext.policySha256,profileSha256:loaded.verified.profileSha256,loaderSha256:loaded.originalProfileLoaderSha256,captureScriptSha256});
+  const spendable=pc.continuousCapitalApproval?await excludeDeliveredHeldNotes(pool,keys,policyContext.policySha256,current.notes,physical.snapshot.outputs):current.notes;
+  // Finalization can release an excluded held note; retain the frozen smaller selection.
+  const selected=pc.continuousCapitalApproval?requirePolicyCapitalProvenance(pc.notes,spendable):spendable;
+  need(pc.observedAt===current.observedAt&&JSON.stringify(pc.notes)===JSON.stringify(selected),'POLICY_CAPITAL_ROOT_CAPTURE_CHANGED');
+  notes=requirePolicyCapitalProvenance(selected,notes);
  }
  return {notes,path,sha256:linuxRawSha256(bytes)};
 }

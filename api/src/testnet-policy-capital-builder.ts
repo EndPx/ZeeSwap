@@ -7,6 +7,7 @@ import {approvedLiveReverseCapital,type CapitalSource} from './live-reverse-capi
 import {requirePolicyWorkerOrder,type PolicyWorkerOrderContext} from './testnet-policy-refund.ts';
 import {depositIdentity,type DepositInput} from './repository.ts';
 import {validatePolicyCapitalProof,requirePolicyCapitalProvenance} from './testnet-policy-capital.ts';
+import {excludeDeliveredHeldNotes} from './testnet-delivered-capital.ts';
 const sha=(b:Buffer|string)=>createHash('sha256').update(b).digest('hex');
 function need(v:unknown,c:string):asserts v{if(!v)throw Error(c);}
 type Pin={path:string;sha256:string};
@@ -38,7 +39,7 @@ async function continuousSources(input:{pool:pg.Pool;keys:PrivateData;policySha2
  }
  return sources;
 }
-async function continuousEnabled(pool:pg.Pool,policy:string,scope:Scope){if(!scope.continuousCapitalApproval)return false;const p=scope.continuousCapitalApproval;await rootRead(p);need((await pool.query('SELECT zee.testnet_continuous_demo_enabled($1) AND EXISTS(SELECT 1 FROM zee.testnet_continuous_demo_authorizations WHERE policy_sha256=$1 AND capital_approval_sha256=$2) yes',[Buffer.from(policy,'hex'),Buffer.from(p.sha256,'hex')])).rows[0]?.yes===true,'POLICY_CONTINUOUS_CAPITAL_AUTHORITY');return true;}
+async function continuousEnabled(pool:pg.Pool,policy:string,scope:Scope){if(!scope.continuousCapitalApproval)return false;const p=scope.continuousCapitalApproval;await rootRead(p);need((await pool.query('SELECT zee.testnet_continuous_capital_authorized($1,$2) yes',[Buffer.from(policy,'hex'),Buffer.from(p.sha256,'hex')])).rows[0]?.yes===true,'POLICY_CONTINUOUS_CAPITAL_AUTHORITY');return true;}
 /** Idle readiness checks the same actual notes against immutable terminal provenance. */
 export async function verifyPolicyIdleCapital(input:{pool:pg.Pool;keys:PrivateData;policySha256:string;scope:Scope;capture:Pin;seedSources:CapitalSource[]}){
  const {pool,keys,scope}=input;need(process.platform==='linux'&&process.getuid?.()===0,'POLICY_CAPITAL_ROOT_ONLY');
@@ -57,7 +58,9 @@ export async function verifyPolicyIdleCapital(input:{pool:pg.Pool;keys:PrivateDa
  const rows=(await pool.query(`SELECT a.order_id FROM zee.testnet_policy_admissions a JOIN zee.orders o ON o.id=a.order_id JOIN zee.reverse_payouts p ON p.order_id=o.id AND p.confirmed WHERE a.policy_sha256=$1 AND o.state='SETTLED' ORDER BY a.order_id LIMIT 5`,[Buffer.from(input.policySha256,'hex')])).rows;need(rows.length<=4,'POLICY_CAPITAL_MEMBER_BOUND');
  for(const row of rows){const path=scope.stateRoot+'/reverse-orders/'+row.order_id+'/payout-intent.private.json';const b=await rootUnpinned(path);sources.push({kind:'confirmed-own-change',path,sha256:sha(b),orderId:row.order_id});}
  }
- const provenance=await approvedLiveReverseCapital(pool,keys,[{kind:'opening',...scope.openingProof},...sources]);requirePolicyCapitalProvenance(current.notes,provenance);return current;
+ const provenance=await approvedLiveReverseCapital(pool,keys,[{kind:'opening',...scope.openingProof},...sources]);
+ const notes=continuous?await excludeDeliveredHeldNotes(pool,keys,input.policySha256,current.notes,proof.snapshot.outputs):current.notes;
+ requirePolicyCapitalProvenance(notes,provenance);return{...current,notes};
 }
 export async function buildPolicyOrderCapital(input:{pool:pg.Pool;keys:PrivateData;context:PolicyWorkerOrderContext;purpose:'reverse'|'refund';scope:Scope;capture:Pin;seedSources:CapitalSource[]}){
  need(process.platform==='linux'&&process.getuid?.()===0,'POLICY_CAPITAL_ROOT_ONLY');
@@ -89,10 +92,11 @@ export async function buildPolicyOrderCapital(input:{pool:pg.Pool;keys:PrivateDa
  for(const row of changes){const path=scope.stateRoot+'/reverse-orders/'+row.order_id+'/payout-intent.private.json',bytes=await rootUnpinned(path),pin=await exclusive(proofDir+`/change-${ordinal++}.private.json`,bytes);sources.push({kind:'confirmed-own-change',orderId:row.order_id,...pin});}
  }
  const provenance=await approvedLiveReverseCapital(pool,keys,[{kind:'opening',...scope.openingProof},...sources],purpose==='refund'?c.orderId:undefined,c);
- requirePolicyCapitalProvenance(current.notes,provenance);await requirePolicyWorkerOrder(pool,c,c.orderId);
+ const notes=continuous?await excludeDeliveredHeldNotes(pool,keys,c.policySha256,current.notes,proof.snapshot.outputs):current.notes;
+ requirePolicyCapitalProvenance(notes,provenance);await requirePolicyWorkerOrder(pool,c,c.orderId);
  // Revalidate the SAME capture at the final freeze; never replace its observation timestamp.
  validatePolicyCapitalProof(proof,{policySha256:c.policySha256,profileSha256:scope.profileSha256,loaderSha256:scope.loaderSha256,captureScriptSha256:scope.captureScriptSha256});
  const frozenCapture=await exclusive(proofDir+'/physical-capital.private.json',raw);
- const approval={version:1,orderId:c.orderId,sourceFingerprint:scope.sourceFingerprint,openingProofSha256:scope.openingProof.sha256,sources,policyCapital:{version:1,policySha256:c.policySha256,capture:frozenCapture,notes:current.notes,observedAt:current.observedAt,...(continuous?{continuousCapitalApproval:scope.continuousCapitalApproval}: {})}};
+ const approval={version:1,orderId:c.orderId,sourceFingerprint:scope.sourceFingerprint,openingProofSha256:scope.openingProof.sha256,sources,policyCapital:{version:1,policySha256:c.policySha256,capture:frozenCapture,notes,observedAt:current.observedAt,...(continuous?{continuousCapitalApproval:scope.continuousCapitalApproval}: {})}};
  return exclusive(target,Buffer.from(JSON.stringify(approval,null,2)));
 }

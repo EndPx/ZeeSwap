@@ -2,6 +2,16 @@
 
 Last updated: 2026-10-29 (Asia/Jakarta), for the isolated Linux testnet deployment. Execution evidence below retains its recorded dates.
 
+Delivered-order admission (31 October, explicit hackathon decision): a verified
+canonical Base payout may leave the foreground admission slot immediately.
+Retain its original order, signed transactions, reservations and liability while
+actual finality completes in the background. Permit one foreground swap using
+remaining genuinely backed inventory; background delivery is not chain finality
+or permission to credit unfinished proceeds. Recheck original receipts and stop
+new admission on changed canonical evidence. A reviewed successor may take over
+at a verified delivered boundary without rebinding or replacing signed journals.
+Keep this continuous testnet opt-in separate from mainnet operation.
+
 Continuous judge demo (31 October, explicit selected user decision): retain
 fixed 100,000-atomic swaps and global concurrency one, but replace the lifetime
 two-per-direction and 32-issued-quote pilot caps with actual inventory/fee

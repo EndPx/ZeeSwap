@@ -41,7 +41,7 @@ export async function readClosedJournalSql(db:Pick<pg.PoolClient,'query'>):Promi
 
 /** Pure inventory seam used by fixtures. Baseline files remain byte-for-byte;
  * every additional file must be consumed by a complete authenticated closure. */
-export async function qualifyClosedJournalInventory(trees:ClosedJournalTree[],files:ClosedJournalFile[],sql:ClosedJournalSql,keys:PrivateData,registry:BaseRegistry){
+export async function qualifyClosedJournalInventory(trees:ClosedJournalTree[],files:ClosedJournalFile[],sql:ClosedJournalSql,keys:PrivateData,registry:BaseRegistry,delivered=false){
  need(Array.isArray(trees)&&trees.length>=1&&trees.length<=12&&files.length<=4096,'BOUND');
  const found=new Map<string,Buffer>(),used=new Set<string>(),baseline=new Set<string>();
  for(const f of files){need(!found.has(f.path)&&f.bytes.length<=16000000,'DUPLICATE_OR_SIZE');found.set(f.path,f.bytes);}
@@ -57,8 +57,8 @@ export async function qualifyClosedJournalInventory(trees:ClosedJournalTree[],fi
  const open=(payload:unknown,context:string)=>keys.open(bytes(payload),context) as any;
  const load=(p:string)=>{need(found.has(p),'MISSING_FILE');used.add(p);return json(found.get(p)!);};
  const allowPin=(p:any,directory:string)=>{need(p&&typeof p.path==='string'&&p.path.startsWith(directory+'/')&&posix.normalize(p.path)===p.path&&HASH.test(p.sha256)&&found.has(p.path)&&sha(found.get(p.path)!)===p.sha256,'PIN');used.add(p.path);};
- const terminal=(id:string)=>{const q=orders.get(id);need(q&&UUID.test(id)&&['SETTLED','REFUNDED'].includes(q.state)&&['ZCASH_TO_BASE','BASE_TO_ZCASH'].includes(q.direction),'NOT_TERMINAL');return q;};
- function confirmed(r:any){need(r?.confirmed===true&&r.canonical===true&&HASH.test(r.block_hash)&&Number.isSafeInteger(Number(r.block_height))&&Number(r.block_height)>0&&r.receipt_payload,'UNCONFIRMED');}
+ const terminal=(id:string)=>{const q=orders.get(id);need(q&&UUID.test(id)&&(['SETTLED','REFUNDED'].includes(q.state)||delivered&&q.state==='READY'&&q.delivery_included===true&&q.direction==='ZCASH_TO_BASE')&&['ZCASH_TO_BASE','BASE_TO_ZCASH'].includes(q.direction),'NOT_TERMINAL');return q;};
+ function confirmed(r:any){need((r?.confirmed===true&&r.canonical===true||delivered&&r?.delivery_included===true&&r.inclusion_canonical===true)&&HASH.test(r.block_hash)&&Number.isSafeInteger(Number(r.block_height))&&Number(r.block_height)>0&&r.receipt_payload,'UNCONFIRMED');}
  function prepared(r:any,context:string,hashDomain='base-tx'){
   const p=open(r.signed_payload,context);need(typeof p.hash==='string'||typeof p.txid==='string','PREPARED');need(bytes(r.tx_hash).equals(keys.lookup(hashDomain,p.hash??p.txid)),'TX_LOOKUP');return p;
  }
@@ -81,10 +81,13 @@ export async function qualifyClosedJournalInventory(trees:ClosedJournalTree[],fi
   need(roots.has(processRoot)&&process.version===1&&process.policyContext?.orderId===id&&process.policyContext.policySha256===policy&&process.policyContext.activeEpoch===q.accepted_epoch,'PROCESS_BINDING');
   const quote=open(q.private_payload,`quote:${id}:v1`);need(quote.inputAmount===q.input_amount&&quote.outputAmount===q.output_amount,'QUOTE');
   const forward=q.direction==='ZCASH_TO_BASE';
-  if(forward&&q.state==='SETTLED'){
+  if(forward&&(q.state==='SETTLED'||delivered&&q.delivery_included===true)){
    const terms=open(one('base_bindings',id).terms_payload,`base-terms:${id}:v1`),auth=load(baseRoot+'/'+prefix+'.auth.json');need(same(auth.terms,terms)&&terms.id===publicSettlementId(q.settlement_id)&&terms.amount===q.output_amount&&terms.recipient===quote.recipient,'TERMS');
    need(same(load(baseRoot+'/'+prefix+'.typed.json'),JSON.parse(jsonSafe(payoutTypedData(registry,terms)))),'TYPED');
-   for(const phase of ['RESERVE','PAY']){const rows=sql.base_attempts.filter(r=>r.order_id===id&&r.phase===phase);need(rows.length===1,'ATTEMPT');const r=rows[0],p=await baseTx(id,phase,r,`base-signed:${id}:${phase}:v1`,terms,auth.signature);receipt(r,`base-receipt:${id}:${phase}:v1`,p);}
+   for(const phase of ['RESERVE','PAY']){const rows=sql.base_attempts.filter(r=>r.order_id===id&&r.phase===phase);need(rows.length===1,'ATTEMPT');const r=rows[0],p=await baseTx(id,phase,r,`base-signed:${id}:${phase}:v1`,terms,auth.signature);const proof=receipt(r,`${r.delivery_included===true?'base-inclusion':'base-receipt'}:${id}:${phase}:v1`,p);
+    if(r.delivery_included===true){const live=await base.includedReceipt(p.hash,phase as 'RESERVE'|'PAY',terms);need(live&&same(live,proof)&&BigInt(live.fee)<=BigInt(p.maxCost),'INCLUSION_CHANGED');}
+   }
+   if(q.delivery_included===true)need(await base.state(terms.id)===2,'DELIVERED_CONTRACT_STATE');
   }else if(!forward){
    const pinned=open(one('escrow_bindings',id).terms_payload,`escrow-terms:${id}:v1`),terms=pinned.terms,auth=load(baseRoot+'/'+prefix+'.reverse.auth.json');need(same(auth,pinned)&&terms.id===publicSettlementId(q.settlement_id)&&terms.amount===q.input_amount&&terms.payer===quote.payer,'ESCROW_TERMS');
    need(getAddress(await recoverTypedDataAddress({...fundingTypedData(base,terms),signature:pinned.signature}))===getAddress(registry.operator)&&same(load(baseRoot+'/'+prefix+'.reverse.typed.json'),JSON.parse(jsonSafe(fundingTypedData(base,terms)))),'FUNDING_SIGNATURE');
@@ -128,6 +131,7 @@ export async function qualifyClosedJournalInventory(trees:ClosedJournalTree[],fi
  }
  // A completely missing new journal must not disappear merely because there is
  // no extra file to iterate. Only frozen legacy terminal evidence exempts an order.
+ for(const q of sql.orders.filter(q=>delivered&&q.state==='READY'&&q.delivery_included===true))await closeOrder(q.id);
  for(const q of sql.orders.filter(q=>['SETTLED','REFUNDED'].includes(q.state))){const prefix=sha(publicSettlementId(q.settlement_id)),terminalFile=q.state==='SETTLED'?baseRoot+'/'+prefix+(q.direction==='ZCASH_TO_BASE'?'.PAY.tx.json':'.SETTLE.tx.json'):q.direction==='ZCASH_TO_BASE'?ROOT+'/refund-orders/'+q.id+'/refund-intent.private.json':baseRoot+'/'+prefix+'.refund.REFUND.tx.json';
   if(!baseline.has(terminalFile))await closeOrder(q.id);
  }

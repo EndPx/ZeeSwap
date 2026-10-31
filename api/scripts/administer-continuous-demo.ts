@@ -16,10 +16,11 @@ import {verifyContinuousClosedBooks} from '../src/testnet-continuous-journals.ts
 import {stable} from '../src/integrations/observation/types.ts';
 import {requireNoSourceRecoveryMarker} from './check-testnet-policy-idle-restart.ts';
 import {requireClosedTransportMetadataPermissions,type ClosedAuthority} from './recover-testnet-closed-service.ts';
+import {checkDeliveredRestartCapital} from './check-testnet-delivered-restart.ts';
 const ROOT='/opt/zeeswap-testnet',sha=(v:Buffer|string)=>createHash('sha256').update(v).digest('hex');
 type Pin={path:string;sha256:string};
 type Action='inspect'|'publish'|'reconcile'|'closed-inspect'|'closed-gate'|'closed-pause'|'closed-resume'|'closed-intake';
-export type ContinuousDemoAuthority={version:1;purpose:'ROOT_CONTINUOUS_TESTNET_DEMO';parentClosedAuthority:Pin;humanApprovalSha256:string;capitalProof:Pin;publishBefore:string;intentDirectory:string;successor:{workerConfig:Pin;preparedWorkerConfig:Pin;executionManifest:Pin;executionApproval:Pin;capitalApproval:Pin};codePins:Pin[]};
+export type ContinuousDemoAuthority={version:1;purpose:'ROOT_CONTINUOUS_TESTNET_DEMO';previousContinuousMode?:Pin;parentClosedAuthority:Pin;humanApprovalSha256:string;capitalProof:Pin;publishBefore:string;intentDirectory:string;successor:{workerConfig:Pin;preparedWorkerConfig:Pin;executionManifest:Pin;executionApproval:Pin;capitalApproval:Pin};codePins:Pin[]};
 function need(v:unknown,c:string):asserts v{if(!v)throw Error('CONTINUOUS_DEMO_'+c);}
 const hash=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v)&&v!=='0'.repeat(64);
 async function pin(p:Pin,secret=false){
@@ -55,14 +56,14 @@ export function classifyContinuousOriginal(status:unknown,expectedEffects:unknow
  need(stable(actualEffects)===stable(expectedEffects),'ORIGINAL_EFFECT_CONFLICT');
  return booksClosed?'committed':'pending';
 }
-async function resolveOriginalIntent(db:Pick<pg.PoolClient,'query'>,directory:string,mode:string){
+async function resolveOriginalIntent(db:Pick<pg.PoolClient,'query'>,directory:string,mode:string,delivered=false){
  need(typeof directory==='string'&&directory.startsWith(ROOT+'/state/')&&resolve(directory)===directory,'INTENT_DIRECTORY');
  const st=await lstat(directory);need(st.isDirectory()&&!st.isSymbolicLink()&&st.uid===0&&(st.mode&0o777)===0o700&&await realpath(directory)===directory,'INTENT_DIRECTORY');
  let pointer:any;try{pointer=(await privateJson(directory+'/pending.private.json')).value;}catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')return false;throw e;}
  need(pointer.version===1&&pointer.modeSha256===mode&&typeof pointer.intentPath==='string'&&dirname(pointer.intentPath)===directory&&hash(pointer.intentSha256),'ORIGINAL_INTENT_POINTER');
  const original=await privateJson(pointer.intentPath),intent=original.value;need(sha(original.raw)===pointer.intentSha256&&intent.version===1&&intent.modeSha256===mode&&/^[1-9][0-9]*$/.test(intent.transactionId),'ORIGINAL_INTENT_BINDING');
  const status=(await db.query('SELECT pg_xact_status($1::xid8) status',[intent.transactionId])).rows[0]?.status;
- const actual=status==='committed'?await originalEffects(db,intent.transactionId):undefined,closed=status==='committed'?(await db.query('SELECT zee.testnet_policy_closed_books() yes')).rows[0]?.yes===true:false;
+ const actual=status==='committed'?await originalEffects(db,intent.transactionId):undefined,closed=status==='committed'?(await db.query(delivered?'SELECT NOT zee.testnet_global_slot_busy() yes':'SELECT zee.testnet_policy_closed_books() yes')).rows[0]?.yes===true:false;
  if(classifyContinuousOriginal(status,intent.effects,actual,closed)==='pending')return true;
  const completed=pointer.intentPath.replace('-intent.private.json','-completed.private.json'),record={version:1,transactionId:intent.transactionId,modeSha256:mode,status:status==='committed'?'COMMITTED_EXACT':'ABORTED_EXACT'};
  try{await durablePrivateFile(completed,record);}catch(e){if((e as NodeJS.ErrnoException).code!=='EEXIST')throw e;need(stable((await privateJson(completed)).value)===stable(record),'ORIGINAL_COMPLETION_CONFLICT');}
@@ -82,6 +83,7 @@ export async function continuousDemoAction(modePin:Pin,action:Action,execute=fal
  for(const p of a.codePins){need(p.path.startsWith(codeRoot+'/api/'),'CODE_PATH');await pin(p);}
  const parent=JSON.parse((await pin(a.parentClosedAuthority,true)).toString()) as ClosedAuthority;
  need(parent.version===1&&parent.purpose==='ROOT_CLOSED_SERVICE_RECOVERY','PARENT');
+ if(a.previousContinuousMode){const previous=JSON.parse((await pin(a.previousContinuousMode,true)).toString()) as ContinuousDemoAuthority;need(previous.version===1&&previous.purpose===a.purpose&&stable(previous.parentClosedAuthority)===stable(a.parentClosedAuthority)&&action!=='publish','PREVIOUS_MODE');need(a.codePins.some(p=>p.path===codeRoot+'/api/scripts/check-testnet-delivered-restart.ts'),'DELIVERED_GATE_CODE_PIN');}
  need(a.successor&&a.successor.workerConfig.path==='/opt/zeeswap-testnet/secrets/testnet-policy-worker.private.json'&&a.successor.preparedWorkerConfig.sha256===a.successor.workerConfig.sha256,'SUCCESSOR_CONFIG');
  const selected=action==='publish'?parent:a.successor;
  const policy=JSON.parse((await pin(parent.policy)).toString()),worker=JSON.parse((await pin(selected.workerConfig,true)).toString());
@@ -115,11 +117,14 @@ export async function continuousDemoAction(modePin:Pin,action:Action,execute=fal
    (SELECT count(*)=2 FROM zee.scanner_checkpoints WHERE network IN('base-sepolia','zcash-testnet') AND observed_at BETWEEN clock_timestamp()-interval '30 seconds' AND clock_timestamp()+interval '5 seconds') fresh FROM zee.runtime_control WHERE singleton`,[h(parent.policy.sha256)])).rows[0];
   const current=s&&s.epoch===s.effective&&!s.reconciliation_required&&s.dispatch_enabled,paused=s&&BigInt(s.epoch)>BigInt(s.effective)&&!s.accepting_orders&&!s.dispatch_enabled&&s.reconciliation_required,warm=current&&!s.accepting_orders,isOpen=current&&s.accepting_orders;
   need(action==='inspect'||action.startsWith('closed-')?current||paused:current,'CURRENT_CONTROL');
-  const pending=await resolveOriginalIntent(db,a.intentDirectory,modePin.sha256);
+  const pending=await resolveOriginalIntent(db,a.intentDirectory,modePin.sha256,!!a.previousContinuousMode);
   if(pending){if(!context)await db.query('ROLLBACK');return{status:'CONTINUOUS_DEMO_ORIGINAL_TRANSACTION_PENDING',pendingPublication:true,financialAction:false,onchainAction:false};}
-  if(action!=='publish')need(s.continuous&&(await db.query('SELECT authorization_sha256=$2 AND worker_config_sha256=$3 AND execution_manifest_sha256=$4 AND execution_approval_sha256=$5 AND capital_approval_sha256=$6 yes FROM zee.testnet_continuous_demo_authorizations WHERE policy_sha256=$1',[h(parent.policy.sha256),h(modePin.sha256),h(a.successor.workerConfig.sha256),h(a.successor.executionManifest.sha256),h(a.successor.executionApproval.sha256),h(a.successor.capitalApproval.sha256)])).rows[0]?.yes,'ACTUAL_MODE_AUTHORITY');
+  if(action!=='publish')need(s.continuous&&(await db.query(`SELECT authorization_sha256=$2 AND worker_config_sha256=$3 AND execution_manifest_sha256=$4 AND execution_approval_sha256=$5 AND capital_approval_sha256=$6 yes FROM ${a.previousContinuousMode?'zee.testnet_continuous_current_execution($1)':'zee.testnet_continuous_demo_authorizations'} ${a.previousContinuousMode?'':'WHERE policy_sha256=$1'}`,[h(parent.policy.sha256),h(modePin.sha256),h(a.successor.workerConfig.sha256),h(a.successor.executionManifest.sha256),h(a.successor.executionApproval.sha256),h(a.successor.capitalApproval.sha256)])).rows[0]?.yes,'ACTUAL_MODE_AUTHORITY');
   const runtime=forward.verified.runtime,keys=new PrivateData(Buffer.from(runtime.payloadKeyHex,'hex'),Buffer.from(runtime.lookupKeyHex,'hex'));
-  const closure=await verifyContinuousClosedBooks(db,keys,forward.verified.registry,parent.journalTrees);
+  const fullyClosed=(await db.query('SELECT zee.testnet_policy_closed_books() yes')).rows[0]?.yes===true;
+  const background=!!a.previousContinuousMode&&!fullyClosed;
+  need(!background||['inspect','reconcile','closed-inspect','closed-gate','closed-intake'].includes(action),'BACKGROUND_SOURCE_RECOVERY_BLOCKED');
+  const closure=await verifyContinuousClosedBooks(db,keys,forward.verified.registry,parent.journalTrees,background);
   await pin(modePin,true);for(const p of a.codePins)await pin(p);
   let credited=0;
   if(action==='publish'){
@@ -130,7 +135,7 @@ export async function continuousDemoAction(modePin:Pin,action:Action,execute=fal
    need(pendingAmount('TAZ')>=0n&&pendingAmount('mockUSDC')>=0n&&BigInt(physical.nativeBalanceZatoshi)>=1200000n+pendingAmount('TAZ')&&BigInt(physical.baseAvailableAtomic)>=9900000n+pendingAmount('mockUSDC'),'PHYSICAL_UNRECONCILED_NOT_DOUBLE_ALLOCATED');
    need(Date.parse(a.publishBefore)>Date.now()&&Date.parse(a.publishBefore)<=Date.now()+300000,'FINITE_PUBLICATION');
    await db.query('SELECT zee.publish_testnet_continuous_demo($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)',[h(parent.policy.sha256),h(modePin.sha256),h(a.humanApprovalSha256),h(a.capitalProof.sha256),h(closure.digest),s.epoch,s.xmin,a.publishBefore,physical.baseGasWei,h(a.successor.workerConfig.sha256),h(a.successor.executionManifest.sha256),h(a.successor.executionApproval.sha256),h(a.successor.capitalApproval.sha256)]);
-  }else if(action==='reconcile'){
+  }else if(action==='reconcile'&&!background){
    need(s.fresh,'SOURCE_STALE');await requireNoSourceRecoveryMarker();
    const candidates=(await db.query(`SELECT o.id FROM zee.orders o JOIN zee.testnet_policy_admissions a ON a.order_id=o.id WHERE o.state='SETTLED' AND a.policy_sha256 IN(SELECT zee.testnet_policy_lineage($1)) AND NOT EXISTS(SELECT 1 FROM zee.testnet_continuous_proceeds p WHERE p.order_id=o.id) ORDER BY o.id LIMIT 32`,[h(parent.policy.sha256)])).rows;
    for(const row of candidates)if((await db.query('SELECT zee.reconcile_testnet_continuous_proceeds($1,$2,$3,clock_timestamp()) yes',[h(parent.policy.sha256),row.id,h(closure.digest)])).rows[0].yes)credited++;
@@ -145,9 +150,10 @@ export async function continuousDemoAction(modePin:Pin,action:Action,execute=fal
     need(/MainPID=0(?:\n|$)/.test(unit.stdout)&&(inactive||ownStart),'WORKER_PROCESS');
    }
    if(closedAction==='gate')need(warm||isOpen,'DISPATCH_NOT_READY');
+   if(closedAction==='gate'&&a.previousContinuousMode)await checkDeliveredRestartCapital(worker,forward.verified,db);
    if(closedAction==='pause'&&!paused){await db.query('SELECT zee.pause_testnet_closed_execution($1,$2,$3)',[h(a.parentClosedAuthority.sha256),s.epoch,s.xmin]);changed=true;}
    if(closedAction==='resume'&&paused){await db.query('SELECT zee.resume_testnet_closed_execution($1,$2,$3,$4,$5,$6,$7,$8)',[h(a.parentClosedAuthority.sha256),s.epoch,s.xmin,h(closure.digest),h(parent.workerConfig.sha256),h(parent.executionManifest.sha256),h(parent.executionApproval.sha256),h(parent.sourceIdentityDigest)]);changed=true;}
-   if(closedAction==='intake'&&warm){await db.query('SELECT zee.enable_testnet_closed_intake($1,$2,$3)',[h(a.parentClosedAuthority.sha256),s.epoch,s.xmin]);changed=true;}
+   if(closedAction==='intake'&&warm){if(a.previousContinuousMode)await db.query('SELECT zee.enable_testnet_continuous_intake($1,$2,$3,$4)',[h(parent.policy.sha256),h(modePin.sha256),s.epoch,s.xmin]);else await db.query('SELECT zee.enable_testnet_closed_intake($1,$2,$3)',[h(a.parentClosedAuthority.sha256),s.epoch,s.xmin]);changed=true;}
   }
   const transactionId=(await db.query('SELECT pg_current_xact_id_if_assigned()::text xid')).rows[0].xid;
   let intentPath:string|undefined;
@@ -163,7 +169,7 @@ export async function continuousDemoAction(modePin:Pin,action:Action,execute=fal
    await removePending(a.intentDirectory);
   }
   const closedStatuses:Record<string,string>={'closed-inspect':'CLOSED_SERVICE_QUALIFIED','closed-gate':'POLICY_CLOSED_IDLE_RESTART_ALLOWED','closed-pause':'CLOSED_SERVICE_PAUSED','closed-resume':'CLOSED_SERVICE_DISPATCH_PREPARED','closed-intake':'CLOSED_SERVICE_INTAKE_CHECKED'};
-  return{status:closedStatuses[action]??(action==='inspect'?'CONTINUOUS_DEMO_QUALIFIED':action==='publish'?'CONTINUOUS_DEMO_PUBLISHED':'CONTINUOUS_PROCEEDS_RECONCILED'),paused,warm,open:isOpen,pendingPublication:false,journalQualificationSha256:closure.digest,digest:closure.digest,orders:closure.orders,files:closure.files,sourceFresh:s.fresh,financialWorkerLease:s.lease,control:{epoch:s.epoch,xmin:s.xmin,accepting_orders:s.accepting_orders,dispatch_enabled:s.dispatch_enabled,reconciliation_required:s.reconciliation_required},continuousAuthorizationSha256:modePin.sha256,credited,transactionId,intentPath,financialAction:action==='publish'||action==='reconcile',onchainAction:false};
+  return{status:closedStatuses[action]??(action==='inspect'?'CONTINUOUS_DEMO_QUALIFIED':action==='publish'?'CONTINUOUS_DEMO_PUBLISHED':'CONTINUOUS_PROCEEDS_RECONCILED'),backgroundFinalizing:background,fullyClosed,paused,warm,open:isOpen,pendingPublication:false,journalQualificationSha256:closure.digest,digest:closure.digest,orders:closure.orders,files:closure.files,sourceFresh:s.fresh,financialWorkerLease:s.lease,control:{epoch:s.epoch,xmin:s.xmin,accepting_orders:s.accepting_orders,dispatch_enabled:s.dispatch_enabled,reconciliation_required:s.reconciliation_required},continuousAuthorizationSha256:modePin.sha256,credited,transactionId,intentPath,financialAction:action==='publish'||action==='reconcile'&&!background,onchainAction:false};
  }catch(e){if(!context)await db.query('ROLLBACK').catch(()=>{});if(sent)throw Error('CONTINUOUS_DEMO_ORIGINAL_TRANSACTION_RECONCILIATION_REQUIRED');throw e;}finally{if(!context){db.release();await pool!.end();}}
 }
 export const continuousClosedServiceAction=(modePin:Pin,action:'inspect'|'gate'|'pause'|'resume'|'intake',execute=false)=>continuousDemoAction(modePin,('closed-'+action) as Action,execute);

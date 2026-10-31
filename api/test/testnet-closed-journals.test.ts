@@ -23,6 +23,27 @@ async function fixture(){
  const trees:ClosedJournalTree[]=[{path:root,files:files.slice(0,4).map(f=>({relativePath:f.path.slice(root.length+1),sha256:sha(f.bytes)}))},{path:processRoot,files:[]},{path:'/opt/zeeswap-testnet/state/reverse-orders',files:[]},{path:'/opt/zeeswap-testnet/state/refund-orders',files:[]}];return{keys,registry,sql,files,trees};
 }
 test('a second authenticated terminal order is admitted without changing immutable legacy baseline',async()=>{const f=await fixture(),before=JSON.stringify(f.trees);const r=await qualifyClosedJournalInventory(f.trees,f.files,f.sql,f.keys,f.registry);assert.equal(r.newClosedOrders,1);assert.equal(r.trees[0]!.files.length,8);assert.equal(JSON.stringify(f.trees),before);assert.match(r.digest,/^[a-f0-9]{64}$/);});
+
+test('explicit delivered journal qualification authenticates original inclusion without asserting finality',async t=>{
+ const f=await fixture(),q=f.sql.orders[1]!,id=q.id;q.state='READY';q.delivery_included=true;
+ const proofs=new Map<string,any>();
+ for(const row of f.sql.base_attempts.filter(r=>r.order_id===id)){
+  const signed=f.keys.open(row.signed_payload,`base-signed:${id}:${row.phase}:v1`) as any;
+  const terms=f.keys.open(f.sql.base_bindings[1]!.terms_payload,`base-terms:${id}:v1`) as any;
+  const proof={hash:signed.hash,phase:row.phase,blockNumber:row.block_height,blockHash:'0x'+row.block_hash,id:terms.id,recipient:terms.recipient,amount:terms.amount,fee:'123'};
+  row.confirmed=false;row.canonical=false;row.delivery_included=true;row.inclusion_canonical=true;row.receipt_payload=f.keys.seal(proof,`base-inclusion:${id}:${row.phase}:v1`);proofs.set(signed.hash,proof);
+ }
+ t.mock.method(BaseContract.prototype,'includedReceipt',async(hash:string)=>proofs.get(hash));
+ t.mock.method(BaseContract.prototype,'state',async()=>2);
+ assert.equal((await qualifyClosedJournalInventory(f.trees,f.files,f.sql,f.keys,f.registry,true)).newClosedOrders,1);
+ assert.equal(f.sql.base_attempts[2]!.confirmed,false);
+ await assert.rejects(qualifyClosedJournalInventory(f.trees,f.files,f.sql,f.keys,f.registry),/NOT_TERMINAL/);
+ f.sql.base_attempts[2]!.inclusion_canonical=false;
+ await assert.rejects(qualifyClosedJournalInventory(f.trees,f.files,f.sql,f.keys,f.registry,true),/UNCONFIRMED/);
+ f.sql.base_attempts[2]!.inclusion_canonical=true;
+ proofs.set(proofs.keys().next().value!,{...proofs.values().next().value,blockHash:'0x'+'b'.repeat(64)});
+ await assert.rejects(qualifyClosedJournalInventory(f.trees,f.files,f.sql,f.keys,f.registry,true),/INCLUSION_CHANGED/);
+});
 test('uncertain SQL, missing original phase, changed raw bytes, unknown files and legacy mutation refuse',async()=>{
  for(const kind of ['pending','unconfirmed','noncanonical','missing','all-missing','raw','unknown','legacy','receipt','lookup','roots']){const f=await fixture(),id=f.sql.orders[1]!.id;
   if(kind==='pending')f.sql.orders[1]!.state='READY';if(kind==='unconfirmed')f.sql.base_attempts[2]!.confirmed=false;if(kind==='noncanonical')f.sql.base_attempts[2]!.canonical=false;

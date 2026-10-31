@@ -40,6 +40,7 @@ export type PolicyMember={orderId:string;direction:'ZCASH_TO_BASE'|'BASE_TO_ZCAS
 export type ActualCapital={observedAt:string;proofDigest:string};
 export type PolicyWorkerEffects={
  checkLease():Promise<void>;recheckPolicy():Promise<void>;
+ reconcileBackground?():Promise<boolean>;
  members():Promise<{members:PolicyMember[];globalActive:number}>;
  capture():Promise<ActualCapital>;
  heartbeat(capital:ActualCapital):Promise<void>;
@@ -49,7 +50,9 @@ export type PolicyWorkerEffects={
  confirm(orderId:string):Promise<unknown>;
 };
 export async function policyWorkerTick(e:PolicyWorkerEffects,previous?:ActualCapital,now?:number){
- await e.checkLease();await e.recheckPolicy();const {members,globalActive}=await e.members();
+ await e.checkLease();await e.recheckPolicy();
+ if(e.reconcileBackground&&!await e.reconcileBackground())return{status:'WAIT_BACKGROUND_RECEIPTS',capital:previous};
+ const {members,globalActive}=await e.members();
  if(members.length>4||globalActive>1||members.length>1||globalActive!==members.length)throw Error('POLICY_WORKER_CONCURRENCY_SCOPE');
  if(!members.length){let capital:ActualCapital;
   try{
@@ -75,9 +78,10 @@ export async function policyWorkerTick(e:PolicyWorkerEffects,previous?:ActualCap
  else throw Error('POLICY_WORKER_ORDER_STATE_REVIEW');
  await e.checkLease();return{status:'POLICY_MEMBER_STEP',capital:previous,result};
 }
-export async function readPolicyMembers(pool:Pick<pg.Pool,'query'>,policySha256:string,activeEpoch:string){
- const r=(await pool.query(`SELECT a.order_id,q.direction,o.state,a.accepted_epoch::text,d.confirmed_at IS NOT NULL source_confirmed FROM zee.testnet_policy_admissions a JOIN zee.orders o ON o.id=a.order_id JOIN zee.quotes q ON q.id=o.id LEFT JOIN zee.deposits d ON d.id=o.primary_deposit WHERE a.policy_sha256=$1 AND o.state NOT IN('SETTLED','REFUNDED','EXPIRED_UNFUNDED') ORDER BY a.accepted_at,a.order_id LIMIT 5`,[Buffer.from(policySha256,'hex')])).rows;
- const global=(await pool.query("SELECT count(*)::int n FROM zee.orders WHERE state NOT IN('SETTLED','REFUNDED','EXPIRED_UNFUNDED')")).rows[0]?.n;
+export async function readPolicyMembers(pool:Pick<pg.Pool,'query'>,policySha256:string,activeEpoch:string,backgroundDelivery=false){
+ const foreground=backgroundDelivery?' AND NOT zee.testnet_order_delivery_included(o.id)':'';
+ const r=(await pool.query(`SELECT a.order_id,q.direction,o.state,a.accepted_epoch::text,d.confirmed_at IS NOT NULL source_confirmed FROM zee.testnet_policy_admissions a JOIN zee.orders o ON o.id=a.order_id JOIN zee.quotes q ON q.id=o.id LEFT JOIN zee.deposits d ON d.id=o.primary_deposit WHERE a.policy_sha256=$1 AND o.state NOT IN('SETTLED','REFUNDED','EXPIRED_UNFUNDED')${foreground} ORDER BY a.accepted_at,a.order_id LIMIT 5`,[Buffer.from(policySha256,'hex')])).rows;
+ const global=(await pool.query(`SELECT count(*)::int n FROM zee.orders o WHERE state NOT IN('SETTLED','REFUNDED','EXPIRED_UNFUNDED')${foreground}`)).rows[0]?.n;
  if(!Number.isSafeInteger(global)||r.some(v=>String(v.accepted_epoch)!==activeEpoch||!['ZCASH_TO_BASE','BASE_TO_ZCASH'].includes(v.direction)))throw Error('POLICY_WORKER_MEMBERSHIP_EPOCH');
  return{globalActive:global,members:r.map(v=>({orderId:v.order_id,direction:v.direction,state:v.state,acceptedEpoch:v.accepted_epoch,sourceConfirmed:v.source_confirmed})) as PolicyMember[]};
 }

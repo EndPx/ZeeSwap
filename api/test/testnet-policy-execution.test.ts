@@ -7,7 +7,7 @@ test('continuous capital requires exact new capture, original delegate and actua
  const policy='c'.repeat(64),profile='d'.repeat(64),a:ContinuousCapitalApproval={version:1,purpose:'ROOT_CONTINUOUS_POLICY_CAPITAL',policySha256:policy,profileSha256:profile,executionRoot:root,captureScript:{path:root+'/workers/zcash-wallet/testnet_continuous_capital.py',sha256:hash},originalCaptureScript:{path:'/opt/zeeswap-testnet/releases/original-r1/app/workers/zcash-wallet/testnet_policy_capital.py',sha256:'e'.repeat(64)}};
  assert.doesNotThrow(()=>requireContinuousCapitalApproval(a,{executionRoot:root},policy,profile));
  for(const change of [(x:any)=>x.purpose='OTHER',(x:any)=>x.policySha256=profile,(x:any)=>x.profileSha256=policy,(x:any)=>x.executionRoot=root+'/other',(x:any)=>x.captureScript.sha256='0'.repeat(64),(x:any)=>x.captureScript.path=x.originalCaptureScript.path,(x:any)=>x.originalCaptureScript.path='/tmp/testnet_policy_capital.py',(x:any)=>x.originalCaptureScript.sha256='0'.repeat(64)]){const wrong=structuredClone(a);change(wrong);assert.throws(()=>requireContinuousCapitalApproval(wrong,{executionRoot:root},policy,profile));}
- const db={query:async(sql:string,args?:any[])=>{assert.match(sql,/capital_approval_sha256=\$2/);assert.equal(args?.[0].toString('hex'),policy);assert.equal(args?.[1].toString('hex'),hash);return{rows:[{yes:true}]};}};
+ const db={query:async(sql:string,args?:any[])=>{assert.match(sql,/testnet_continuous_capital_authorized\(\$1,\$2\)/);assert.equal(args?.[0].toString('hex'),policy);assert.equal(args?.[1].toString('hex'),hash);return{rows:[{yes:true}]};}};
  await requireContinuousCapitalSqlGrant(db,policy,hash);
  for(const yes of [false,null,undefined,'true'])await assert.rejects(requireContinuousCapitalSqlGrant({query:async()=>({rows:[{yes}]})},policy,hash),/CONTINUOUS_CAPITAL_SQL_AUTHORITY/);
  await assert.rejects(requireContinuousCapitalSqlGrant(db,policy,'0'.repeat(64)),/CONTINUOUS_CAPITAL_DIGEST/);
@@ -26,7 +26,7 @@ test('Root forward execution amendment binds original policy and exact reviewed 
 
 test('fresh execution root is independent of original native profile release and policy-bound',()=>{
  assert.equal(workerExecutionRoot(root+'/api/scripts/work-linux-testnet-policy.ts',root),root);
- const pins=workerExecutionPins(fixture(),root,commit);assert.equal(pins.length,48);assert(POLICY_WORKER_EXECUTION_PATHS.includes('api/src/main-database-relocation.ts'));assert(pins.every(p=>p.path.startsWith(root+'/')));requireWorkerPolicyCommit(commit,commit);
+ const pins=workerExecutionPins(fixture(),root,commit);assert.equal(pins.length,49);assert(POLICY_WORKER_EXECUTION_PATHS.includes('api/src/main-database-relocation.ts'));assert(pins.every(p=>p.path.startsWith(root+'/')));requireWorkerPolicyCommit(commit,commit);
  for(const bad of['/tmp/app','/opt/zeeswap-testnet/releases/../app','/opt/zeeswap-testnet/releases/x/extra/app',root+'/'])assert.throws(()=>workerExecutionRoot(bad+'/api/scripts/work-linux-testnet-policy.ts',bad),/EXECUTION_ROOT/);
  assert.throws(()=>workerExecutionRoot(root+'/api/scripts/work-linux-testnet-policy.ts','/opt/zeeswap-testnet/releases/linux-live-20261024/app'),/EXECUTION_ROOT/);
  assert.throws(()=>workerExecutionRoot(root+'/api/scripts/other.ts',root),/EXECUTION_ENTRY/);

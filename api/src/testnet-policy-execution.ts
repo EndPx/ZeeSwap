@@ -42,6 +42,7 @@ export const POLICY_WORKER_EXECUTION_PATHS=[
   "api/src/source-refunds.ts",
   "api/src/testnet-policy-capital-builder.ts",
   "api/src/testnet-policy-capital.ts",
+  "api/src/testnet-delivered-capital.ts",
   "api/src/testnet-policy-execution.ts",
   "api/src/testnet-policy-refund.ts",
   "api/src/testnet-policy-worker.ts",
@@ -61,7 +62,7 @@ export function requireContinuousCapitalApproval(a:ContinuousCapitalApproval,c:P
 }
 export async function requireContinuousCapitalSqlGrant(db:{query:(sql:string,args?:any[])=>Promise<any>},policySha256:string,approvalSha256:string){
  need([policySha256,approvalSha256].every(h=>/^[a-f0-9]{64}$/.test(h)&&h!=='0'.repeat(64)),'CONTINUOUS_CAPITAL_DIGEST');
- need((await db.query('SELECT zee.testnet_continuous_demo_enabled($1) AND EXISTS(SELECT 1 FROM zee.testnet_continuous_demo_authorizations WHERE policy_sha256=$1 AND capital_approval_sha256=$2) yes',[Buffer.from(policySha256,'hex'),Buffer.from(approvalSha256,'hex')])).rows[0]?.yes===true,'CONTINUOUS_CAPITAL_SQL_AUTHORITY');
+ need((await db.query('SELECT zee.testnet_continuous_capital_authorized($1,$2) yes',[Buffer.from(policySha256,'hex'),Buffer.from(approvalSha256,'hex')])).rows[0]?.yes===true,'CONTINUOUS_CAPITAL_SQL_AUTHORITY');
 }
 /** Root review changes only forward execution, retaining the original policy and native profiles. */
 export interface ForwardFastExecutionApproval {
