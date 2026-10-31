@@ -16,7 +16,7 @@ import {verifyContinuousClosedBooks} from '../src/testnet-continuous-journals.ts
 import {stable} from '../src/integrations/observation/types.ts';
 import {requireNoSourceRecoveryMarker} from './check-testnet-policy-idle-restart.ts';
 import {requireClosedTransportMetadataPermissions,type ClosedAuthority} from './recover-testnet-closed-service.ts';
-import {checkDeliveredRestartCapital} from './check-testnet-delivered-restart.ts';
+import {checkDeliveredRestartCapital,recheckDeliveredRestartCapital} from './check-testnet-delivered-restart.ts';
 const ROOT='/opt/zeeswap-testnet',sha=(v:Buffer|string)=>createHash('sha256').update(v).digest('hex');
 type Pin={path:string;sha256:string};
 type Action='inspect'|'publish'|'reconcile'|'closed-inspect'|'closed-gate'|'closed-pause'|'closed-resume'|'closed-intake';
@@ -71,6 +71,17 @@ async function resolveOriginalIntent(db:Pick<pg.PoolClient,'query'>,directory:st
 }
 
 export async function acquireContinuousPublicationMutex(db:Pick<pg.PoolClient,'query'>){await db.query('SELECT zee.lock_observer_cycle()');}
+/** Wallet observation must finish while ordinary Sources can still publish. */
+export async function beginContinuousPublicationSnapshot<T>(db:Pick<pg.PoolClient,'query'>,capture?:()=>Promise<T>){
+ const physical=await capture?.();
+ await db.query('BEGIN ISOLATION LEVEL REPEATABLE READ');await db.query("SET LOCAL statement_timeout='30000ms'");await db.query("SET LOCAL idle_in_transaction_session_timeout='30000ms'");
+ await acquireContinuousPublicationMutex(db);return physical;
+}
+async function requireContinuousWorkerAbsent(gate:boolean){
+ const unit=await promisify(execFile)('/bin/systemctl',['show','zeeswap-testnet-policy-worker.service','--property=ActiveState','--property=MainPID','--property=ControlPID'],{timeout:10000,maxBuffer:4096});
+ const inactive=/ActiveState=(inactive|failed)(?:\n|$)/.test(unit.stdout),ownStart=gate&&/ActiveState=activating(?:\n|$)/.test(unit.stdout)&&new RegExp('ControlPID='+process.pid+'(?:\n|$)').test(unit.stdout);
+ need(/MainPID=0(?:\n|$)/.test(unit.stdout)&&(inactive||ownStart),'WORKER_PROCESS');
+}
 export async function continuousDemoAction(modePin:Pin,action:Action,execute=false,context?:{db:pg.PoolClient}){
  need(!context||action==='inspect','BORROWED_INSPECT_ONLY');
  need(typeof process.getuid==='function'&&process.getuid()===0,'ROOT_REQUIRED');need(['inspect','publish','reconcile','closed-inspect','closed-gate','closed-pause','closed-resume','closed-intake'].includes(action)&&(['inspect','closed-inspect','closed-gate'].includes(action)||execute),'ACTION');
@@ -103,11 +114,15 @@ export async function continuousDemoAction(modePin:Pin,action:Action,execute=fal
  registerLocalMainAdminTransport(receipt,t.proof,ca.toString(),adminConfig.adminUrl,baseline,classification);
  const pool=context?undefined:connect(validateAdminTarget(adminConfig),1),db=context?.db??await pool!.connect(),h=(s:string)=>Buffer.from(s,'hex');let sent=false;
  try{
-  if(!context){await db.query('BEGIN ISOLATION LEVEL REPEATABLE READ');await db.query("SET LOCAL statement_timeout='30000ms'");await db.query("SET LOCAL idle_in_transaction_session_timeout='30000ms'");}
-  else need((await db.query("SELECT current_setting('transaction_isolation') IN('repeatable read','serializable') yes")).rows[0].yes,'BORROWED_SNAPSHOT');
+  const physical=!context?await beginContinuousPublicationSnapshot(db,action==='closed-gate'&&a.previousContinuousMode?async()=>{
+   const identity=(await db.query("SELECT current_database() db,current_user role,(pg_control_system()).system_identifier::text system,EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND database=(SELECT oid FROM pg_database WHERE datname=current_database()) AND classid=84532 AND objid=20261026 AND granted) lease")).rows[0];
+   need(identity.db==='zee_app_20261023'&&identity.role==='zee_app_admin_20261023'&&identity.system==='7701863382450487342'&&!identity.lease,'CAPTURE_DATABASE_IDLE');
+   await requireContinuousWorkerAbsent(true);await requireNoSourceRecoveryMarker();
+   return checkDeliveredRestartCapital(worker,forward.verified,db);
+  }:undefined):undefined;
+  if(context){need((await db.query("SELECT current_setting('transaction_isolation') IN('repeatable read','serializable') yes")).rows[0].yes,'BORROWED_SNAPSHOT');await acquireContinuousPublicationMutex(db);}
   // The ordinary Envio consumer owns advisory key20261024 for its lifetime.
   // Admission/publication instead share this actual runtime-control row mutex.
-  await acquireContinuousPublicationMutex(db);
   const identity=(await db.query('SELECT current_database() db,current_user role,(pg_control_system()).system_identifier::text system')).rows[0];
   need(identity.db==='zee_app_20261023'&&(identity.role==='zee_app_admin_20261023'||context&&identity.role==='zee_app_worker_20261023')&&identity.system==='7701863382450487342','DATABASE');
   const authorized=(await db.query('SELECT EXISTS(SELECT 1 FROM zee.testnet_closed_recovery_authorizations WHERE authorization_sha256=$1 AND policy_sha256=$2 AND worker_config_sha256=$3 AND execution_manifest_sha256=$4 AND execution_approval_sha256=$5 AND source_identity_digest=$6) yes',[h(a.parentClosedAuthority.sha256),h(parent.policy.sha256),h(parent.workerConfig.sha256),h(parent.executionManifest.sha256),h(parent.executionApproval.sha256),h(parent.sourceIdentityDigest)])).rows[0].yes;need(authorized,'PARENT_SQL_AUTHORITY');
@@ -145,12 +160,10 @@ export async function continuousDemoAction(modePin:Pin,action:Action,execute=fal
    const closedAction=action.slice(7);
    if(['gate','resume','intake'].includes(closedAction)){need(s.fresh,'SOURCE_STALE');await requireNoSourceRecoveryMarker();}
    if(['gate','resume'].includes(closedAction)){
-    need(!s.lease,'WORKER_LEASE');const unit=await promisify(execFile)('/bin/systemctl',['show','zeeswap-testnet-policy-worker.service','--property=ActiveState','--property=MainPID','--property=ControlPID'],{timeout:10000,maxBuffer:4096});
-    const inactive=/ActiveState=(inactive|failed)(?:\n|$)/.test(unit.stdout),ownStart=closedAction==='gate'&&/ActiveState=activating(?:\n|$)/.test(unit.stdout)&&new RegExp('ControlPID='+process.pid+'(?:\n|$)').test(unit.stdout);
-    need(/MainPID=0(?:\n|$)/.test(unit.stdout)&&(inactive||ownStart),'WORKER_PROCESS');
+    need(!s.lease,'WORKER_LEASE');await requireContinuousWorkerAbsent(closedAction==='gate');
    }
    if(closedAction==='gate')need(warm||isOpen,'DISPATCH_NOT_READY');
-   if(closedAction==='gate'&&a.previousContinuousMode)await checkDeliveredRestartCapital(worker,forward.verified,db);
+   if(closedAction==='gate'&&a.previousContinuousMode){need(physical,'MISSING_PRELOCK_CAPTURE');await recheckDeliveredRestartCapital(physical,forward.verified,db);}
    if(closedAction==='pause'&&!paused){await db.query('SELECT zee.pause_testnet_closed_execution($1,$2,$3)',[h(a.parentClosedAuthority.sha256),s.epoch,s.xmin]);changed=true;}
    if(closedAction==='resume'&&paused){await db.query('SELECT zee.resume_testnet_closed_execution($1,$2,$3,$4,$5,$6,$7,$8)',[h(a.parentClosedAuthority.sha256),s.epoch,s.xmin,h(closure.digest),h(parent.workerConfig.sha256),h(parent.executionManifest.sha256),h(parent.executionApproval.sha256),h(parent.sourceIdentityDigest)]);changed=true;}
    if(closedAction==='intake'&&warm){if(a.previousContinuousMode)await db.query('SELECT zee.enable_testnet_continuous_intake($1,$2,$3,$4)',[h(parent.policy.sha256),h(modePin.sha256),s.epoch,s.xmin]);else await db.query('SELECT zee.enable_testnet_closed_intake($1,$2,$3)',[h(a.parentClosedAuthority.sha256),s.epoch,s.xmin]);changed=true;}

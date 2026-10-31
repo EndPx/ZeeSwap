@@ -30,6 +30,13 @@ export async function checkDeliveredRestartCapital(c:any,v:Verified,db:{query:(s
  requireDeliveredRestartBase({nonce,pending,gas:gas.toString(),available:heads.availableInventory});
  validatePolicyCapitalProof(proof,expected);
  need((await db.query('SELECT NOT zee.testnet_global_slot_busy() yes')).rows[0]?.yes===true,'FOREGROUND_CHANGED');
- need((await db.query("SELECT count(*)=2 yes FROM zee.scanner_checkpoints WHERE network IN('base-sepolia','zcash-testnet') AND observed_at BETWEEN clock_timestamp()-interval '30 seconds' AND clock_timestamp()+interval '5 seconds'")).rows[0]?.yes===true,'SOURCES_AGED_DURING_CAPTURE');
- return{path,sha256:createHash('sha256').update(raw).digest('hex'),financialAction:false};
+ return{path,sha256:createHash('sha256').update(raw).digest('hex'),expected,nonce,financialAction:false};
+}
+export async function recheckDeliveredRestartCapital(capture:Awaited<ReturnType<typeof checkDeliveredRestartCapital>>,v:Verified,db:{query:(s:string,args?:any[])=>Promise<any>}){
+ const raw=await readFile(capture.path);need(createHash('sha256').update(raw).digest('hex')===capture.sha256,'CAPTURE_CHANGED');
+ validatePolicyCapitalProof(JSON.parse(raw.toString()),capture.expected);
+ const base=new BaseContract(v.registry),[nonce,pending]=await Promise.all([base.client.getTransactionCount({address:v.registry.operator,blockTag:'latest'}),base.client.getTransactionCount({address:v.registry.operator,blockTag:'pending'})]);
+ need(nonce===capture.nonce&&pending===nonce,'PENDING_BASE_NONCE_CHANGED');
+ validatePolicyCapitalProof(JSON.parse(raw.toString()),capture.expected);
+ need((await db.query("SELECT count(*)=2 yes FROM zee.scanner_checkpoints WHERE network IN('base-sepolia','zcash-testnet') AND observed_at BETWEEN clock_timestamp()-interval '30 seconds' AND clock_timestamp()+interval '5 seconds'")).rows[0]?.yes===true,'SOURCES_AGED_DURING_QUALIFICATION');
 }

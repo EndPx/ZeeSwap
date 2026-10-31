@@ -67,3 +67,11 @@ fresh wallet and Base nonce checks, rather than only inspecting journal state.
 Its five focused tests and API typechecking passed. The corrected adapter is
 deployed as a separately pinned startup artifact; it does not alter the reviewed
 financial release or its execution manifest.
+
+A startup attempt exposed a separate freshness deadlock: the wallet capture ran
+while holding the observer mutex and an older repeatable-read snapshot. The
+gate now captures wallet evidence before beginning that transaction, then takes
+a fresh snapshot and checks the unchanged capture hash, original proof clock,
+current nonce, journals and Source freshness. Thresholds remain unchanged. The
+12 focused startup/continuous checks passed, including Source publication during
+capture and refusal before opening a transaction when capture fails.
