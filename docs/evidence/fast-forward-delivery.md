@@ -64,6 +64,9 @@ Checks completed before deployment:
   passed thirteen checks against a private copy of the closed data; all test
   mutations rolled back. Unlike the two inclusion fixtures, this last fixture
   contained copied encrypted closed records and remains private.
+- Subsequent original-metadata permission compatibility checks: twelve focused
+  tests passed. API metadata visibility checks: two passed. Final idle-only
+  keepalive and financial-boundary regression: 27 passed; API typecheck passed.
 
 ## Existing user payment
 
@@ -91,9 +94,28 @@ were 4,675,180,003,930 wei. Protected closing proof SHA256:
 
 ## Live activation
 
-Publication, migration and activation evidence is recorded here after the
-reviewed deployment. No fast-path activation or completed fast-path end-to-end
-execution is claimed by the checks above.
+The following records the actual deployment and readiness observation. It does
+not claim a newly funded fast-path end-to-end settlement.
+
+The inclusion DDL was committed on the actual primary as transaction `539976`.
+The original financial snapshot and control row were unchanged. Root's first
+resumption attempt `540535` was independently confirmed aborted after its
+capital observation expired; it was not replayed. A new finite attempt placed
+the expensive deployment reads before the native capture and committed as
+transaction `542721`, advancing only reviewed runtime control to 244 and adding
+the immutable resumption grant. Original financial rows and budgets were
+verified unchanged. Native observation age at the successful commit was 8.539
+seconds. No signer, broadcast or financial worker start occurred in that
+publication.
+
+Resumption authorization SHA256:
+`efc9f224b5d53f51f1a378fc36e854fd5667cab7e4009f2095b96646aeef485a`.
+The initial reviewed candidate used 155 actual code pins. The final financial
+release uses 156, preserving the original approved supervisor bytes as a
+separately pinned native artifact. The first preparation candidate was never
+activated. Compatibility corrections preserve the existing isolated directory
+ownership and hash-pinned original signer metadata permissions; neither Source
+service was restarted or modified for these corrections.
 
 The original worker's pause advanced runtime control monotonically from 242 to
 243. The reviewed resumption retains the immutable policy and accepted epoch
@@ -108,3 +130,51 @@ admission must be held during capture and start. The original unsigned restart
 guard remains separate. Temporary proven idempotent Base RPC read failures can
 return a bounded wait; ambiguous broadcasts, identity failures, SQL errors and
 reorganizations retain their reconciliation fences.
+
+## Actual public readiness
+
+The final financial release is commit `34373fd82fc3b42ff13ff52a6c11d32b24635a11`;
+the separately isolated API release is
+`5d08b3d9a0ca2f420c4991ce7fad73754aed8f96`. The API retains UID 986 and reads only
+the Root-owned, group-readable execution metadata prepared for it. Worker
+approvals and new signer configuration remain Root-only. Original configuration
+bytes, host permissions, wallet locations and private financial journals remain
+unchanged.
+
+The final worker started at 09:38:08 WIB through its exact once-only closed-book
+check, then recorded genuine `POLICY_IDLE_CAPITAL_VERIFIED` samples. Its new
+idle-only wait path retains old proof timestamps and performs no readiness
+heartbeat when a recognized observation expires or a proven temporary read
+fails. Financial member handling and ambiguous-broadcast fences remain intact.
+The earlier worker's exact exit cause was not established; the new fatal log
+contains only finite diagnostic codes rather than private exception text.
+
+At 09:39 WIB, actual public `/health` and `/availability` returned HTTP 200 and
+`ready`. Both swap directions were available, no order was active, and the
+unchanged policy reported one forward slot, two reverse slots and 25 quote
+issuances remaining with `lifetime: nonexpiring`.
+
+A fresh headless browser opened the actual public interface. It verified the
+deployed `index-CDE-V-CE.js` bundle, both enabled quote buttons, fast-mode help
+copy and removal of the old wallet integration, with zero page errors. It used
+GET/HEAD only: no quote, acceptance, wallet approval, signature or payment was
+created. Assets were published to the permanent store before the HTML switch;
+old assets were retained and `nginx -t` passed. The frontend HTML SHA256 is
+`995d4a943a182198c61c416fc0badfe4d6ce7742c153337a974cdea31ce4b073`.
+
+The original future unsigned restart guard was restored after the one-time
+start, and the existing supervision timer was restored with the new worker pin.
+A public bridge funded circle remains unavailable; its fast implementation
+does not manufacture public bridge readiness.
+
+The 09:42:36 WIB follow-up still reported the same financial MainPID, active
+API and public `ready` response with unchanged remaining capacity. Eight genuine
+idle-capital samples were recorded from 09:38:36 through 09:42:15. The restored
+supervisor reported `WATCHDOG_WAIT_EXISTING_WORKER`, with no actor action. This
+is a bounded live observation, not an uptime SLA or proof that a particular
+temporary network failure occurred during the observation.
+
+The three disposable PostgreSQL test databases were dropped after their tests
+and rollback checks. The primary application database and global roles were
+not changed by that cleanup. Protected operator evidence and backups remain
+outside the public repository.

@@ -23,6 +23,7 @@ It has no Circle affiliation or monetary value.
 
 | Area | Reports | Evidence class / limit |
 | --- | --- | --- |
+| Fast Base L2 execution | [Swap implementation and live readiness](evidence/fast-forward-delivery.md), [closed-policy execution resumption](evidence/closed-policy-execution-resume.md), [separate bridge mode](evidence/base-l2-bridge-execution.md) | Actual ready public swap deployment and original user payment closure; local/isolated fast-path checks. Public bridge activation and a funded fast-mode roundtrip remain separate |
 | Shielded observation | [G1 feasibility](evidence/g1-feasibility.md), [G2 incoming payment](evidence/g2-api-scanner.md) | Real authorized testnet wallet/intake observations; intake `READY` alone is not a payout |
 | Persistent accounting | [G2 database](evidence/g2-database.md) | Encrypted private data, guarded state, reservations and journals on remote PostgreSQL |
 | Base settlement contracts | [G3 contracts](evidence/g3-contracts.md), [deployment registry](../contracts/deployments/base-sepolia.json) | Local contract tests plus historical deployed/source-verified identities |

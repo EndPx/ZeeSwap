@@ -19,6 +19,13 @@ is paused or unavailable, that state is part of the demonstration. Do not send
 tokens to historical addresses or reconstruct instructions from evidence reports.
 A valid payment instruction belongs to a currently accepted private order.
 
+At the 31 October readiness checkpoint, both swap directions were enabled with
+the remaining original pilot capacity. Fast execution uses canonical Base L2
+inclusion while keeping delivery and finality distinct; Zcash still requires
+ten confirmations. The separate bridge remains paused pending its actual funded
+qualification. See the [current execution record](evidence/fast-forward-delivery.md)
+before interpreting older disabled-state checkpoints or trying a new payment.
+
 ## What to look for in the code
 
 - [`api/src`](../api/src): private order state, integer amounts, reservations,
