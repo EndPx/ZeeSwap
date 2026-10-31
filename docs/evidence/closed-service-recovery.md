@@ -25,10 +25,12 @@ The Chef correction discards that specifically typed unpublished moving-fence
 read after its unchanged-world checks. It grants no freshness or cursor
 advance. The separate Base ordinary transport version 2 retains the complete
 raw exporter proof and canonical log/header checks while selecting the lowest
-actual finalized witness. It refuses any value below admitted SQL finality.
-An exporter reporting a higher finalized height therefore cannot invent
-authority or prevent otherwise complete current event ingestion merely by
-being ahead of a load-balanced reader. The original strict transport remains
+independently observed finalized witness. It refuses any value below admitted
+SQL finality. The producer's advertised finalized header remains fully checked
+informational evidence. Whether that advertised height is ahead of or behind
+the independent reader does not create or revoke consumer finality authority.
+Only actual independent pre-read, post-read and publication observations supply
+that authority. The original strict transport remains
 the default without its explicit Root version-2 approval.
 
 Migration 0038 preserves the original raw policy, its service lifetime/reuse

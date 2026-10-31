@@ -49,3 +49,15 @@ test('conservative finality retains stored floor, full canonical fences, wrong-s
   await assert.rejects(verifyEventFirstExportParallel(packet,f.p,r,AbortSignal.timeout(30000),{batchFences:true,conservativeFinality:{minimum:fault==='stored-floor'?191:180,accept:()=>{selected++;}}}));assert.equal(selected,0);
  }
 });
+
+
+test('lagging producer finality remains raw informational evidence while actual independent floor admits complete current head',async()=>{
+ const f=fixture(),packet=await f.packet(369,400),raw=JSON.stringify(packet),floor=205;let selected:Header|undefined;
+ const reader={...f.reader,sample:async()=>({sourceId:'independent',checkedAt:new Date().toISOString(),head:f.header(400),finalized:f.header(210)})};
+ const pre={sample:{sourceId:'independent',checkedAt:new Date().toISOString(),head:f.header(400),finalized:f.header(208)},exportRequestedAt:new Date().toISOString()};
+ assert.equal(packet.verification.finalized.height,200);assert.ok(packet.verification.finalized.height<floor);
+ assert.deepEqual(await verifyEventFirstExportParallel(packet,f.p,reader,AbortSignal.timeout(30000),{batchFences:true,ordinaryPreReadFreshness:true,preReadSample:pre,conservativeFinality:{minimum:floor,accept:(h:Header)=>{selected=h;}}}),packet);
+ assert.equal(selected!.height,208);assert.equal(JSON.stringify(packet),raw);
+ const batch=await fetchEventFirstReplacement('http://127.0.0.1:8099','fixture',369,400,f.p,'g',reader,AbortSignal.timeout(30000),async()=>Response.json(packet),{boundedFinalTail:true,preReadFreshness:true,fixedReadStartTarget:true,conservativeFinalityMinimum:floor});assert.equal(batch.coverage.through.height,400);assert.equal(batch.headers.length,32);assert.equal(batch.consumerFinalized!.height,210);
+ for(const bad of ['producer-header','pre-read-floor','current-floor']){let accepted=0;const p=structuredClone(packet),r={...reader},before=structuredClone(pre);if(bad==='producer-header')p.verification.finalized.hash=f.header(999).hash;if(bad==='pre-read-floor')before.sample.finalized=f.header(204);if(bad==='current-floor')r.sample=async()=>({...await reader.sample(),finalized:f.header(204)});await assert.rejects(verifyEventFirstExportParallel(p,f.p,r,AbortSignal.timeout(30000),{batchFences:true,ordinaryPreReadFreshness:true,preReadSample:before,conservativeFinality:{minimum:floor,accept:()=>{accepted++;}}}));assert.equal(accepted,0);}
+});

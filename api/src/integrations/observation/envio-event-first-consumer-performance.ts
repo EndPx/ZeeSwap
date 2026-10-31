@@ -25,7 +25,10 @@ export async function verifyEventFirstExportParallel(value:unknown,p:Policy,read
  compareEventFirstLogs(await reader.logs(v.range.fromHeight,v.range.through.height,signal),v.range.observations,p,v.range.headers,v.range.fromHeight,v.range.through.height);
  const end=[{header:v.producer.through,code:'EVENT_FIRST_INDEPENDENT_END_REORG'},{header:v.range.through,code:'EVENT_FIRST_INDEPENDENT_END_REORG'},{header:sample.head,code:'EVENT_FIRST_INDEPENDENT_SAMPLE_REORG'},{header:sample.finalized!,code:'EVENT_FIRST_INDEPENDENT_SAMPLE_REORG'}];
  if(options?.batchFences)await fence(end);else await consumerGroups(end,async(item,s)=>{requireThat(stable(await reader.header(item.header.height,s))===stable(item.header),item.code);},signal);
- if(options?.conservativeFinality){const floor=[v.verification.finalized,sample.finalized!,...(options.preReadSample?[options.preReadSample.sample.finalized!]:[])].sort((a,b)=>a.height-b.height)[0]!;requireThat(floor.height>=options.conservativeFinality.minimum&&stable(await reader.header(floor.height,signal))===stable(floor),'EVENT_FIRST_CONSERVATIVE_FINALITY_CONFLICT');options.conservativeFinality.accept(floor);}
+ // The producer finalized header is independently checked above, but its
+ // advertised height is informational. Only actual independent samples grant
+ // consumer finality; a lagging producer cannot regress the stored SQL floor.
+ if(options?.conservativeFinality){const floor=[sample.finalized!,...(options.preReadSample?[options.preReadSample.sample.finalized!]:[])].sort((a,b)=>a.height-b.height)[0]!;requireThat(floor.height>=options.conservativeFinality.minimum&&stable(await reader.header(floor.height,signal))===stable(floor),'EVENT_FIRST_CONSERVATIVE_FINALITY_CONFLICT');options.conservativeFinality.accept(floor);}
  signal.throwIfAborted();requireThat(performance.now()-started<=30000,'EVENT_FIRST_READ_BUDGET');return validateEventFirstExport(v,p,Date.now(),proofSourceId);
 }
 /** HTTP/structural stage only. Never marks an independent proof or writes files.
