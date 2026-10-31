@@ -7,6 +7,54 @@ or 0.1 USDC, with one active swap, exact current liquidity and existing fee,
 Source, capital, journal and settlement gates. Historical records remain intact.
 Quote issuance has a rolling limit of 32 requests per 120 seconds.
 
+## Live deployment verified: 31 October 2026
+
+Root installed exactly migration 0039 in transaction **616639**, recording the
+actual LF SQL SHA256
+`c8a4859a5b2027c303db1200c261009f1a23e14347ccd611337e24752669e9db`.
+The transaction preserved the row fingerprints of **32 relevant financial and
+control tables** and the ACLs of **37 existing tables**. Observation/header/log
+archives were excluded from the row-fingerprint scope; no claim of a complete
+archive fingerprint is made.
+
+The continuous mode publication committed in transaction **616723**, under
+control epoch **270**, after actual physical-backing verification and closure of
+**9 retained orders and 18 journal files**. The immutable authorization SHA256 is
+`0bc2fb1ac511166702feb5732bf3f4d3f933bcdfc9046470d4584cc135e98bc4`.
+The financial successor from commit
+`d69ac905ea51f713b66cfd82e04457686cedc952` used its reviewed R2 configuration,
+passed the real startup gate and ran as PID **2464927**. Root operations commit
+`755c4218f020e74178b09015fb7e24adc55be132`, Source recovery version 4 and continuous
+supervision were active. The API used the d69 release with its separate reviewed
+0640 metadata view; the production frontend served `index-DHeeGhMr.js`.
+
+The actual watchdog reconciled **one previously finalized TAZ source deposit of
+100,000 zatoshi**, creating one immutable proceeds record. A subsequent Root
+reconciliation returned **zero credits**, confirming that this original deposit
+was not credited again. The resulting inventory was:
+
+| Asset / purpose | Atomic balance | Reserved |
+| --- | ---: | ---: |
+| TAZ principal | 1,100,000 | 0 |
+| TAZ network fees | 200,000 | 0 |
+| mockUSDC principal | 9,900,000 | 0 |
+| Base ETH network fees | 494,318,479,995,905 | 0 |
+
+At **08:16:37 UTC / 15:16:37 WIB**, the public API returned version **5**, `ready`
+and `capacityBasis: current-liquidity`, with both directions available and
+capacity **4 in each direction**. This is the current conservative gas/liquidity
+capacity, not a fixed four-swap quota. Historical admission limits and remaining
+quote totals were explicitly null, and the service had no expiry. The rolling
+32-quotes-per-120-seconds gate, exact fixed sizes and one active swap remained.
+Fresh GET-only headless verification loaded the new production bundle, enabled
+both quote-modal buttons and recorded **zero POST requests, zero JavaScript
+errors and no Noir integration**.
+
+This deployment evidence covers real installation, authority publication,
+financial-worker startup, original finalized-proceeds reconciliation and a
+dated public readiness observation. It does not establish a new funded swap,
+crash/reboot recovery test or 24-hour uptime observation.
+
 ## Frontend implementation and verification
 
 The availability decoder accepts the separately authorized version 5 contract:
@@ -42,9 +90,9 @@ expected the local API origin; it failed before exercising those responses.
 Rebuilding with the fixture's explicit local API origin produced the passing
 result above. That local test build is not a deployable production configuration.
 
-Root publication of migration 0039, actual API/web deployment and live public
-verification are pending in this implementation record. These local checks do
-not prove live continuous admission or a funded swap.
+At this implementation checkpoint, publication and public verification were
+still pending. The actual deployment results are recorded separately below;
+these local checks alone do not prove a funded swap.
 
 ## SQL, API and protected operator checks
 
