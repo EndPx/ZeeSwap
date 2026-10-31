@@ -63,7 +63,8 @@ export async function runPolicyWorker(configPath:string,configSha256:string,once
    requireForwardFastExecution(a,c,{sha256:c.policy.sha256,activeEpoch,publicCommit:policy!.approval.publicCommit},v.profileSha256);
    need(a.originalSignerConfigSha256===forward.c.signerConfig.sha256&&a.supervisor.sha256===forward.c.supervisor.sha256,'POLICY_WORKER_FAST_ORIGINAL_SIGNER');
    for(const pin of[a.signerScript,a.signerDiagnostics,a.supervisor])await publicPin(pin);
-   requireForwardFastSignerConfig(JSON.parse((await protectedBytes(a.signerConfig)).toString()),JSON.parse((await protectedBytes(forward.c.signerConfig)).toString()));
+   await publicPin(forward.c.signerConfig);
+   requireForwardFastSignerConfig(JSON.parse((await protectedBytes(a.signerConfig)).toString()),JSON.parse((await readFile(forward.c.signerConfig.path)).toString()));
    const manifest=JSON.parse((await protectedBytes(c.executionManifest)).toString()),pins=workerExecutionPins(manifest,executionRoot,c.publicCommit);
    for(const pin of[a.signerScript,a.signerDiagnostics,a.supervisor])need(pins.some(p=>p.path===pin.path&&p.sha256===pin.sha256),'POLICY_WORKER_FAST_ASSET_MANIFEST');
    return a;

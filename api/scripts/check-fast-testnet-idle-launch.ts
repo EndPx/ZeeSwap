@@ -36,7 +36,7 @@ export async function checkFastTestnetIdleLaunch(configPath:string,configSha256:
   const policy=await loadServicePolicyApi({ZEESWAP_TESTNET_SERVICE_POLICY_PROOF:c.policy.path,ZEESWAP_TESTNET_SERVICE_POLICY_SHA256:c.policy.sha256},{profileSha256:v.profileSha256,handoffSha256:sha(await readFile(forward.c.handoffProof)),openingProofSha256:p.immutable.openingProof.sha256,settlementContract:v.registry.contracts.ZeeSwapSettlement.address,tokenContract:v.registry.contracts.MockUSDC.address},db);need(policy,'POLICY');await policy.recheck();
   requireForwardFastExecution(fast,c,{sha256:c.policy.sha256,activeEpoch:policy.approval.activeEpoch,publicCommit:policy.approval.publicCommit},v.profileSha256);
   need(fast.originalSignerConfigSha256===forward.c.signerConfig.sha256&&fast.supervisor.sha256===forward.c.supervisor.sha256,'ORIGINAL_SIGNER');
-  requireForwardFastSignerConfig(JSON.parse((await pinned(fast.signerConfig,true)).toString()),JSON.parse((await pinned(forward.c.signerConfig,true)).toString()));
+  requireForwardFastSignerConfig(JSON.parse((await pinned(fast.signerConfig,true)).toString()),JSON.parse((await pinned(forward.c.signerConfig)).toString()));
   for(const pin of [fast.signerScript,fast.signerDiagnostics,fast.supervisor]){need(pins.some(p=>p.path===pin.path&&p.sha256===pin.sha256),'SIGNER_MANIFEST');await pinned(pin);}
   if(fast.nativeExecution)await applyLinuxNativeFastExecution(await loadLinuxNativeDispatch(p.roots.secrets+'/reverse-profile.private.json','reverse'),c.forwardFastExecution,fast);
   const tableDigests:Record<string,TableDigest>={};for(const table of FAST_IDLE_TABLES)tableDigests[table]=(await db.query(fastIdleTableDigestSql(table))).rows[0];

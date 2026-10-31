@@ -55,3 +55,20 @@ test('Root execution epoch is separate from immutable admission context and fail
  assert.equal(await readPolicyExecutionEpoch(resumed,policy,original),'244');assert.equal(original,'242');assert.equal(calls,2);
  for(const epoch of ['241','0','bad',null])await assert.rejects(readPolicyExecutionEpoch({query:async(sql:string)=>({rows:[sql.includes('to_regprocedure')?{installed:true}:{epoch}]})},policy,original),/EXECUTION_EPOCH/);
 });
+
+test('original signer metadata permits reviewed Root 0640 while new private fast authority remains 0600',async()=>{
+ const worker=await readFile(new URL('../scripts/work-linux-testnet-policy.ts',import.meta.url),'utf8'),checker=await readFile(new URL('../scripts/check-fast-testnet-idle-launch.ts',import.meta.url),'utf8');
+ assert.match(worker,/await publicPin\(forward\.c\.signerConfig\);/);assert.match(worker,/readFile\(forward\.c\.signerConfig\.path\)/);assert.doesNotMatch(worker,/protectedBytes\(forward\.c\.signerConfig\)/);
+ assert.match(checker,/pinned\(forward\.c\.signerConfig\)/);assert.doesNotMatch(checker,/pinned\(forward\.c\.signerConfig,true\)/);
+ assert.match(worker,/protectedBytes\(a\.signerConfig\)/);assert.match(worker,/protectedBytes\(c\.forwardFastExecution\)/);assert.match(checker,/pinned\(fast\.signerConfig,true\)/);
+ // Exercise the actual worker permission gates with injected filesystem metadata;
+ // no Linux files, keys, service, profile or financial process is accessed.
+ let mode=0o100640,uid=0;
+ const lstat=async()=>({uid,mode,size:2,isFile:()=>true,isSymbolicLink:()=>false}),realpath=async(path:string)=>path,read=async()=>Buffer.from('{}'),need=(v:unknown,c:string)=>{if(!v)throw Error(c);},sha=()=>hash;
+ const load=(name:string)=>{const source=worker.split('\n').find(line=>line.startsWith('async function '+name+'('));assert(source);return new Function('lstat','realpath','readFile','need','sha','return ('+source.replace('(pin:Pin)','(pin)')+')')(lstat,realpath,read,need,sha) as (pin:{path:string;sha256:string})=>Promise<unknown>;};
+ const metadata=load('publicPin'),privateAuthority=load('protectedBytes'),pin={path:'/opt/zeeswap-testnet/secrets/original-metadata.private.json',sha256:hash};
+ await metadata(pin);await assert.rejects(privateAuthority(pin),/POLICY_WORKER_ROOT_FILE/);
+ mode=0o100600;await metadata(pin);await privateAuthority(pin);
+ mode=0o100660;await assert.rejects(metadata(pin),/POLICY_WORKER_PUBLIC_CODE_CHANGED/);
+ mode=0o100640;uid=986;await assert.rejects(metadata(pin),/POLICY_WORKER_PUBLIC_CODE_CHANGED/);
+});
