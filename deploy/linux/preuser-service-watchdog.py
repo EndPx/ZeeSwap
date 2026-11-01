@@ -134,6 +134,28 @@ def supervise_closed(effects, execute=False):
         return {'status': 'WATCHDOG_CLOSED_REFUSED', 'actorAction': False}
     if getattr(effects, 'continuous_enabled', False) and info.get('pendingPublication') is not False:
         return {'status': 'WATCHDOG_WAIT_CONTINUOUS_PROCEEDS', 'actorAction': False}
+    # A failed Native process must drain the closed worker before a still-fresh
+    # SQL sample can authorize another financial start.
+    if (execute and getattr(effects, 'native_recovery_enabled', False)
+            and info.get('fullyClosed') is True and info.get('pendingPublication') is False
+            and inactive(effects.state(NATIVE))):
+        if not inactive(effects.state(WORKER)):
+            if effects.closed('pause', True).get('status') != 'CLOSED_SERVICE_PAUSED':
+                return {'status': 'WATCHDOG_WAIT_CLOSED_FENCE', 'actorAction': False}
+            checked = effects.closed('inspect')
+            if checked.get('status') != 'CLOSED_SERVICE_QUALIFIED' or checked.get('fullyClosed') is not True or checked.get('paused') is not True or checked.get('pendingPublication') is not False:
+                return {'status': 'WATCHDOG_CLOSED_REFUSED', 'actorAction': True}
+            effects.stop_closed_worker()
+            return {'status': 'WATCHDOG_NATIVE_FAILED_CLOSED_WORKER_STOPPED', 'actorAction': True}
+        if info.get('financialWorkerLease') is not False:
+            return {'status': 'WATCHDOG_UNKNOWN_WORKER_LEASE', 'actorAction': False}
+        if info.get('paused') is not True:
+            if effects.closed('pause', True).get('status') != 'CLOSED_SERVICE_PAUSED':
+                return {'status': 'WATCHDOG_WAIT_CLOSED_FENCE', 'actorAction': False}
+            info = effects.closed('inspect')
+        source = effects.inspect()
+        if source.get('sourceStale') is not True and source.get('pendingPublication') is not True:
+            return supervise_native_recovery(effects, info, source)
     # The Root-only helper resolves its original XID before any new credit.
     # A stale sample simply waits; it never authorizes a Source interruption.
     if execute and getattr(effects, 'continuous_enabled', False) and info.get('paused') is False and info.get('sourceFresh') is True:
@@ -239,7 +261,7 @@ def supervise_native_recovery(effects, info, source):
     if not inactive(effects.state(NATIVE)):
         return {'status': 'WATCHDOG_WAIT_CLOSED_SOURCE_FRESHNESS', 'actorAction': False}
     latest, observed = effects.closed('inspect'), effects.inspect()
-    if (not qualified(latest, observed) or observed.get('sourceFresh') is not False
+    if (not qualified(latest, observed)
             or not inactive(effects.state(WORKER)) or not inactive(effects.state(NATIVE))
             or effects.recovery_marker_present()):
         return {'status': 'WATCHDOG_WAIT_CLOSED_NATIVE_RECOVERY', 'actorAction': False}

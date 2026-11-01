@@ -403,6 +403,38 @@ class ContinuousSupervisionTests(unittest.TestCase):
         self.assertNotIn(('closed', 'resume', True), e.events)
         self.assertFalse(e.value['sourceFresh'])
 
+    def test_failed_native_with_fresh_checkpoint_cannot_resume_financial_before_recovery(self):
+        e = self.native_effects()
+        e.info['sourceFresh'] = e.value['sourceFresh'] = True
+        self.assertEqual(watchdog.supervise(e, True)['status'], 'WATCHDOG_NATIVE_RECOVERED_CONSUMER_START_REQUESTED')
+        self.assertIn('native-recover-original', e.events)
+        self.assertNotIn(('closed', 'resume', True), e.events)
+        self.assertNotIn(('start', watchdog.WORKER), e.events)
+        self.assertNotIn('reconcile-proceeds', e.events)
+
+    def test_failed_native_fences_and_rechecks_closed_active_worker_before_stopping_only_finance(self):
+        e = self.native_effects()
+        e.info.update(paused=False, warm=True, sourceFresh=True, financialWorkerLease=True)
+        e.value.update(sourceFresh=True, financialWorkerLease=True)
+        e.states[watchdog.WORKER] = {'ActiveState': 'active', 'MainPID': '123'}
+        self.assertEqual(watchdog.supervise(e, True)['status'], 'WATCHDOG_NATIVE_FAILED_CLOSED_WORKER_STOPPED')
+        self.assertLess(e.events.index(('closed', 'pause', True)), e.events.index('stop-verified-closed-worker'))
+        self.assertEqual(e.events, [('closed', 'inspect', False), ('closed', 'pause', True), ('closed', 'inspect', False), 'stop-verified-closed-worker'])
+        self.assertNotIn('native-recover-original', e.events)
+        self.assertFalse(any(isinstance(x, tuple) and x[0] in ('start', 'stop') for x in e.events))
+
+    def test_failed_native_cannot_interrupt_active_funded_or_unknown_books(self):
+        for fully_closed in (False, None):
+            e = self.native_effects()
+            e.info.update(paused=False, warm=False, open=True, sourceFresh=True,
+                          fullyClosed=fully_closed, financialWorkerLease=True)
+            e.states[watchdog.WORKER] = {'ActiveState': 'active', 'MainPID': '123'}
+            e.value.update(sourceFresh=True, financialWorkerLease=True)
+            self.assertEqual(watchdog.supervise(e, True)['status'], 'WATCHDOG_WAIT_EXISTING_WORKER')
+            self.assertNotIn(('closed', 'pause', True), e.events)
+            self.assertNotIn('stop-verified-closed-worker', e.events)
+            self.assertNotIn('native-recover-original', e.events)
+
     def test_native_active_consumer_and_inspect_only_never_run_repair(self):
         e = self.native_effects()
         self.assertEqual(watchdog.supervise(e)['status'], 'WATCHDOG_INSPECTED_CLOSED')

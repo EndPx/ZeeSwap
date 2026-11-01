@@ -46,3 +46,40 @@ of forward movement while rechecking the selected canonical target after the
 Core read. Generation changes, regressions, forks and larger movement remain
 refusals. Existing callers retain exact-tail matching by default. All 20 linked
 recovery tests and API typechecking passed.
+
+The watchdog also handles an inactive Native process before a still-fresh SQL
+checkpoint can authorize a financial restart. It fences and rechecks an active
+but fully closed worker before stopping only that worker; funded or unknown
+books cannot take this path. Recovery no longer depends on waiting for the old
+checkpoint to become stale. All 47 watchdog tests passed under Ubuntu 24.04 WSL.
+
+## Actual recovery and application verification
+
+Root repaired the single tip in transaction `850206`, preserving its scan and
+finalized heights and original observation clock. The first final-tail attempt
+refused a moving checkpoint before publication. The v2 operator retained and
+independently reverified completed coverage, then published through block
+4,567,964 with finalized height 4,567,955 in transaction `852468`. Six linked
+packets covered the suffix. Financial fingerprints remained unchanged across
+both committed boundaries, and both original-XID/file completions were exact.
+
+The ordinary Native consumer resumed real observations. The enabled supervisor
+then appended the new execution generation and started the financial worker
+automatically; its log recorded `WATCHDOG_CLOSED_WORKER_START_REQUESTED` and the
+worker recorded `POLICY_IDLE_CAPITAL_VERIFIED`. A later supervisor cycle reopened
+intake. The public API was `ready` at **11:55:50 WIB on 1 November**, with no
+active order and both directions available.
+
+A fresh headless browser verified the real production bundle and both quote
+dialogs with zero JavaScript errors. A separate actual frontend `ZeeApi.create`
+request returned HTTP 201 and decoded a `QUOTED` forward request for 100,000
+zatoshi to 100,000 atomic USDC. Exactly one POST was made. Its token, original
+idempotency request and full response remain Root-only. The quote was not
+accepted, funding instructions were absent and active orders remained zero.
+This is real quote-creation evidence, not a new funded settlement.
+
+The recovery entry and configuration are private, byte-pinned server artifacts.
+The timer and existing ordinary services remain enabled. Supported automatic
+repair is the verified single unfinalized sibling case with unchanged finalized
+and financial anchors; deeper forks or changed financial evidence remain
+refusals. No reboot, funded reorg or deliberately injected outage was performed.

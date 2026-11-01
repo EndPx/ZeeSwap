@@ -2,6 +2,16 @@
 
 Last updated: 2026-10-29 (Asia/Jakarta), for the isolated Linux testnet deployment. Execution evidence below retains its recorded dates.
 
+Unattended Native recovery (1 November, explicit request for recovery without
+manual starts): the protected supervisor may repair a single unfinalized tip
+sibling only with fully closed paused books and unchanged canonical finalized
+and financial anchors. Preserve financial records, scan/finality boundaries,
+original observation clocks and original-XID reconciliation. Prove bounded
+zero-observation catchup before publishing genuine freshness, start only Native,
+then use the existing fresh-source financial restart gate. A failed consumer
+must not be ignored because its last SQL checkpoint still looks fresh. Deeper
+forks or financial conflicts do not authorize automatic rewrites.
+
 Delivered-order admission (31 October, explicit hackathon decision): a verified
 canonical Base payout may leave the foreground admission slot immediately.
 Retain its original order, signed transactions, reservations and liability while
