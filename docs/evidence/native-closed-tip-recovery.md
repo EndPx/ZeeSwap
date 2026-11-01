@@ -38,3 +38,11 @@ change, exact header/checkpoint compare-and-swap, unchanged scan/finality and
 observation clocks, and unchanged hashes/counts for all 19 financial tables.
 Both stale-row-version cases refused. No Main database or service was changed
 by this fixture.
+
+The first actual recovery repaired the tip and collected linked packet proofs,
+but refused final publication when the healthy Core checkpoint advanced during
+verification. A separate closed-metadata opt-in now accepts at most six blocks
+of forward movement while rechecking the selected canonical target after the
+Core read. Generation changes, regressions, forks and larger movement remain
+refusals. Existing callers retain exact-tail matching by default. All 20 linked
+recovery tests and API typechecking passed.

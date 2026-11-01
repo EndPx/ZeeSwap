@@ -2,7 +2,7 @@
 import type {CanonicalReader} from './chef.ts';
 import {parseHeader,stable,height,requireThat,type Header,type ChefHistoricalWitness,type ReplaceRange} from './types.ts';
 import type {Snapshot} from '../../observer.ts';
-import {appendChefLinkedRecoveryProof,chefLinkedRecoveryHeaders,chefLinkedRecoverySnapshot,extendChefLinkedRecoveryTarget,nextChefLinkedRecoveryRange,validateChefLinkedRecovery,type ChefLinkedApproval,type ChefLinkedJournal} from './chef-linked-recovery.ts';
+import {appendChefLinkedRecoveryProof,chefLinkedRecoveryHeaders,chefLinkedRecoverySnapshot,extendChefLinkedRecoveryTarget,nextChefLinkedRecoveryRange,validateChefLinkedRecovery,type ChefLinkedCoverageAuthority,type ChefLinkedJournal} from './chef-linked-recovery.ts';
 const need=(value:unknown,code:string)=>requireThat(value,'CHEF_LINKED_'+code);
 export type LinkedCanonical=CanonicalReader&{prefetchPersisted(heights:number[],signal:AbortSignal):Promise<void>;freshHeader(height:number,signal:AbortSignal):Promise<Header>};
 
@@ -33,7 +33,7 @@ export function chefLinkedInvocationCanonical(factory:(range?:{fromHeight:number
 type Current={generation:string;checkpoint:{height:number;hash:string}};
 /** A durable intent may remain after an expired fsync; never return to the SQL publisher then. */
 export async function chefLinkedPublicationFence(signal:AbortSignal|undefined,writeIntent:()=>Promise<void>,leaseFence:()=>Promise<void>){signal?.throwIfAborted();await writeIntent();await leaseFence();signal?.throwIfAborted();}
-export async function prepareChefLinkedCatchupPublish(options:{journal:ChefLinkedJournal;approval:ChefLinkedApproval;sha:string;canonical:LinkedCanonical;checks:number[];
+export async function prepareChefLinkedCatchupPublish(options:{journal:ChefLinkedJournal;approval:ChefLinkedCoverageAuthority;sha:string;canonical:LinkedCanonical;checks:number[];maxCurrentAdvance?:0|6;
  finalSignal?:AbortSignal;guard():Promise<void>;finalFence?():Promise<void>;readCurrent(signal?:AbortSignal):Promise<Current>;traverse(range:{fromHeight:number;throughHeight:number},canonical:LinkedCanonical,signal:AbortSignal):Promise<{batch:ReplaceRange;snapshot:Snapshot;historicalWitness?:ChefHistoricalWitness}>;save(journal:ChefLinkedJournal):Promise<void>}){
  const{approval:p,sha,canonical,checks}=options;let j=options.journal;const finalFence=options.finalFence??options.guard;need(!options.finalFence||p.version===3,'FINAL_FENCE_V3_ONLY');
  validateChefLinkedRecovery(j,p,sha,j.target);need(nextChefLinkedRecoveryRange(j)===null,'COMPLETE_PREFIX_REQUIRED');need(checks.length<=502,'ANCHOR_LIMIT');
@@ -50,6 +50,6 @@ export async function prepareChefLinkedCatchupPublish(options:{journal:ChefLinke
   const result=await options.traverse(range!,bound,signal);signal.throwIfAborted();await finalFence();signal.throwIfAborted();
   const checked=await canonical.freshHeader(target.height,signal);j=appendChefLinkedRecoveryProof(j,p,sha,checked,result.batch,result.snapshot,Date.now(),result.historicalWitness);await options.save(j);signal.throwIfAborted();
  }else need(target.height===j.target.height&&target.hash===j.target.hash,'TARGET_REGRESSION');
- const snapshot=await chefLinkedRecoverySnapshot(j,p,sha,canonical,checks,()=>options.readCurrent(signal),signal);signal.throwIfAborted();await finalFence();signal.throwIfAborted();
+ const snapshot=await chefLinkedRecoverySnapshot(j,p,sha,canonical,checks,()=>options.readCurrent(signal),signal,options.maxCurrentAdvance??0);signal.throwIfAborted();await finalFence();signal.throwIfAborted();
  return{journal:j,snapshot,signal};
 }
