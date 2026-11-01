@@ -178,6 +178,8 @@ def supervise_closed(effects, execute=False):
     # The pinned inspector's sourceStale is specifically the Base 60s clock.
     recovering = source.get('sourceStale') is True or source.get('pendingPublication') is True
     if not recovering and source.get('sourceFresh') is not True:
+        if getattr(effects, 'native_recovery_enabled', False):
+            return supervise_native_recovery(effects, info, source)
         return {'status': 'WATCHDOG_WAIT_CLOSED_SOURCE_FRESHNESS', 'actorAction': False}
     if recovering:
         result, started, safe = None, False, False
@@ -221,6 +223,43 @@ def supervise_closed(effects, execute=False):
     return {'status': 'WATCHDOG_CLOSED_WORKER_START_REQUESTED', 'actorAction': True}
 
 
+def supervise_native_recovery(effects, info, source):
+    """Repair only an inactive Native consumer; financial restart waits for real freshness."""
+    def qualified(closed, observed):
+        return (closed.get('status') == 'CLOSED_SERVICE_QUALIFIED'
+                and closed.get('paused') is True and closed.get('fullyClosed') is True
+                and closed.get('financialWorkerLease') is False
+                and closed.get('pendingPublication') is False
+                and eligible(observed) and observed.get('sourceStale') is False
+                and observed.get('pendingPublication') is False
+                and observed.get('financialWorkerLease') is False)
+
+    if not qualified(info, source) or effects.recovery_marker_present():
+        return {'status': 'WATCHDOG_WAIT_CLOSED_NATIVE_RECOVERY', 'actorAction': False}
+    if not inactive(effects.state(NATIVE)):
+        return {'status': 'WATCHDOG_WAIT_CLOSED_SOURCE_FRESHNESS', 'actorAction': False}
+    latest, observed = effects.closed('inspect'), effects.inspect()
+    if (not qualified(latest, observed) or observed.get('sourceFresh') is not False
+            or not inactive(effects.state(WORKER)) or not inactive(effects.state(NATIVE))
+            or effects.recovery_marker_present()):
+        return {'status': 'WATCHDOG_WAIT_CLOSED_NATIVE_RECOVERY', 'actorAction': False}
+    result = effects.recover_native()
+    if (result.get('status') != 'NATIVE_CLOSED_TIP_RECOVERY_COMMITTED_EXACT'
+            or result.get('pendingPublication') is not False
+            or result.get('resumeOrdinaryConsumer') is not True
+            or result.get('financialAction') is not False):
+        return {'status': 'WATCHDOG_WAIT_CLOSED_NATIVE_RECOVERY', 'actorAction': False}
+    after = effects.closed('inspect')
+    if (after.get('status') != 'CLOSED_SERVICE_QUALIFIED'
+            or after.get('fullyClosed') is not True or after.get('paused') is not True
+            or after.get('financialWorkerLease') is not False or after.get('pendingPublication') is not False
+            or not inactive(effects.state(WORKER)) or not inactive(effects.state(NATIVE))
+            or effects.recovery_marker_present()):
+        return {'status': 'WATCHDOG_NATIVE_RECOVERED_WAIT_RECHECK', 'actorAction': True}
+    effects.start(NATIVE)
+    return {'status': 'WATCHDOG_NATIVE_RECOVERED_CONSUMER_START_REQUESTED', 'actorAction': True}
+
+
 def protected(path, secret=False):
     path = Path(path)
     if not path.is_absolute() or path.resolve() != path or not path.is_relative_to(ROOT):
@@ -253,6 +292,9 @@ class RootEffects:
         self.continuous_enabled = 'continuousAuthority' in config or 'continuousEntry' in config
         if self.continuous_enabled and (not self.closed_enabled or not ('continuousAuthority' in config and 'continuousEntry' in config)):
             raise ValueError('WATCHDOG_CONTINUOUS_CONFIG')
+        self.native_recovery_enabled = 'nativeRecoveryEntry' in config or 'nativeRecoveryConfig' in config
+        if self.native_recovery_enabled and (not self.continuous_enabled or not ('nativeRecoveryEntry' in config and 'nativeRecoveryConfig' in config)):
+            raise ValueError('WATCHDOG_NATIVE_RECOVERY_CONFIG')
         if config.get('version') != 1 or config.get('purpose') != 'ROOT_PREUSER_SERVICE_SUPERVISION':
             raise ValueError('WATCHDOG_PURPOSE')
         self.env = dict(os.environ)
@@ -290,6 +332,18 @@ class RootEffects:
             if not entry['path'].startswith(str(ROOT / 'releases') + '/') or not entry['path'].endswith('/api/scripts/recover-testnet-closed-service.ts'):
                 raise ValueError('WATCHDOG_CLOSED_ENTRY')
             pinned(entry)
+
+        if self.native_recovery_enabled:
+            entry = self.c['nativeRecoveryEntry']
+            if not entry['path'].endswith('.private.py'):
+                raise ValueError('WATCHDOG_NATIVE_RECOVERY_ENTRY')
+            pinned(entry, True)
+            native = json.loads(pinned(self.c['nativeRecoveryConfig'], True))
+            if (native.get('version') != 1 or native.get('purpose') != 'ROOT_CLOSED_NATIVE_TIP_RECOVERY'
+                    or native.get('continuousMode') != self.c['continuousAuthority']
+                    or type(native.get('maxRangeBlocks')) is not int or native['maxRangeBlocks'] != 5000
+                    or type(native.get('maxObservations')) is not int or native['maxObservations'] != 0):
+                raise ValueError('WATCHDOG_NATIVE_RECOVERY_BINDING')
         if self.continuous_enabled:
             mode = json.loads(pinned(self.c['continuousAuthority'], True))
             if mode.get('version') != 1 or mode.get('purpose') != 'ROOT_CONTINUOUS_TESTNET_DEMO' or mode.get('parentClosedAuthority') != self.c['closedAuthority']:
@@ -334,6 +388,19 @@ class RootEffects:
     def recover(self):
         pin = self.c['sourceConfig']
         return self.run_entry('sourceEntry', ['--config', pin['path'], '--config-sha256', pin['sha256'], '--execute'], 1100)[1]
+
+    def recover_native(self):
+        self.verify()
+        pin = self.c['nativeRecoveryConfig']
+        command = ['/usr/bin/python3', self.c['nativeRecoveryEntry']['path'], '--config', pin['path'], '--config-sha256', pin['sha256'], '--execute']
+        result = subprocess.run(command, cwd=ROOT, env=self.env, capture_output=True, text=True, timeout=180)
+        output = (result.stdout.strip() or result.stderr.strip()).splitlines()
+        if not output:
+            raise ValueError('WATCHDOG_NATIVE_RECOVERY_RESULT')
+        value = json.loads(output[-1])
+        if not isinstance(value, dict):
+            raise ValueError('WATCHDOG_NATIVE_RECOVERY_RESULT')
+        return value if result.returncode == 0 else {'status': 'NATIVE_CLOSED_TIP_RECOVERY_REFUSED'}
 
     def recovery_marker_present(self):
         return RECOVERY_MARKER.exists() or RECOVERY_MARKER.is_symlink()

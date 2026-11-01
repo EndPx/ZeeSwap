@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -370,6 +371,124 @@ class ContinuousEffects(ClosedEffects):
 
 
 class ContinuousSupervisionTests(unittest.TestCase):
+    def test_native_recovery_configuration_requires_both_pins_and_continuous_authority(self):
+        for config in ({'nativeRecoveryEntry': {}}, {'nativeRecoveryConfig': {}},
+                       {'nativeRecoveryEntry': {}, 'nativeRecoveryConfig': {}},
+                       {'closedAuthority': {}, 'closedEntry': {}, 'continuousAuthority': {},
+                        'continuousEntry': {}, 'nativeRecoveryEntry': {}}):
+            with self.subTest(config=config), self.assertRaisesRegex(ValueError, 'NATIVE_RECOVERY_CONFIG'):
+                watchdog.RootEffects(config, {})
+
+    def native_effects(self):
+        e = ContinuousEffects(fresh=False)
+        e.native_recovery_enabled = True
+        e.info['fullyClosed'] = True
+        e.value['sourceStale'] = False
+        e.states[watchdog.BASE] = {'ActiveState': 'active', 'MainPID': '321'}
+        e.native_result = {'status': 'NATIVE_CLOSED_TIP_RECOVERY_COMMITTED_EXACT',
+                           'pendingPublication': False, 'resumeOrdinaryConsumer': True,
+                           'financialAction': False}
+        def recover():
+            e.events.append('native-recover-original')
+            return e.native_result
+        e.recover_native = recover
+        return e
+
+    def test_native_repair_success_starts_only_native_then_waits_for_real_source_freshness(self):
+        e = self.native_effects()
+        result = watchdog.supervise(e, True)
+        self.assertEqual(result['status'], 'WATCHDOG_NATIVE_RECOVERED_CONSUMER_START_REQUESTED')
+        self.assertEqual([x for x in e.events if isinstance(x, tuple) and x[0] in ('start', 'stop', 'reset-failed')], [('start', watchdog.NATIVE)])
+        self.assertLess(e.events.index('native-recover-original'), e.events.index(('start', watchdog.NATIVE)))
+        self.assertNotIn(('closed', 'resume', True), e.events)
+        self.assertFalse(e.value['sourceFresh'])
+
+    def test_native_active_consumer_and_inspect_only_never_run_repair(self):
+        e = self.native_effects()
+        self.assertEqual(watchdog.supervise(e)['status'], 'WATCHDOG_INSPECTED_CLOSED')
+        self.assertNotIn('native-recover-original', e.events)
+        e = self.native_effects()
+        e.states[watchdog.NATIVE] = {'ActiveState': 'active', 'MainPID': '456'}
+        self.assertEqual(watchdog.supervise(e, True)['status'], 'WATCHDOG_WAIT_CLOSED_SOURCE_FRESHNESS')
+        self.assertNotIn('native-recover-original', e.events)
+
+    def test_native_repair_refuses_funded_unknown_lease_or_pending_original(self):
+        for change in ('funded', 'unknown', 'lease', 'marker', 'source-lease'):
+            with self.subTest(change=change):
+                e = self.native_effects()
+                if change == 'funded': e.info['fullyClosed'] = False
+                if change == 'unknown': del e.info['fullyClosed']
+                if change == 'lease': e.info['financialWorkerLease'] = True
+                if change == 'marker': e.marker = True
+                if change == 'source-lease': e.value['financialWorkerLease'] = True
+                watchdog.supervise(e, True)
+                self.assertNotIn('native-recover-original', e.events)
+                self.assertFalse(any(isinstance(x, tuple) and x[0] in ('start', 'stop') for x in e.events))
+
+    def test_native_repair_unknown_or_conflicting_result_cannot_resume_any_actor(self):
+        for change in ({'status': 'NATIVE_CLOSED_TIP_RECOVERY_REFUSED'}, {'pendingPublication': True},
+                       {'resumeOrdinaryConsumer': False}, {'financialAction': True},
+                       {'pendingPublication': 'false'}):
+            with self.subTest(change=change):
+                e = self.native_effects()
+                e.native_result.update(change)
+                self.assertEqual(watchdog.supervise(e, True)['status'], 'WATCHDOG_WAIT_CLOSED_NATIVE_RECOVERY')
+                self.assertIn('native-recover-original', e.events)
+                self.assertFalse(any(isinstance(x, tuple) and x[0] in ('start', 'stop') for x in e.events))
+
+    def test_native_repair_rechecks_closed_state_before_consumer_start(self):
+        e = self.native_effects()
+        def changed():
+            e.events.append('native-recover-original')
+            e.info['fullyClosed'] = False
+            return e.native_result
+        e.recover_native = changed
+        self.assertEqual(watchdog.supervise(e, True)['status'], 'WATCHDOG_NATIVE_RECOVERED_WAIT_RECHECK')
+        self.assertNotIn(('start', watchdog.NATIVE), e.events)
+
+    def test_root_native_adapter_uses_exact_pinned_python_entry_with_a_bounded_timeout(self):
+        e = watchdog.RootEffects.__new__(watchdog.RootEffects)
+        e.c = {'nativeRecoveryEntry': {'path': '/protected/entry.private.py', 'sha256': 'a' * 64},
+               'nativeRecoveryConfig': {'path': '/protected/config.private.json', 'sha256': 'b' * 64}}
+        e.env = {'SAFE_FIXTURE': '1'}
+        result = type('Result', (), {'returncode': 0, 'stdout': '{"status":"NATIVE_CLOSED_TIP_RECOVERY_COMMITTED_EXACT"}', 'stderr': ''})()
+        with patch.object(e, 'verify') as verify, patch.object(watchdog.subprocess, 'run', return_value=result) as run:
+            e.recover_native()
+            verify.assert_called_once_with()
+            run.assert_called_once_with(['/usr/bin/python3', '/protected/entry.private.py', '--config', '/protected/config.private.json', '--config-sha256', 'b' * 64, '--execute'], cwd=watchdog.ROOT, env=e.env, capture_output=True, text=True, timeout=180)
+
+    def test_root_verification_pins_native_entry_and_mode_bound_zero_observation_configuration(self):
+        e = watchdog.RootEffects.__new__(watchdog.RootEffects)
+        e.closed_enabled = e.continuous_enabled = e.native_recovery_enabled = True
+        pin = lambda path: {'path': path, 'sha256': 'a' * 64}
+        prefix = str(watchdog.ROOT / 'releases/test/app/api/scripts')
+        e.config_pin = pin('/config')
+        e.c = {'workerConfig': pin(str(watchdog.ROOT / 'secrets/testnet-policy-worker.private.json')),
+               'sourceConfig': pin('/source'), 'closedAuthority': pin('/closed'),
+               'closedEntry': pin(prefix + '/recover-testnet-closed-service.ts'),
+               'gateEntry': pin(prefix + '/check-testnet-policy-idle-restart.ts'),
+               'sourceEntry': pin(prefix + '/recover-automatic-testnet-source.ts'),
+               'continuousAuthority': pin('/mode'), 'continuousEntry': pin(prefix + '/administer-continuous-demo.ts'),
+               'nativeRecoveryEntry': pin('/native.private.py'), 'nativeRecoveryConfig': pin('/native-config')}
+        policy = pin('/policy')
+        records = {e.c['workerConfig']['path']: {'policy': policy}, '/source': {'policy': policy, 'authority': pin('/source-auth')},
+                   '/mode': {'version': 1, 'purpose': 'ROOT_CONTINUOUS_TESTNET_DEMO', 'parentClosedAuthority': e.c['closedAuthority']},
+                   '/source-auth': {'version': 4, 'continuousMode': e.c['continuousAuthority'], 'continuousInspector': e.c['continuousEntry'], 'closedRecovery': e.c['closedAuthority']}}
+        native = {'version': 1, 'purpose': 'ROOT_CLOSED_NATIVE_TIP_RECOVERY', 'continuousMode': e.c['continuousAuthority'], 'maxRangeBlocks': 5000, 'maxObservations': 0}
+        def read(pin, secret=False):
+            return json.dumps(native if pin['path'] == '/native-config' else records.get(pin['path'], {})).encode()
+        with patch.object(watchdog, 'pinned', side_effect=read) as read_pin:
+            e.verify()
+            self.assertIn(unittest.mock.call(e.c['nativeRecoveryEntry'], True), read_pin.call_args_list)
+            self.assertIn(unittest.mock.call(e.c['nativeRecoveryConfig'], True), read_pin.call_args_list)
+            for change in ({'continuousMode': pin('/other-mode')}, {'maxRangeBlocks': 5001}, {'maxObservations': 1}, {'maxObservations': False}):
+                original = dict(native)
+                native.update(change)
+                with self.assertRaisesRegex(ValueError, 'NATIVE_RECOVERY_BINDING'):
+                    e.verify()
+                native.clear()
+                native.update(original)
+
     def test_continuous_configuration_requires_paired_pins_and_parent_closed_path(self):
         for config in [{'continuousAuthority': {}}, {'closedAuthority': {}, 'closedEntry': {}, 'continuousAuthority': {}}, {'closedAuthority': {}, 'closedEntry': {}, 'continuousEntry': {}}]:
             with self.assertRaisesRegex(ValueError, 'WATCHDOG_CONTINUOUS_CONFIG'):
