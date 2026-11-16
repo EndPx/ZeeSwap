@@ -132,3 +132,44 @@ This is a pending resource proposal, not authority to apply it or evidence that
 the proposed limits will prevent another OOM. Further measurement and a fresh
 stable observation are required if it is approved. Full source catch-up and
 financial readiness remain unproven; no financial activation is implied.
+
+## Optional follower dispatch pacing: implementation awaiting deployment
+
+After the separate API CPU rebalance, Root reported a 12-sample cohort with
+12/12 native Prep height reads returning HTTP 200 and fresh metadata, while
+9/12 private Chef observations remained source-reconciling/unavailable. Root
+independently found 37 Nginx limiting events over 292 seconds in the public Prep
+ingress zone configured at 2 requests per second. These observations support
+addressing follower request bursts separately from backend concurrency. They do
+not prove the effectiveness of the new pacing implementation before deployment.
+
+The wrapper now accepts the private pin `prepDispatchIntervalMs`: absent or 0
+preserves the original transport; supported values are integers 0 through 2,000.
+The reviewed initial operator setting is 1,000 milliseconds. Unsupported values
+fail before SDK execution. A single `performance.now()` dispatch clock covers
+all requests through that follower's PrepClient, including height and block
+queries. It uses the client's existing injected-fetch seam, retaining original
+URL, method, headers, body, signal, response and errors without cache or retry.
+Dispatch slots are released before fetch completion, and all waits honor
+cancellation. PrepClient creates its existing timeout before invoking fetch, so
+pacing consumes the existing total request budget. SDK transient retry behavior
+remains unchanged. Other clients sharing ingress capacity are outside this
+process-local pace.
+
+Project config/schema, Prep URL, source metadata, scanner, account/key, generation,
+payload/freshness bounds and normal/recovery selection remain unchanged. The
+wrapper and reviewed file hashes change; the project fingerprint does not.
+Actual replacement requires Root's separate image/pins review, positive old
+writer stop and lock release, real checkpoint/source qualification and a new
+observed cohort. Financial supervision remains a separate paused boundary.
+
+Local `node --test deploy/chef-docker/runtime.test.mjs` passed **39/39**, zero
+failed or skipped. New checks cover concurrent shared dispatch spacing without
+response serialization, cancellation before/during wait, no timed-out dispatch
+through the real installed PrepClient, unchanged request/response/error identity,
+legacy default behavior, invalid pins before SDK calls and unchanged normal
+follow selection. The installed real SDK status command produced the same
+project fingerprint and checkpoint through the original transport and the paced
+real PrepClient. Scoped `git diff --check` passed. This section records local
+implementation only; deployment, stable live catch-up and month-long capacity
+are not proven by these tests.

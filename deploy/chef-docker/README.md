@@ -300,6 +300,27 @@ restoration, canonical live state or application readiness.
 
 ### Continuous normal-operation supervision
 
+The optional private runtime pin `prepDispatchIntervalMs` selects follower-only
+outbound dispatch pacing. Missing or `0` retains the original transport exactly;
+supported values are integers from 0 through 2,000 milliseconds. Root's reviewed
+initial paced setting is `1000`. Unsupported values refuse before SDK execution.
+One shared monotonic dispatch clock covers all requests from the follower's
+PrepClient, including height and block queries. Waiting is cancellable and stays
+inside the PrepClient's original request timeout. Dispatch slots are released
+before responses complete; slow responses do not serialize later dispatches.
+Pacing returns requests, responses and errors unchanged and adds no retry, cache
+or source metadata substitution. The SDK retains its existing transient-error
+handling. This process-local interval does not enforce the aggregate rate of
+other clients sharing the ingress allowance.
+
+Pacing is injected through PrepClient's existing `fetch` seam. It changes no
+project fingerprint input, config/schema, original Prep URL, account/key, scanner,
+payload cap, source freshness bound or normal/recovery selector. Review the new
+wrapper image and exact file pins, stop the previous writer and verify lock
+release before a paced handoff. Keep financial supervision paused and qualify
+actual source/API behavior separately; local pacing tests do not prove live
+stability or a month of capacity.
+
 After a reviewed source-only run completes and its deadline is retired, normal
 Chef following should keep reading Prep continuously, including after it reaches
 the tip. Use this explicit overlay only after confirming the original generation,

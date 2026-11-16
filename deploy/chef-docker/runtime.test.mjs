@@ -5,11 +5,72 @@ import { tmpdir } from 'node:os';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pathToFileURL } from 'node:url';
-import { runRuntime, digest, validateMetadata, validateDatabase, verifySourceRecovery, runtimeFailure,bindChefDatastorePg } from './runtime.mjs';
+import { runRuntime, digest, validateMetadata, validateDatabase, verifySourceRecovery, runtimeFailure,bindChefDatastorePg, pacedFetch } from './runtime.mjs';
 import { stageContext, projectFiles } from './stage-context.mjs';
 import { fixedPayloadClient } from '../../indexers/zeer/bounded-prep-client.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
+test('dispatch pacing defaults to exact legacy fetch and rejects unsupported private intervals before SDK', async t => {
+  const transport = () => {};
+  assert.equal(pacedFetch(transport), transport); assert.equal(pacedFetch(transport, 0), transport);
+  for (const interval of [-1, 0.5, 2001, '1000', null]) {
+    const f = await fixture(t); f.pins.prepDispatchIntervalMs = interval; await f.savePins();
+    await assert.rejects(runRuntime(['follower'], f), /PREP_DISPATCH_INTERVAL_INVALID/);
+    assert.deepEqual(f.calls, []);
+  }
+});
+
+test('concurrent height/query dispatches share monotonic spacing without waiting for response completion', async () => {
+  const calls = [], response = {}, pending = [];
+  const transport = pacedFetch((input, init) => {
+    calls.push({ input, init, time: performance.now() });
+    return new Promise(resolve => pending.push(() => resolve(response)));
+  }, 40);
+  const controller = new AbortController(), firstInit = { method: 'GET', headers: { authorization: 'fixture' }, signal: controller.signal };
+  const secondInit = { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"fixture":true}', signal: controller.signal };
+  const results = [transport('https://example.invalid/height', firstInit), transport('https://example.invalid/query', secondInit), transport('https://example.invalid/height', firstInit)];
+  await new Promise(resolve => setTimeout(resolve, 150));
+  assert.equal(calls.length, 3); assert.equal(pending.length, 3);
+  assert.ok(calls[1].time - calls[0].time >= 40); assert.ok(calls[2].time - calls[1].time >= 40);
+  assert.equal(calls[0].init, firstInit); assert.equal(calls[1].init, secondInit);
+  for (const resolve of pending) resolve();
+  for (const result of await Promise.all(results)) assert.equal(result, response);
+});
+
+test('pacing preserves abort reasons before and while waiting and never dispatches cancelled requests', async () => {
+  const calls = [], fetch = pacedFetch(async input => { calls.push(input); return input; }, 60);
+  const before = new AbortController(), reason = Error('fixture-abort'); before.abort(reason);
+  await assert.rejects(fetch('before', { signal: before.signal }), error => error === reason);
+  await fetch('first');
+  const queued = new AbortController();
+  const waiting = fetch('cancelled', { signal: queued.signal });
+  const rejected = assert.rejects(waiting, error => error === reason); queued.abort(reason); await rejected;
+  await fetch('after');
+  assert.deepEqual(calls, ['first', 'after']);
+});
+
+test('real PrepClient request timeout includes pacing wait and original transport errors survive', async () => {
+  const { PrepClient } = await import(pathToFileURL(resolve(here, '../../indexers/zeer/node_modules/@zeer-dev/prep-client/src/index.js')));
+  let dispatches = 0;
+  const transportError = Error('fixture-transport');
+  const fetch = pacedFetch(async () => { dispatches++; throw transportError; }, 100);
+  const client = new PrepClient({ url: 'https://example.invalid/', fetch });
+  await assert.rejects(client.getHeight(), error => error.code === 'TRANSPORT_ERROR');
+  await assert.rejects(client.getHeight({ timeoutMs: 10 }), error => error.name === 'TimeoutError');
+  assert.equal(dispatches, 1);
+  const direct = pacedFetch(async () => { throw transportError; }, 1);
+  await assert.rejects(direct('fixture'), error => error === transportError);
+});
+
+test('pinned follower pacing uses one supported fetch seam while normal mode and project fingerprint stay unchanged', async t => {
+  const f = await fixture(t); await scannerFixture(f);
+  f.pins.prepDispatchIntervalMs = 1000; await f.savePins();
+  await runRuntime(['follower'], f);
+  assert.equal(f.prepOptions.length, 1); assert.equal(typeof f.prepOptions[0].fetch, 'function');
+  assert.equal(f.prepOptions[0].url, metadata.ZEESWAP_CHEF_PREP_URL);
+  assert.equal(f.status.fingerprint, f.pins.projectFingerprint);
+  assert.ok(f.calls.at(-1).includes('--follow'));
+});
 test('Chef-owned Pool verifies every new physical connection and refuses an unapproved URL without changing Core',async()=>{
  let checked=0;class Pool{constructor(options){this.options=options;}}
  const pg={Pool},module={verifySdkDatastoreClient:async(_c,_r,kind,role)=>{assert.equal(kind,'chef');assert.equal(role,'zee_chef_owner_20261023');checked++;}},loaded={receipt:{}};
@@ -356,13 +417,19 @@ test('published SDK finite sync resumes original source-reconciling state, prese
     },
   });
   const packets = [];
-  const status = async () => {
-    await main(['status', '--config', config, '--json'], { store, client: transport, write: text => packets.push(JSON.parse(text)) });
+  const status = async (client = transport) => {
+    await main(['status', '--config', config, '--json'], { store, client, write: text => packets.push(JSON.parse(text)) });
     return packets.at(-1);
   };
   const initial = await status();
   assert.equal(initial.state, 'reconciling'); assert.equal(initial.readGate, 'reconciling');
   assert.equal(initial.checkpoint.reconcileKind, 'source');
+  const { PrepClient } = await import(pathToFileURL(resolve(here, '../../indexers/zeer/node_modules/@zeer-dev/prep-client/src/index.js')));
+  const actualPacedClient = new PrepClient({ url: metadata.ZEESWAP_CHEF_PREP_URL,
+    fetch: pacedFetch(async () => new Response(JSON.stringify({ ...f.source, revision: '1' }), { headers: { 'content-type': 'application/json' } }), 1000) });
+  const pacedStatus = await status(actualPacedClient);
+  assert.equal(pacedStatus.fingerprint, initial.fingerprint);
+  assert.deepEqual(pacedStatus.checkpoint, initial.checkpoint);
   f.pins.projectFingerprint = initial.fingerprint;
   for (const target of [103, 106]) {
     f.status = await status(); f.pins.sourceRecovery.checkpoint = { ...f.status.checkpoint };

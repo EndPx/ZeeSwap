@@ -4,12 +4,42 @@ import { createReadStream } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {createRequire} from 'node:module';
+import { setTimeout as delay } from 'node:timers/promises';
 import { projectFiles } from './stage-context.mjs';
 
 export class RuntimeError extends Error { constructor(code) { super(code); this.code = code; } }
 const fail = code => { throw new RuntimeError(code); };
 const sha = value => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
 const metadataKeys = ['ZEESWAP_CHEF_PROJECT', 'ZEESWAP_CHEF_ACCOUNT_ID', 'ZEESWAP_CHEF_KEY_FINGERPRINT', 'ZEESWAP_CHEF_BIRTHDAY', 'ZEESWAP_CHEF_PREP_URL'];
+export function pacedFetch(fetchImpl, intervalMs = 0, now = () => performance.now()) {
+  if (!Number.isInteger(intervalMs) || intervalMs < 0 || intervalMs > 2000) fail('PREP_DISPATCH_INTERVAL_INVALID');
+  if (intervalMs === 0) return fetchImpl;
+  let previous = Promise.resolve(), lastDispatch = -Infinity;
+  return async (input, init) => {
+    const signal = init?.signal;
+    signal?.throwIfAborted();
+    const turn = previous;
+    let release;
+    previous = new Promise(resolve => { release = resolve; });
+    try {
+      // Cancellation must not wait behind other queued callers or open their slots early.
+      await new Promise((resolve, reject) => {
+        const aborted = () => { signal.removeEventListener('abort', aborted); reject(signal.reason); };
+        signal?.addEventListener('abort', aborted, { once: true });
+        turn.then(() => { signal?.removeEventListener('abort', aborted); resolve(); });
+        if (signal?.aborted) aborted();
+      });
+      for (let remaining = lastDispatch + intervalMs - now(); remaining > 0; remaining = lastDispatch + intervalMs - now()) {
+        try { await delay(Math.ceil(remaining), undefined, { signal }); }
+        catch (error) { if (signal?.aborted) throw signal.reason; throw error; }
+      }
+      signal?.throwIfAborted();
+      lastDispatch = now();
+    } finally { turn.then(release); }
+    // Release only the dispatch slot; a slow response never holds the next request.
+    return fetchImpl(input, init);
+  };
+}
 export async function regularFile(path, limit = 1024 * 1024) {
   const info = await lstat(path);
   if (!info.isFile() || info.isSymbolicLink() || info.size > limit) fail('INVALID_RUNTIME_FILE');
@@ -124,6 +154,8 @@ export async function runRuntime(args = process.argv.slice(2), options = {}) {
   const pins = JSON.parse(await regularFile(resolve(privateDir, 'pins.json')));
   const maxPayloadBlocks = pins.maxPayloadBlocks === undefined ? 1 : pins.maxPayloadBlocks;
   if (maxPayloadBlocks !== 1 && maxPayloadBlocks !== 2) fail('FIXED_PAYLOAD_CAP_INVALID');
+  const prepDispatchIntervalMs = pins.prepDispatchIntervalMs === undefined ? 0 : pins.prepDispatchIntervalMs;
+  const sourceFetch = pacedFetch(options.fetch ?? globalThis.fetch, prepDispatchIntervalMs);
   const identity = options.identity ?? { uid: process.getuid?.(), gid: process.getgid?.() };
   if (!Number.isInteger(pins.uid) || pins.uid <= 0 || !Number.isInteger(pins.gid) || pins.gid <= 0
     || identity.uid !== pins.uid || identity.gid !== pins.gid) fail('RUNTIME_IDENTITY_MISMATCH');
@@ -193,7 +225,8 @@ export async function runRuntime(args = process.argv.slice(2), options = {}) {
   if (!keyInfo.isFile() || keyInfo.isSymbolicLink() || keyInfo.size < 1 || keyInfo.size > 16384) fail('INVALID_UFVK_FILE');
   const { PrepClient } = options.prep ?? await import('@zeer-dev/prep-client');
   const { fixedPayloadClient } = options.bounded ?? await import(pathToFileURL(resolve(app, 'bounded-prep-client.mjs')).href);
-  const client = fixedPayloadClient(new PrepClient({ url: metadata.ZEESWAP_CHEF_PREP_URL, ...(prepToken !== undefined ? { token: prepToken } : {}) }), maxPayloadBlocks);
+  const client = fixedPayloadClient(new PrepClient({ url: metadata.ZEESWAP_CHEF_PREP_URL, ...(prepToken !== undefined ? { token: prepToken } : {}),
+    ...(prepDispatchIntervalMs > 0 ? { fetch: sourceFetch } : {}) }), maxPayloadBlocks);
   let status;
   try {
     await sdk.main(['status', '--config', config, '--json'], { client, write: text => { status = JSON.parse(text); } });
