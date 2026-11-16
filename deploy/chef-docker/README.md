@@ -418,14 +418,19 @@ CAUGHT_UP requires genuine current-source comparison after catch-up; a finite
 target or readable prefix alone is insufficient. Financial supervision remains
 paused and financial activation requires separate qualification.
 
-The 16 November operator qualification completed finite profile-16 and
-profile-64 canaries, then separately handed off the follower to normal profile
-64 with 600 ms pacing, recovery disabled and no recovery proof. The original API
-and project/database/key identity were preserved. At the recorded 13:54 UTC
-observation, it was ready and advancing with 33,366 blocks still outstanding.
-Full caught-up/live-follow acceptance remains pending; see the
+The 16 November operator qualification completed finite profile-16/64 canaries
+and separately handed off to normal profile 64 with 600 ms pacing and bounded
+payload-size feedback, recovery disabled and no recovery proof. Actual SDK
+CAUGHT_UP was first observed at 14:36:06 UTC; the measured live-follow acceptance
+passed at **14:43:22 UTC / 21:43 WIB**, with exact checkpoint/Prep equality then
+and a later independently verified canonical checkpoint one block behind the
+observed node tip. The selected 305-second window had ready fraction 1.0 and
+near-head fraction 0.9516129, with no criterion relaxed. Original project/key/
+database identity, API and financial baseline were preserved. See the
 [actual canonical-reorg catch-up evidence](../../docs/evidence/chef-canonical-reorg-catchup.md).
-Financial supervision remains paused pending separate application qualification.
+This closes the observed source recovery/catch-up gate, not application financial
+readiness or future uptime. Financial supervision remains paused pending separate
+application qualification.
 
 ### Continuous normal-operation supervision
 

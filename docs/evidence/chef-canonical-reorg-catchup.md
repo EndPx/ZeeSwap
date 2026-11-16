@@ -2,8 +2,9 @@
 
 16 November 2026. This records implementation/local fixtures and separately
 identified Root observations, actual isolated PostgreSQL qualification, bounded
-profile-16/64 replays and normal profile-64 following. Full caught-up status and financial readiness remain
-unproven; a completed finite target does not establish complete catch-up.
+profile-16/64 replays and normal profile-64 following. Final actual source
+caught-up/live-follow acceptance passed at 14:43:22 UTC, as recorded below.
+Application financial readiness and future uptime remain separate gates.
 
 The user requested completion of the existing Chef follower's reconciliation and
 catch-up without resetting the project, key or account. The paced one-block
@@ -230,14 +231,15 @@ dedicated role after confirming zero remaining test connections, and deleted
 temporary test credentials. No application database or original credentials
 were part of that cleanup.
 
-### Final caught-up/live-follow acceptance remains pending
+### Acceptance criteria at the initial normal handoff
 
-Root is observing until the SDK reports actual `caught_up`, an independent
+Root continued observing until the SDK reported actual `caught_up`, an independent
 checkpoint/source comparison shows zero gap, and a subsequent five-minute live
 follow window contains at least two genuinely new blocks with ready fraction
 at least 0.95, no OOM/restarts and a passing resource guard. Those conditions
-have **not yet been achieved** in this record. READY with a remaining backlog
-does not close that gate, and no financial activation is claimed.
+had **not yet been achieved at that handoff**. READY with a remaining backlog
+did not close that gate; the final later acceptance is recorded below. No
+financial activation is claimed.
 
 ## Dense-range request feedback and explicit source continuation
 
@@ -280,8 +282,8 @@ streak reset and strict source-purpose finite replay. Runtime SHA-256 is
 `aa560ce0952bfa99b82f45faa067cffff7de349b08b94e9b75353b22911e8d47`;
 transport SHA-256 is
 `746f7c14908684a4c2653ce8431304494bc05f973dc204ee731527bec47b4205`.
-Actual deployment, canary and final convergence of this revision remain to be
-recorded by Root. No source-node/API resource or financial-control change is
+Actual deployment, canary and final convergence were pending at implementation;
+Root's later observations are recorded below. No source-node/API resource or financial-control change is
 part of this implementation.
 
 ### Actual hinted-profile canary and normal handoff
@@ -312,8 +314,70 @@ supervision remains paused. The preceding normal-64 observation cohort remains
 separate from the new hint-aware cohort. Its new bounded observer uses the same
 actual caught-up and subsequent five-minute live-follow acceptance thresholds.
 
-The remaining backlog was approximately **22,262 blocks** at this handoff.
-Complete catch-up and final acceptance have **not yet been achieved** in this
-record. Local verification remains 53/53 deployment tests, 12/12 indexer tests,
-project typechecking and scoped diff checking passed. Root will append actual
-convergence/live-follow evidence; no financial activation is claimed.
+The remaining backlog was approximately **22,262 blocks** at this handoff;
+complete catch-up was still pending then. Local verification remained 53/53
+deployment tests, 12/12 indexer tests, project typechecking and scoped diff
+checking passed. The later actual convergence/live-follow result follows;
+no financial activation is claimed.
+
+## Final actual READY, CAUGHT_UP and live-follow acceptance
+
+The actual SDK first reported `caught_up` at Unix time **1,794,839,766.150138**,
+14:36:06 UTC / 21:36:06 WIB, with checkpoint **4,627,146** equal to Prep's current
+head and the read gate ready. The observation continued rather than treating
+that first equality as sufficient final acceptance.
+
+Final source-follow acceptance passed at Unix time **1,794,840,202.269431**,
+**14:43:22 UTC / 21:43 WIB**. At that observation, checkpoint and Prep archive
+were both **4,627,177**, and the actual observed source was also 4,627,177 at
+Unix time 1,794,840,200, an observation age of 1.9367 seconds. The observer ran
+for **1,760.1139 seconds** in total. Its selected live-follow window spanned
+**305.0245919 seconds**, with **ready fraction 1.0** and **near-head fraction
+0.9516129** for a gap of zero or one block. Earlier burst samples briefly had
+gaps of two or three and caused the first five-minute window to fail. All history
+was retained and no acceptance criterion was relaxed to obtain the later pass.
+
+There were **31 genuinely new blocks since the first caught-up observation**,
+over approximately 436 seconds. That count covers the interval since first
+catch-up; it is **not** asserted as 31 blocks within the selected 305-second
+window. Observed peak follower memory was **147,451,904 bytes**, within the
+unchanged 512 MiB limit; its 0.5 CPU allowance was unchanged. There were zero
+unexpected restarts or OOMs, and the resource guard passed.
+
+Root repeated independent verification at Unix time **1,794,840,294.175321**.
+Chef checkpoint **4,627,183**, hash
+`00158acfba33c73f7922699cbf81bbef4d8e7f60df8b5429726be5ab4308aaf1`,
+matched Prep's archive checkpoint and the node's canonical hash for that height.
+The actual source observation was 4,627,184 at Unix time 1,794,840,287; node RPC
+reported blocks equal to estimated height **4,627,184**. This later live sample
+was one block behind the observed node, consistent with the qualified near-head
+following envelope rather than a claim of permanent zero lag.
+
+All **201 retained headers** matched independently, and all five original entity
+rows were preserved with total entity count five. Project fingerprint, generation,
+birthday, namespace, anchor, key/account, metadata, scanner and database/source
+URL identity remained unchanged. A second advisory-lock attempt was refused,
+confirming sole-writer ownership. The original API identity/start time and native
+source writer/reader identities remained unchanged. GraphQL was ready, and its
+checkpoint hash was independently checked against the node.
+
+The financial baseline was **exactly unchanged, fully closed and paused**;
+financial supervision remains **paused** pending separate application
+qualification. Native resource guard checks passed and capacity monitor warnings
+were empty. Root removed only nine stopped recovery helpers, preserving the
+14 real containers; the isolated test database, role and temporary credentials
+had already been removed. No financial action, namespace/key/account reset or
+SDK package release was performed.
+
+The hint implementation is published in commit `d9671d7`. The sanitized
+[16 November Chef caught-up artifact](https://zeer.endpx.cloud/docs/operations/2026-11-16-chef-caught-up.json)
+was published in docs release `20261116-chef-caught-up`, SHA-256
+`013c8f7a852ffa1fd68e7c139ee6e427ce54ef0be3415a80f3d41c4755be406a`.
+Root verified all 45 HTML pages and the artifact bytes through TLS loopback,
+then independently fetched the public HTTPS artifact externally and matched the
+same hash. Deployment used only a graceful Nginx reload, with no source or
+application restart; the resource guard passed.
+
+This closes the measured source reconciliation, actual catch-up and subsequent
+live-follow acceptance. It does not authorize financial activation, establish
+application financial readiness or guarantee a month of uptime.
