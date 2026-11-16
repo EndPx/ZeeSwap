@@ -248,10 +248,16 @@ advisory lock and durable resume. No SQL metadata is rewritten by the wrapper.
 
 Root's operator procedure is:
 
-1. Restore Prep to genuinely ready follower state at the real network head with
-   both measured lags at most six. Do not lower or fabricate its head to fit a cap.
-   Independently preserve the paused financial baseline and original canonical
-   and financial anchors. This mode cannot authorize financial process changes.
+1. Restore Prep to genuinely ready follower state for its actual observed source
+   tip, with both measured Prep-to-source lags at most six and the unchanged
+   genuine source timestamp bounds. Source-only replay may use that complete
+   canonical retained range while Zebra itself is still syncing. Record Zebra's
+   network-sync lag separately against independently obtained network evidence;
+   its local RPC tip alone does not establish the network head. Do not lower or
+   fabricate Prep's source head to fit a cap. This replay does not establish
+   current application freshness or financial readiness. Independently preserve
+   the paused financial baseline and original canonical and financial anchors.
+   This mode cannot authorize financial process changes.
 2. Stop only the old Chef source writer; positively prove process exit and lock
    release. Preserve API token, project, account, UFVK, birthday, generation,
    original database/namespace and datastore relocation authority. Capture private
@@ -273,12 +279,21 @@ Root's operator procedure is:
 6. For another chunk, independently resample and issue a new exact checkpoint
    proof. Never reuse stale start pins or renew authority automatically. A changed
    epoch, canonical anchor, generation, financial baseline or unknown outcome
-   requires review. Continue bounded chunks until the actual source gap is small.
-7. Once independently verified near head, use the existing version 1 recovery if
-   still source-reconciling, or the normal operation handoff below if ready. Retire
-   all recovery deadlines, remove `sourceRecovery` from normal pins and explicitly
-   disable recovery before continuous following. Source recovery never enables
-   application admission, settlement or a financial worker.
+   requires review. Additional bounded chunks are one supported continuation.
+7. Alternatively, after the finite run completes at its verified target and the
+   checkpoint is independently canonical and ready, separately review the normal
+   operation handoff below. The normal follower explicitly supports `backfill`
+   with a remaining large backlog; reaching near head is not its startup gate.
+   Positively verify finite process exit and writer-lock release, original identity
+   and preserved canonical/financial anchors. Retire all recovery deadlines and
+   ensure they cannot stop the normal follower. Use reviewed normal pins without
+   `sourceRecovery` and explicitly disable recovery. This is a separate normal
+   follower authorization, never an automatic v2 fallthrough or extension of its
+   finite target/expiry. Keep financial supervision paused and report actual
+   catch-up lag; a ready prefix does not establish application freshness. If still
+   source-reconciling, retain explicit bounded recovery; version 1 remains an
+   option only within its unchanged 4,096 initial-gap limit. Source recovery never
+   enables application admission, settlement or a financial worker.
 
 Implementation tests are local fixtures; they do not prove VPS recovery, throughput,
 restoration, canonical live state or application readiness.
