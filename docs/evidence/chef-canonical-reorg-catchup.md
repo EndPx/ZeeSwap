@@ -238,3 +238,82 @@ follow window contains at least two genuinely new blocks with ready fraction
 at least 0.95, no OOM/restarts and a passing resource guard. Those conditions
 have **not yet been achieved** in this record. READY with a remaining backlog
 does not close that gate, and no financial activation is claimed.
+
+## Dense-range request feedback and explicit source continuation
+
+Subsequent actual normal following exposed repeated 413 subdivision overhead:
+one observed interval advanced 4,602,417 to 4,602,569, 152 blocks in a minute;
+a later interval advanced 4,602,619 to 4,602,633, only 14 blocks in a minute.
+SDK fetch pages requested 64 but yielded four blocks after repeated 64/32/16/8/4
+attempts. Memory was approximately 117 MB without OOM. Root's read-only metadata
+probe found 115,407,219 raw bytes and 1,295 transactions across 1,000 blocks from
+4,602,500, including 36 blocks above 1 MiB raw and maximum 1,982,396 bytes per
+block. The next 1,000-block interval contained approximately 35 MB and 15 heavy
+blocks. Those observations demonstrate workload variation and explain why the
+earlier ten successful probes did not prove every later range would fit.
+
+The explicit catch-up transport now remembers its effective payload limit after
+an actual typed HTTP 413, avoiding retraversal of the same oversized lookahead
+on every page. It sizes subsequent raw payload requests by that hint, while
+preserving original query bounds. After eight successful full-effective raw
+pages it permits one doubling toward the reviewed maximum, allowing recovery
+after a dense interval. Errors, cancellation and short payload responses reset
+the success streak. Header/height traffic and one-block end-range reads do not
+alter the hint or streak. Source metadata, packets, fields/filter, cancellation,
+byte guards and all SDK canonical checks remain unchanged. This feedback policy
+is confined to the explicitly reviewed catch-up transport; legacy profiles are
+unchanged.
+
+The separate v3 purpose `CANONICAL_SOURCE_FINITE_REPLAY` was added for a captured
+source-reconciling checkpoint following interruption. It accepts only exact
+status reconciling/kind source with SDK state/read gate reconciling, under all
+the existing retained-journal, revision, identity, profile, current canonical
+header, genuine source, finite clock and target guards. Reorg and ready purposes
+remain strict and v1/v2 are unchanged. It still invokes only official finite SDK
+replay, with fresh exact proof and no automatic normal-follow fallthrough.
+
+Local deployment tests passed **53/53**, existing indexer tests **12/12**, zero
+failed/skipped, with project typechecking and scoped diff checks passing. New
+tests cover remembered hints across header/end-range interleaving, eight-full-page
+growth through 64, retry after a failed growth trial, error/cancel/short-response
+streak reset and strict source-purpose finite replay. Runtime SHA-256 is
+`aa560ce0952bfa99b82f45faa067cffff7de349b08b94e9b75353b22911e8d47`;
+transport SHA-256 is
+`746f7c14908684a4c2653ce8431304494bc05f973dc204ee731527bec47b4205`.
+Actual deployment, canary and final convergence of this revision remain to be
+recorded by Root. No source-node/API resource or financial-control change is
+part of this implementation.
+
+### Actual hinted-profile canary and normal handoff
+
+Root independently repeated the 53 deployment tests successfully. The hint-aware
+candidate image was
+`fa90c6140e72d72b9f81cfb220b95e60e66f0c971c59ead6ca8516e966c8f003`,
+built over the original paced base by copying only the two reviewed files with
+the runtime/transport hashes above. Root stopped the preceding normal follower
+only after checks, captured a new 19,375-byte namespace backup, independently
+verified 201 canonical retained headers, and preserved the five original entity
+rows and original key/account, fingerprint, generation, source URL, scanner and
+database identity. No reset or source metadata substitution occurred.
+
+The actual dense-range profile-64 finite canary advanced **4,604,789 to
+4,604,853**, with **151 transactions**, in **42.425129634 seconds**, including
+34.644501177 seconds fetching. Across 85 memory samples, peak memory was
+**112,750,592 bytes**, within the unchanged 512 MiB follower limit and 0.5 CPU
+allocation. Exit was zero with no OOM, and the official SDK made the finite
+target ready. This denser interval differs from the preceding sparse canary;
+their durations are not a controlled performance comparison.
+
+At Unix time **1,794,838,423** (14:13 UTC), Root separately handed off to normal
+hint-aware following. Only the persisted follower image and private pins changed;
+normal recovery is disabled and no recovery proof object remains. The API was
+unchanged, the exact closed financial baseline was preserved, and financial
+supervision remains paused. The preceding normal-64 observation cohort remains
+separate from the new hint-aware cohort. Its new bounded observer uses the same
+actual caught-up and subsequent five-minute live-follow acceptance thresholds.
+
+The remaining backlog was approximately **22,262 blocks** at this handoff.
+Complete catch-up and final acceptance have **not yet been achieved** in this
+record. Local verification remains 53/53 deployment tests, 12/12 indexer tests,
+project typechecking and scoped diff checking passed. Root will append actual
+convergence/live-follow evidence; no financial activation is claimed.

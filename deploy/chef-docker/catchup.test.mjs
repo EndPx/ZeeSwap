@@ -86,6 +86,54 @@ test('explicit catchup 413 subdivision is typed, logarithmically bounded, cancel
   const terminal = new PrepError('TOO_LARGE', 413), c = catchupPayloadClient({ get: async () => { throw terminal; } }, 16, PrepError);
   await assert.rejects(c.get({ from_block: 100, to_block: 101, limit: 1 }), e => e === terminal);
 });
+test('raw payload hint survives header interleaving and doubles only after eight full successful pages', async () => {
+  const attempts = []; let serverCap = 4;
+  const c = catchupPayloadClient({ get: async q => {
+    attempts.push(q.limit);
+    if (q.limit > serverCap) throw new PrepError('RESPONSE_TOO_LARGE', 413);
+    return { next_block: q.to_block, data: { blocks: Array(q.limit).fill({}) } };
+  } }, 64, PrepError);
+  const raw = { from_block: 100, to_block: 1100, limit: 64, field_selection: { transaction: ['raw'] } };
+  await c.get(raw); assert.deepEqual(attempts, [64, 32, 16, 8, 4]);
+  for (let i = 0; i < 7; i++) {
+    await c.get({ ...raw, to_block: 101, limit: 1, field_selection: { transaction: [] } });
+    await c.get({ ...raw, to_block: 101 }); // Short end range must not affect the hint/streak.
+    await c.get(raw);
+  }
+  const before = attempts.length; await c.get(raw);
+  assert.deepEqual(attempts.slice(before), [8, 4]); // One cautious trial, then retained reduction.
+  serverCap = 64;
+  for (let i = 0; i < 7; i++) await c.get(raw);
+  let offset = attempts.length; await c.get(raw); assert.equal(attempts[offset], 8);
+  for (let i = 0; i < 7; i++) await c.get(raw);
+  offset = attempts.length; await c.get(raw); assert.equal(attempts[offset], 16);
+  for (let i = 0; i < 7; i++) await c.get(raw);
+  offset = attempts.length; await c.get(raw); assert.equal(attempts[offset], 32);
+  for (let i = 0; i < 7; i++) await c.get(raw);
+  offset = attempts.length; await c.get(raw); assert.equal(attempts[offset], 64);
+  assert.ok(attempts.every(limit => limit >= 1 && limit <= 64));
+});
+test('payload hint retains reduced cap but resets success streak on errors, cancellation and short responses', async () => {
+  for (const failure of ['error', 'abort', 'short']) {
+    let mode = 'dense'; const attempts = [], reason = Error('stop'), controller = new AbortController();
+    const c = catchupPayloadClient({ get: async q => {
+      attempts.push(q.limit);
+      if (mode === 'dense' && q.limit > 4) throw new PrepError('RESPONSE_TOO_LARGE', 413);
+      if (mode === 'error') throw new PrepError('RATE_LIMITED', 429);
+      if (mode === 'abort') { controller.abort(reason); throw reason; }
+      return { next_block: mode === 'short' ? q.from_block + 1 : q.to_block, data: { blocks: Array(mode === 'short' ? 1 : q.limit).fill({}) } };
+    } }, 64, PrepError);
+    const raw = { from_block: 100, to_block: 1100, limit: 64, field_selection: { transaction: ['raw'] } };
+    await c.get(raw); mode = 'ok'; for (let i = 0; i < 6; i++) await c.get(raw);
+    mode = failure;
+    if (failure === 'short') await c.get(raw);
+    else await assert.rejects(c.get(raw, { signal: controller.signal }));
+    mode = 'ok'; const start = attempts.length;
+    for (let i = 0; i < 8; i++) await c.get(raw);
+    assert.deepEqual(attempts.slice(start), Array(8).fill(4));
+    await c.get(raw); assert.equal(attempts.at(-1), 8);
+  }
+});
 
 test('real installed CLI cached config executes 201 blocks in cap/batch groups with original bytes/fingerprint', async t => {
   const dir = await mkdtemp(resolve(tmpdir(), 'chef-catchup-profile-')); t.after(() => rm(dir, { recursive: true, force: true }));
@@ -204,6 +252,19 @@ test('v3 ready continuation requires its separate exact purpose and cannot widen
     const f = readyFixture(); mutate(f); await assert.rejects(verifyCanonicalReorg(f));
   }
   const reorg = reorgFixture(); reorg.pins.sourceRecovery.purpose = 'CANONICAL_READY_FINITE_REPLAY';
+  await assert.rejects(verifyCanonicalReorg(reorg), /CANONICAL_REORG_PINS_INVALID/);
+});
+test('v3 source continuation is a third exact purpose with canonical journal, never reorg/ready authority', async () => {
+  const f = reorgFixture(); f.pins.sourceRecovery.purpose = 'CANONICAL_SOURCE_FINITE_REPLAY';
+  for (const cp of [f.pins.sourceRecovery.checkpoint, f.status.checkpoint, f.journal.checkpoint]) cp.reconcileKind = 'source';
+  f.journalBytes = Buffer.from(JSON.stringify(f.journal));
+  f.pins.sourceRecovery.retainedJournalSha256 = createHash('sha256').update(f.journalBytes).digest('hex');
+  await verifyCanonicalReorg(f);
+  for (const purpose of ['CANONICAL_REORG_FINITE_REPLAY', 'CANONICAL_READY_FINITE_REPLAY']) {
+    f.pins.sourceRecovery.purpose = purpose;
+    await assert.rejects(verifyCanonicalReorg(f), /CANONICAL_REORG_PINS_INVALID/);
+  }
+  const reorg = reorgFixture(); reorg.pins.sourceRecovery.purpose = 'CANONICAL_SOURCE_FINITE_REPLAY';
   await assert.rejects(verifyCanonicalReorg(reorg), /CANONICAL_REORG_PINS_INVALID/);
 });
 test('v3 refuses changed checkpoint/generation/revision/profile/journal/kind/expiry and source/header mismatches', async () => {

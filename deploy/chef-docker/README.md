@@ -346,6 +346,16 @@ same outer cancellation signal. Root must own the finite operation's deadline.
 The actual 16 November deployed Prep fixed response limit was **8 MiB**, while
 the installed PrepClient body guard is 32 MiB. Neither limit is increased here.
 
+The explicit catch-up transport remembers a reduced payload hint only after a
+typed 413. Subsequent raw-transaction payload requests start at the minimum of
+that hint and the original request bounds. Eight consecutive successful full
+pages at the effective hint permit one cautious doubling, capped by the reviewed
+profile maximum. Another 413 halves it again. Errors, cancellation or a short
+payload response reset the success streak. Canonical header/height reads and
+one-block end-range requests neither change the hint nor count toward growth.
+This is outgoing request sizing only: no header/response caching or source
+metadata changes. Default-one/fixed-two transports do not adopt this policy.
+
 Use `CHEF_SOURCE_RECOVERY=reviewed-canonical-reorg` only for a private version 3
 `sourceRecovery` proof with purpose `CANONICAL_REORG_FINITE_REPLAY`, original
 `projectFingerprint`, `executionProfileDigest`, `generation`, `dataRevision`,
@@ -367,6 +377,14 @@ profile-16 reconciliation run without interrupting an infinite follower mid-fetc
 The reorg purpose remains strictly reorg-only; changing purpose requires fresh
 exact proof/journal authority. Both purposes run only official finite `--to` and
 never fall through to follow. Missing authority or wrong purpose/state refuses.
+
+A third explicit v3 purpose, `CANONICAL_SOURCE_FINITE_REPLAY`, requires exact
+checkpoint status reconciling/kind source and actual SDK state/read gate
+reconciling. It retains every other canonical journal, revision, identity,
+profile, current-header, source, clock and finite target check. This phase permits
+a reviewed catch-up-profile restart after a source interruption; it does not
+widen source-only v1/v2 or the reorg/ready proof purposes. Issue fresh exact
+authority and journal for the captured checkpoint after positive writer stop.
 
 Mount the owner-protected regular file `canonical-reorg-journal.json` into the
 follower private directory explicitly; do not mount it into the API. Its exact

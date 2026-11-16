@@ -176,7 +176,8 @@ export async function verifyCanonicalReorg({ pins, status, metadata, client, jou
   const sameCheckpoint = value => value && checkpointKeys.every(key => value[key] === p.checkpoint[key]);
   const readyReplay = p?.purpose === 'CANONICAL_READY_FINITE_REPLAY';
   const reorgReplay = p?.purpose === 'CANONICAL_REORG_FINITE_REPLAY';
-  if (!profile || p?.version !== 3 || (!readyReplay && !reorgReplay) || !validTime()
+  const sourceReplay = p?.purpose === 'CANONICAL_SOURCE_FINITE_REPLAY';
+  if (!profile || p?.version !== 3 || (!readyReplay && !reorgReplay && !sourceReplay) || !validTime()
     || p.projectFingerprint !== pins.projectFingerprint || p.executionProfileDigest !== profile.digest
     || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(p.generation ?? '')
     || !decimal(p.dataRevision) || !decimal(p.prepEpoch) || !sha(p.retainedJournalSha256)
@@ -184,7 +185,7 @@ export async function verifyCanonicalReorg({ pins, status, metadata, client, jou
     || !sha(p.checkpoint.hash) || !sha(p.checkpoint.anchorHash) || !uint(p.checkpoint.undoFloor)
     || p.checkpoint.undoFloor > p.checkpoint.height || p.checkpoint.height - p.checkpoint.undoFloor > 1000
     || (readyReplay ? p.checkpoint.status !== 'ready' || p.checkpoint.reconcileKind !== undefined
-      : p.checkpoint.status !== 'reconciling' || p.checkpoint.reconcileKind !== 'reorg')
+      : p.checkpoint.status !== 'reconciling' || p.checkpoint.reconcileKind !== (sourceReplay ? 'source' : 'reorg'))
     || !uint(p.maxInitialGap) || p.maxInitialGap < 1 || p.maxInitialGap > 50000
     || !uint(p.targetHeight) || p.targetHeight > 0xfffffffe || p.targetHeight <= p.checkpoint.height
     || p.targetHeight - p.checkpoint.height > 50000) fail('CANONICAL_REORG_PINS_INVALID');

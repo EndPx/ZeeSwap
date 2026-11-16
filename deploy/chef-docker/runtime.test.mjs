@@ -167,6 +167,15 @@ test('v3 requires its exact selector, dispatches finite official SDK only and ca
   await runRuntime(['follower'], f);
   assert.deepEqual(f.calls.at(-1), ['sync', '--config', resolve(f.app, 'chef.config.ts'), '--to', '150', '--json']);
   assert.equal(f.calls.some(args => args.includes('--follow')), false);
+  f.pins.sourceRecovery.purpose = 'CANONICAL_SOURCE_FINITE_REPLAY';
+  for (const cp of [f.pins.sourceRecovery.checkpoint, f.status.checkpoint, journal.checkpoint]) { cp.status = 'reconciling'; cp.reconcileKind = 'source'; }
+  f.status.state = 'reconciling'; f.status.readGate = 'reconciling';
+  const sourceBytes = Buffer.from(JSON.stringify(journal));
+  f.pins.sourceRecovery.retainedJournalSha256 = createHash('sha256').update(sourceBytes).digest('hex');
+  await writeFile(resolve(f.privateDir, 'canonical-reorg-journal.json'), sourceBytes); await f.savePins();
+  await runRuntime(['follower'], f);
+  assert.deepEqual(f.calls.at(-1), ['sync', '--config', resolve(f.app, 'chef.config.ts'), '--to', '150', '--json']);
+  assert.equal(f.calls.some(args => args.includes('--follow')), false);
   for (const version of [1, 2]) { f.pins.sourceRecovery.version = version; await f.savePins();
     await assert.rejects(runRuntime(['follower'], f), /EXECUTION_PROFILE_RECOVERY_MODE/); }
 });
