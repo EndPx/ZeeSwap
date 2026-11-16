@@ -48,27 +48,32 @@ export function bindChefDatastorePg(pg,module,loaded,value){
   super({...options,verify(client,done){module.verifySdkDatastoreClient(client,loaded.receipt,'chef','zee_chef_owner_20261023').then(()=>{try{return verify?verify(client,done):done();}catch(error){done(error);}},done);}});
  }};return OriginalPool;
 }
-export async function verifySourceRecovery({ pins, status, metadata, client, now = () => Date.now() / 1000 }) {
+export async function verifySourceRecovery({ pins, status, metadata, client, now = () => Date.now() / 1000, backlog = false }) {
   const proof = pins.sourceRecovery, checkpoint = status?.checkpoint;
   const uint = value => Number.isSafeInteger(value) && value >= 0;
   const validTime = () => proof && uint(proof.issuedAt) && uint(proof.expiresAt)
     && proof.issuedAt <= now() + 5 && proof.expiresAt > now()
     && proof.expiresAt > proof.issuedAt && proof.expiresAt - proof.issuedAt <= 7200;
-  if (proof?.version !== 1 || !validTime() || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(proof.generation ?? '')
-    || !uint(proof.maxInitialGap) || proof.maxInitialGap < 1 || proof.maxInitialGap > 4096
+  const readyCheckpoint = backlog && proof?.checkpoint?.status === 'ready' && proof.checkpoint.reconcileKind === undefined;
+  if (proof?.version !== (backlog ? 2 : 1) || !validTime() || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(proof.generation ?? '')
+    || !uint(proof.maxInitialGap) || proof.maxInitialGap < 1 || proof.maxInitialGap > (backlog ? 50000 : 4096)
     || !/^(0|[1-9][0-9]*)$/.test(proof.prepEpoch ?? '')
     || !uint(proof.checkpoint?.height) || proof.checkpoint.height > 0xfffffffe
     || proof.checkpoint.height < Number(metadata.ZEESWAP_CHEF_BIRTHDAY) || !sha(proof.checkpoint?.hash)
-    || proof.checkpoint.status !== 'reconciling' || proof.checkpoint.reconcileKind !== 'source') fail('SOURCE_RECOVERY_PINS_INVALID');
+    || (!readyCheckpoint && (proof.checkpoint.status !== 'reconciling' || proof.checkpoint.reconcileKind !== 'source'))
+    || (backlog && (proof.purpose !== 'SOURCE_ONLY_BOUNDED_BACKLOG' || !uint(proof.targetHeight)
+      || proof.targetHeight > 0xfffffffe || proof.targetHeight <= proof.checkpoint.height
+      || proof.targetHeight - proof.checkpoint.height > 4096))) fail('SOURCE_RECOVERY_PINS_INVALID');
   if (status?.project !== metadata.ZEESWAP_CHEF_PROJECT || status.fingerprint !== pins.projectFingerprint
-    || status.state !== 'reconciling' || status.readGate !== 'reconciling'
+    || !(readyCheckpoint ? ['caught_up', 'backfill'].includes(status.state) && status.readGate === 'ready'
+      : status.state === 'reconciling' && status.readGate === 'reconciling')
     || status.diagnostic?.projectGeneration !== proof.generation
     || checkpoint?.height !== proof.checkpoint.height || checkpoint.hash !== proof.checkpoint.hash
-    || checkpoint.status !== 'reconciling' || checkpoint.reconcileKind !== 'source'
+    || checkpoint.status !== proof.checkpoint.status || checkpoint.reconcileKind !== proof.checkpoint.reconcileKind
     || status.source?.identityMatches !== true) fail('SOURCE_RECOVERY_IDENTITY_MISMATCH');
-  const source = await client.getHeight({ timeoutMs: 5000 });
-  const age = now() - source.source_observed_at;
-  if (source.network !== 'testnet' || source.payload_kind !== 'full-v1' || source.ready !== true
+  const checkSource = source => {
+    const age = now() - source.source_observed_at;
+    if (source.network !== 'testnet' || source.payload_kind !== 'full-v1' || source.ready !== true
     || source.source_mode !== 'follower' || source.epoch !== proof.prepEpoch
     || !uint(source.source_observed_at) || age < -5 || age > 60
     || !uint(source.source_height) || !uint(source.indexed_height) || !uint(source.archive_height)
@@ -77,13 +82,38 @@ export async function verifySourceRecovery({ pins, status, metadata, client, now
     || !uint(source.lag_blocks) || source.lag_blocks > 6 || source.lag_blocks !== source.source_height - source.indexed_height
     || source.source_height - source.archive_height > 6
     || source.archive_height < checkpoint.height || source.source_height - checkpoint.height < 0
-    || source.source_height - checkpoint.height > proof.maxInitialGap) fail('SOURCE_RECOVERY_SOURCE_NOT_READY');
+    || source.source_height - checkpoint.height > proof.maxInitialGap
+    || (backlog && source.archive_height < proof.targetHeight)) fail('SOURCE_RECOVERY_SOURCE_NOT_READY');
+  };
+  const source = await client.getHeight({ timeoutMs: 5000 });
+  checkSource(source);
+  let latestSource = source;
   const page = await client.get({ from_block: checkpoint.height, to_block: checkpoint.height + 1, limit: 1,
     field_selection: { block: ['height', 'hash', 'previous_hash', 'time'], transaction: [] } }, { timeoutMs: 5000 });
   if (page.network !== 'testnet' || page.epoch !== proof.prepEpoch || page.next_block !== checkpoint.height + 1
     || page.data?.blocks?.length !== 1 || page.data.blocks[0].height !== checkpoint.height
     || page.data.blocks[0].hash !== checkpoint.hash || !validTime()
     || now() - source.source_observed_at < -5 || now() - source.source_observed_at > 60) fail('SOURCE_RECOVERY_HEADER_MISMATCH');
+  if (backlog) return {
+    async getHeight(options) {
+      if (!validTime()) fail('SOURCE_BACKLOG_AUTHORITY_EXPIRED');
+      const source = await client.getHeight(options);
+      if (!validTime()) fail('SOURCE_BACKLOG_AUTHORITY_EXPIRED');
+      checkSource(source);
+      latestSource = source;
+      return source;
+    },
+    async get(query, options) {
+      if (!validTime()) fail('SOURCE_BACKLOG_AUTHORITY_EXPIRED');
+      if (!uint(query?.from_block) || !uint(query?.to_block) || query.from_block < checkpoint.height
+        || query.to_block > proof.targetHeight + 1) fail('SOURCE_BACKLOG_RANGE_EXCEEDED');
+      const page = await client.get(query, options);
+      if (!validTime()) fail('SOURCE_BACKLOG_AUTHORITY_EXPIRED');
+      checkSource(latestSource);
+      if (page.network !== 'testnet' || page.epoch !== proof.prepEpoch) fail('SOURCE_RECOVERY_HEADER_MISMATCH');
+      return page;
+    },
+  };
 }
 export async function runRuntime(args = process.argv.slice(2), options = {}) {
   if (args.length !== 1 || !['api', 'check', 'follower'].includes(args[0])) fail('INVALID_ROLE');
@@ -177,6 +207,12 @@ export async function runRuntime(args = process.argv.slice(2), options = {}) {
     && status.source?.availability === 'available' && status.source.identityMatches === true
     && status.source.checkpointAheadOfPrep === false && Number.isSafeInteger(status.checkpoint?.height)
     && sha(status.checkpoint?.hash);
+  if (env.CHEF_SOURCE_RECOVERY === 'reviewed-source-backlog') {
+    const boundedClient = await verifySourceRecovery({ pins, status, metadata, client, now: options.now, backlog: true });
+    // A recovery campaign always exits at its reviewed target, even if status is already ready.
+    await sdk.main(['sync', '--config', config, '--to', String(pins.sourceRecovery.targetHeight), '--json'], { client: boundedClient });
+    return;
+  }
   if (!ready && env.CHEF_SOURCE_RECOVERY === 'reviewed-source-only') {
     await verifySourceRecovery({ pins, status, metadata, client, now: options.now });
   } else if (!ready) fail('FOLLOWER_PREFLIGHT_NOT_READY');

@@ -213,6 +213,76 @@ cleanup and advisory-lock release, and retain independent before/after canonical
 and financial receipts. The proof expiry gates startup; it is not a built-in
 runtime watchdog. This remains preparation until actual operator evidence exists.
 
+### Explicit finite recovery of a larger source backlog
+
+The ordinary path and the version 1 source-only path retain their existing
+behavior and 4,096-block initial-gap limit. A larger real backlog requires the
+separate `CHEF_SOURCE_RECOVERY=reviewed-source-backlog` selector and a reviewed
+private version 2 `sourceRecovery` proof. Use the base Compose configuration
+with restart `no`, never `compose.normal.yaml`. All existing image, SDK, scanner,
+project, datastore, key/account and writer opt-ins remain required.
+
+The version 2 proof keeps the same exact original `generation`, checkpoint
+height/hash, `prepEpoch`, `issuedAt`, `expiresAt` and `maxInitialGap` fields. Its
+additional `purpose` must be `SOURCE_ONLY_BOUNDED_BACKLOG`, and `targetHeight`
+must be an integer strictly above the pinned checkpoint and at most 4,096 blocks
+above it. `maxInitialGap` is at most 50,000, while the finite authority lifetime
+remains at most 7,200 seconds. The checkpoint must be either the exact source
+reconciliation state (`status: "reconciling", reconcileKind: "source"`) or the
+exact already-ready continuation state (`status: "ready"`, with `reconcileKind` absent, as emitted by SDK 0.7.0).
+The SDK status must independently match that state, original generation and
+project fingerprint. Reorg, blocked and unknown states remain refused.
+
+This mode always invokes the installed official SDK as `sync --to TARGET --json`
+and exits, including when status is already ready. It never enters `--follow`.
+The target must already exist in the actual fresh Prep archive. Source head,
+archive, indexed height, timestamps and responses pass through unchanged. Every
+metadata read rechecks the pinned epoch, complete birthday history, readiness,
+source lags at most six blocks, original source-to-checkpoint gap cap and freshness.
+Every request and response checks proof expiry; every block response checks the
+pinned epoch/network and the latest genuine source observation's freshness.
+Requests below the original checkpoint or above the inclusive target refuse,
+including an SDK attempt to search a deeper reorg. The official SDK retains
+canonical header validation, contiguous processing, scanner, transactions,
+advisory lock and durable resume. No SQL metadata is rewritten by the wrapper.
+
+Root's operator procedure is:
+
+1. Restore Prep to genuinely ready follower state at the real network head with
+   both measured lags at most six. Do not lower or fabricate its head to fit a cap.
+   Independently preserve the paused financial baseline and original canonical
+   and financial anchors. This mode cannot authorize financial process changes.
+2. Stop only the old Chef source writer; positively prove process exit and lock
+   release. Preserve API token, project, account, UFVK, birthday, generation,
+   original database/namespace and datastore relocation authority. Capture private
+   before-state evidence and a restorable backup before running the new wrapper.
+3. Review/build the exact changed wrapper image and private file hashes. Read
+   actual SDK status, actual Prep metadata and the exact retained checkpoint
+   header. Issue a fresh version 2 proof from those real values, with a first
+   target such as `min(checkpoint.height + 4096, actual.archive_height)`.
+   A small initial target is appropriate to establish real throughput first.
+4. Start only the follower with both explicit follower and backlog selectors.
+   Own an external hard deadline no later than proof expiry, with bounded graceful
+   stop and forced cleanup if necessary. Request-boundary expiry cannot interrupt
+   a blocked scanner/database call or undo an already-started commit, so the
+   external deadline remains mandatory. Do not enable automatic container retries.
+5. Verify the SDK's actual completion target, process exit, released writer lock,
+   exact generation/account/key identity, canonical checkpoint/header and preserved
+   financial anchors. Preserve partial durable progress after failure. A heartbeat
+   or a ready SDK read gate does not establish current application freshness.
+6. For another chunk, independently resample and issue a new exact checkpoint
+   proof. Never reuse stale start pins or renew authority automatically. A changed
+   epoch, canonical anchor, generation, financial baseline or unknown outcome
+   requires review. Continue bounded chunks until the actual source gap is small.
+7. Once independently verified near head, use the existing version 1 recovery if
+   still source-reconciling, or the normal operation handoff below if ready. Retire
+   all recovery deadlines, remove `sourceRecovery` from normal pins and explicitly
+   disable recovery before continuous following. Source recovery never enables
+   application admission, settlement or a financial worker.
+
+Implementation tests are local fixtures; they do not prove VPS recovery, throughput,
+restoration, canonical live state or application readiness.
+
 ### Continuous normal-operation supervision
 
 After a reviewed source-only run completes and its deadline is retired, normal

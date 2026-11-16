@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pathToFileURL } from 'node:url';
 import { runRuntime, digest, validateMetadata, validateDatabase, verifySourceRecovery, runtimeFailure,bindChefDatastorePg } from './runtime.mjs';
 import { stageContext, projectFiles } from './stage-context.mjs';
 import { fixedPayloadClient } from '../../indexers/zeer/bounded-prep-client.mjs';
@@ -207,6 +208,177 @@ function recoveryFixture() {
 test('source-only proof validates actual fresh Prep and exact retained header before official replay', async () => {
   const f = recoveryFixture(); await verifySourceRecovery(f);
   assert.deepEqual(f.reads, ['height', 'header']);
+});
+
+function backlogFixture() {
+  const f = recoveryFixture();
+  Object.assign(f.pins.sourceRecovery, { version: 2, purpose: 'SOURCE_ONLY_BOUNDED_BACKLOG', maxInitialGap: 50000, targetHeight: 4196 });
+  Object.assign(f.source, { source_height: 36000, indexed_height: 36000, archive_height: 36000, lag_blocks: 0 });
+  return { ...f, backlog: true };
+}
+
+test('large backlog uses untouched real metadata and permits at most 4096 committed heights per run', async () => {
+  const f = backlogFixture();
+  const client = await verifySourceRecovery(f);
+  assert.equal(await client.getHeight(), f.source);
+  assert.equal(await client.get({ from_block: 4196, to_block: 4197, limit: 1 }), f.page);
+  await assert.rejects(client.get({ from_block: 4197, to_block: 4198, limit: 1 }), /SOURCE_BACKLOG_RANGE_EXCEEDED/);
+  await assert.rejects(client.get({ from_block: 99, to_block: 100, limit: 1 }), /SOURCE_BACKLOG_RANGE_EXCEEDED/);
+});
+
+test('large backlog opt-in cannot widen ordinary v1 or accept unsupported targets and identities', async () => {
+  const v1 = backlogFixture();
+  await assert.rejects(verifySourceRecovery({ ...v1, backlog: false }), /SOURCE_RECOVERY_PINS_INVALID/);
+  for (const mutate of [
+    f => { f.pins.sourceRecovery.purpose = 'OTHER'; },
+    f => { f.pins.sourceRecovery.maxInitialGap = 50001; },
+    f => { f.pins.sourceRecovery.targetHeight = 4197; },
+    f => { f.pins.sourceRecovery.targetHeight = 100; },
+    f => { f.status.diagnostic.projectGeneration = 'changed'; },
+    f => { f.status.checkpoint.reconcileKind = 'reorg'; },
+    f => { f.pins.sourceRecovery.checkpoint.status = 'ready'; },
+    f => { f.pins.sourceRecovery.expiresAt = f.now() + 7201; },
+  ]) {
+    const f = backlogFixture(); mutate(f);
+    await assert.rejects(verifySourceRecovery(f)); assert.deepEqual(f.reads, []);
+  }
+  const unavailable = backlogFixture(); unavailable.pins.sourceRecovery.targetHeight = 4196;
+  Object.assign(unavailable.source, { source_height: 3000, indexed_height: 3000, archive_height: 3000 });
+  await assert.rejects(verifySourceRecovery(unavailable), /SOURCE_RECOVERY_SOURCE_NOT_READY/);
+});
+
+test('large backlog continuation checks exact ready checkpoint and never permits a reorg checkpoint', async () => {
+  const f = backlogFixture();
+  Object.assign(f.pins.sourceRecovery.checkpoint, { status: 'ready', reconcileKind: undefined });
+  Object.assign(f.status.checkpoint, { status: 'ready', reconcileKind: undefined });
+  Object.assign(f.status, { state: 'backfill', readGate: 'ready' });
+  await verifySourceRecovery(f);
+  f.status.checkpoint.reconcileKind = 'reorg';
+  await assert.rejects(verifySourceRecovery(f), /SOURCE_RECOVERY_IDENTITY_MISMATCH/);
+});
+
+test('large backlog rechecks actual epoch lag and freshness on each metadata response', async () => {
+  for (const mutate of [
+    f => { f.source.epoch = '36'; }, f => { f.source.source_observed_at -= 61; },
+    f => { f.source.source_height += 7; f.source.lag_blocks = 7; },
+    f => { f.source.source_height = 50101; f.source.indexed_height = 50101; f.source.archive_height = 50101; },
+  ]) {
+    const f = backlogFixture(), client = await verifySourceRecovery(f); mutate(f);
+    await assert.rejects(client.getHeight(), /SOURCE_RECOVERY_SOURCE_NOT_READY/);
+  }
+  const f = backlogFixture(), client = await verifySourceRecovery(f);
+  f.page.epoch = '36';
+  await assert.rejects(client.get({ from_block: 100, to_block: 101, limit: 1 }), /SOURCE_RECOVERY_HEADER_MISMATCH/);
+  const stale = backlogFixture(); let clock = stale.now(); stale.now = () => clock;
+  const staleClient = await verifySourceRecovery(stale);
+  stale.client.get = async () => { clock += 61; return stale.page; };
+  await assert.rejects(staleClient.get({ from_block: 100, to_block: 101, limit: 1 }), /SOURCE_RECOVERY_SOURCE_NOT_READY/);
+});
+
+test('large backlog refuses requests and responses after finite authority expires', async () => {
+  const f = backlogFixture(); let clock = f.now(); f.now = () => clock;
+  const client = await verifySourceRecovery(f);
+  clock = f.pins.sourceRecovery.expiresAt;
+  const before = f.reads.length;
+  await assert.rejects(client.getHeight(), /SOURCE_BACKLOG_AUTHORITY_EXPIRED/);
+  await assert.rejects(client.get({ from_block: 100, to_block: 101, limit: 1 }), /SOURCE_BACKLOG_AUTHORITY_EXPIRED/);
+  assert.equal(f.reads.length, before);
+  clock--;
+  f.client.get = async () => { clock++; return f.page; };
+  await assert.rejects(client.get({ from_block: 100, to_block: 101, limit: 1 }), /SOURCE_BACKLOG_AUTHORITY_EXPIRED/);
+  clock--;
+  f.client.getHeight = async () => { clock++; return f.source; };
+  await assert.rejects(client.getHeight(), /SOURCE_BACKLOG_AUTHORITY_EXPIRED/);
+});
+
+test('explicit large-backlog mode invokes SDK finite target even with an already ready status', async t => {
+  for (const ready of [false, true]) {
+    const f = await fixture(t); await scannerFixture(f); const r = backlogFixture();
+    if (ready) {
+      Object.assign(r.pins.sourceRecovery.checkpoint, { status: 'ready', reconcileKind: undefined });
+      Object.assign(r.status.checkpoint, { status: 'ready', reconcileKind: undefined });
+      Object.assign(r.status, { state: 'backfill', readGate: 'ready' });
+    }
+    Object.assign(f.status, r.status); f.pins.sourceRecovery = r.pins.sourceRecovery; await f.savePins();
+    f.now = r.now; f.env.CHEF_SOURCE_RECOVERY = 'reviewed-source-backlog';
+    f.prep = { PrepClient: class { async getHeight() { return r.source; } async get() { return r.page; } } };
+    const main = f.sdk.main;
+    f.sdk.main = async (args, deps) => {
+      if (args[0] === 'sync') { f.calls.push(args); assert.equal(await deps.client.getHeight(), r.source); }
+      else await main(args, deps);
+    };
+    await runRuntime(['follower'], f);
+    assert.deepEqual(f.calls.at(-1), ['sync', '--config', resolve(f.app, 'chef.config.ts'), '--to', '4196', '--json']);
+    assert.equal(f.calls.some(call => call.includes('--follow')), false);
+  }
+});
+
+test('published SDK finite sync resumes original source-reconciling state, preserves anchors and exits its lock', async t => {
+  const directory = await mkdtemp(resolve(tmpdir(), 'chef-sdk-backlog-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const { main } = await import(pathToFileURL(resolve(here, '../../indexers/zeer/node_modules/@zeer-dev/chef/dist/cli.js')));
+  const config = resolve(directory, 'config.mjs');
+  await writeFile(resolve(directory, 'schema.graphql'), 'type Visit { id: ID! }');
+  await writeFile(config, `export default {project:'zeeswap_shadow_fixture', network:'testnet', startHeight:1,
+    schema:'schema.graphql', handlerVersion:'fixture', prepUrlEnv:'CHEF_BACKLOG_TEST_PREP', databaseUrlEnv:'CHEF_BACKLOG_TEST_DB',
+    indexer:{block:()=>{}}, sync:{pageSize:16}};`);
+  for (const [key, value] of Object.entries({ CHEF_BACKLOG_TEST_PREP: metadata.ZEESWAP_CHEF_PREP_URL, CHEF_BACKLOG_TEST_DB: 'fixture' })) {
+    const previous = process.env[key]; process.env[key] = value;
+    t.after(() => { if (previous === undefined) delete process.env[key]; else process.env[key] = previous; });
+  }
+  const f = backlogFixture(), hash = height => height.toString(16).padStart(64, '0');
+  f.pins.sourceRecovery.checkpoint.hash = hash(100);
+  let checkpoint = { ...f.pins.sourceRecovery.checkpoint, anchorHash: hash(0), undoFloor: 0 };
+  const applied = [], reads = []; let locked = false, closes = 0;
+  const store = {
+    checkpoint: async () => ({ ...checkpoint }),
+    consumptionStatus: async () => ({ generation: f.pins.sourceRecovery.generation, revision: '1', checkpoint: { ...checkpoint }, lastCommitAt: null }),
+    acquire: async () => { assert.equal(locked, false); locked = true; },
+    close: async () => { locked = false; closes++; },
+    recordSourceObservation: async () => {},
+    markReady: async () => { checkpoint.status = 'ready'; delete checkpoint.reconcileKind; },
+    markReconciling: async kind => { checkpoint.status = 'reconciling'; checkpoint.reconcileKind = kind ?? 'unknown'; },
+    rollback: async () => { assert.fail('canonical fixture must not roll back'); },
+    apply: async (block, handler) => {
+      assert.equal(locked, true); assert.equal(block.height, checkpoint.height + 1);
+      assert.equal(block.previousHash, checkpoint.hash); await handler({});
+      applied.push(block.height); checkpoint.height = block.height; checkpoint.hash = block.hash;
+    },
+  };
+  const transport = fixedPayloadClient({
+    getHeight: async () => f.source,
+    get: async query => {
+      reads.push(query.from_block);
+      return { network: 'testnet', epoch: '35', from_block: query.from_block, next_block: query.to_block,
+        data: { blocks: Array.from({ length: query.to_block - query.from_block }, (_, index) => {
+          const height = query.from_block + index; return { height, hash: hash(height), previous_hash: hash(height - 1), time: 1 };
+        }), transactions: [] } };
+    },
+  });
+  const packets = [];
+  const status = async () => {
+    await main(['status', '--config', config, '--json'], { store, client: transport, write: text => packets.push(JSON.parse(text)) });
+    return packets.at(-1);
+  };
+  const initial = await status();
+  assert.equal(initial.state, 'reconciling'); assert.equal(initial.readGate, 'reconciling');
+  assert.equal(initial.checkpoint.reconcileKind, 'source');
+  f.pins.projectFingerprint = initial.fingerprint;
+  for (const target of [103, 106]) {
+    f.status = await status(); f.pins.sourceRecovery.checkpoint = { ...f.status.checkpoint };
+    f.pins.sourceRecovery.targetHeight = target;
+    const client = await verifySourceRecovery({ ...f, client: transport });
+    await main(['sync', '--config', config, '--to', String(target), '--json'], { store, client, write: text => packets.push(JSON.parse(text)) });
+    assert.equal(packets.at(-1).state, 'complete'); assert.equal(packets.at(-1).finalHeight, target);
+    assert.equal(locked, false); assert.equal(checkpoint.anchorHash, hash(0));
+    const after = await status();
+    assert.equal(after.state, 'backfill'); assert.equal(after.checkpoint.status, 'ready');
+    assert.equal(Object.hasOwn(after.checkpoint, 'reconcileKind'), false);
+    assert.equal(after.diagnostic.projectGeneration, initial.diagnostic.projectGeneration);
+  }
+  assert.deepEqual(applied, [101, 102, 103, 104, 105, 106]);
+  assert.equal(Math.min(...reads), 100); assert.equal(Math.max(...reads), 106);
+  assert.ok(closes >= 2);
 });
 test('source-only proof rejects generation, checkpoint, kind, expiry and oversized authority', async () => {
   const cases = [
