@@ -125,15 +125,16 @@ then entered `source_wait`. The three-minute normal-follow observation failed
 on this node OOM after its last sample at 4,586,751. Earlier progress and successful
 finite replay therefore do not constitute stable final recovery acceptance.
 
-A proposed increase from the explicitly bounded 8 GiB aggregate to 10 GiB,
-including a 7 GiB node allowance, awaits human approval. The proposed boundary
-retains aggregate CPU 3, host memory floor 3 GiB and disk limits 64 GiB plus 26 GiB.
-This is a pending resource proposal, not authority to apply it or evidence that
-the proposed limits will prevent another OOM. Further measurement and a fresh
-stable observation are required if it is approved. Full source catch-up and
-financial readiness remain unproven; no financial activation is implied.
+At that interruption, the proposed increase from the explicitly bounded 8 GiB
+aggregate to 10 GiB, including a 7 GiB node allowance, awaited human approval.
+The then-existing boundaries were aggregate CPU 3, host memory floor 3 GiB,
+aggregate Zeer disk allocation 64 GiB, Prep archive budget 26 GiB and minimum
+physical free space 25 GiB. The later approval and applied capacity revision
+are recorded below; that proposal alone did not authorize the change or prove
+that another OOM would be prevented. Full source catch-up and financial readiness
+remain separate unproven gates.
 
-## Optional follower dispatch pacing: implementation awaiting deployment
+## Optional follower dispatch pacing: implementation and local checks
 
 After the separate API CPU rebalance, Root reported a 12-sample cohort with
 12/12 native Prep height reads returning HTTP 200 and fresh metadata, while
@@ -159,7 +160,7 @@ process-local pace.
 Project config/schema, Prep URL, source metadata, scanner, account/key, generation,
 payload/freshness bounds and normal/recovery selection remain unchanged. The
 wrapper and reviewed file hashes change; the project fingerprint does not.
-Actual replacement requires Root's separate image/pins review, positive old
+Actual replacement required Root's separate image/pins review, positive old
 writer stop and lock release, real checkpoint/source qualification and a new
 observed cohort. Financial supervision remains a separate paused boundary.
 
@@ -170,6 +171,104 @@ through the real installed PrepClient, unchanged request/response/error identity
 legacy default behavior, invalid pins before SDK calls and unchanged normal
 follow selection. The installed real SDK status command produced the same
 project fingerprint and checkpoint through the original transport and the paced
-real PrepClient. Scoped `git diff --check` passed. This section records local
-implementation only; deployment, stable live catch-up and month-long capacity
-are not proven by these tests.
+real PrepClient. Root independently verified the same 39/39 result. Scoped
+`git diff --check` passed. These local checks do not establish live deployment,
+stable catch-up or month-long capacity; actual handoff observations follow.
+
+## Approved capacity revision and paced normal handoff
+
+The user subsequently approved the 10 GiB aggregate RAM envelope with a 7 GiB
+node allowance and requested a capacity assessment for the next 30 days. Root
+applied 10,048 MiB to the main Zeer slice plus 192 MiB to the bridge slice,
+7 GiB to Zebra, 1,536 MiB to the Prep API and 1,024 MiB to the writer. Aggregate
+CPU remains 3 cores; API/writer maxima are 1 core each and the node maximum is
+2 cores, sharing the aggregate constraint. Capacity planning increased the Prep
+archive budget to 40 GiB and aggregate Zeer disk allocation to 84 GiB with an
+83 GiB guard stop. The host physical-free-space floor remains 25 GiB and host
+available-memory floor remains 3 GiB. The node had run for more than 90 minutes
+without another observed OOM at the time of this handoff record. This observation
+does not guarantee a month without failure.
+
+The separate source capacity analysis is maintained in Zeer's
+[16 November resource capacity document](https://github.com/EndPx/zeer/blob/main/docs/PREP_RESOURCE_CAPACITY_20261116.md).
+The sanitized source artifact was checked locally at
+`Zeer/apps/docs/static/operations/2026-11-16-capacity-recovery.json`, including a
+passing capacity-model arithmetic check, then published in docs release
+`20261116-resource-capacity` as the
+[16 November capacity recovery artifact](https://zeer.endpx.cloud/docs/operations/2026-11-16-capacity-recovery.json).
+Root verified all 45 deployed HTML pages byte-for-byte and the artifact bytes
+over TLS through loopback. Artifact SHA-256 is
+`b53b18b8e7ae02cb284cd9b1f3ff9922fc5795c9aff7305bbdf2e208f6a399cb`.
+Deployment used a graceful Nginx reload with no application restart. Independent
+internet-path verification is separate from this deployed TLS loopback check.
+
+Two measured capacity problems were distinguished. With the API limited to
+0.5 CPU, 93 samples yielded 64 HTTP 200 and 29 HTTP 429 responses. At 1 CPU,
+86 samples yielded 85 HTTP 200 and one HTTP 429, but the consumer read gate was
+ready only approximately 23% of the time. Public Nginx ingress remained limited
+to 2 requests per second, and follower bursts continued to trigger it. API CPU
+rebalance and follower dispatch pacing address these separate observations;
+the ingress rate and backend admission concurrency were not relaxed.
+
+Root deployed wrapper commit `6cd5a59` with `prepDispatchIntervalMs: 1000` in
+the reviewed private pins. The reviewed image hash is
+`c7b734a08e3faa0ee73d2cac71047daa2bbf0931881cb16a6b41b6529bc1ae7f`
+and runtime SHA-256 is
+`292100112e1fcf650d62222a24e1fd0e2088d3329f9aa6afd9ae3850403b63fa`.
+The native Chef SDK remains 0.7.0; this is a deployment-wrapper change with no
+npm release.
+
+After positive old-writer shutdown, the actual finite SDK run advanced
+4,587,566 to 4,587,567: one block, zero transactions, 8.003180787 seconds, exit 0.
+Root positively verified released writer ownership before starting the separately
+reviewed normal follower. Normal pins contain no `sourceRecovery` object and
+recovery is disabled. The follower process was recreated for the new image,
+retaining the same database and original project rather than resetting state.
+
+At Root's independent observation at Unix time 1,794,825,438, Prep archive and
+actual observed source heights were both 4,626,014, with source observation time
+1,794,825,432. Chef's committed checkpoint was 4,587,727, ready with source
+available; the remaining gap was **38,287 blocks**, so Chef was **not caught up**.
+Root verified the checkpoint hash against Prep and preserved all five original
+entity-row hashes. Generation, anchor and hashes of key, metadata, account,
+scanner and database URL remained unchanged. The API container identity and
+start time were unchanged. A second advisory-lock attempt was refused, proving
+the active follower's sole-writer ownership at that observation.
+
+The exact financial baseline remained unchanged, fully closed and paused, with
+no financial actions. The financial supervision timer remains **paused** pending
+separate application qualification. Neither the ready queryable prefix nor this
+source-only handoff establishes current application freshness or financial
+readiness.
+
+### Final paced soak: bounded observation passed
+
+Root's final paced cohort C passed across **91 samples over 900.020593 seconds**.
+Native Prep returned HTTP 200 in all 91 samples with zero HTTP 429 responses;
+source-ready and consumer-ready fractions were both 1. The committed checkpoint
+advanced from 4,587,611 to 4,587,836, **225 blocks**. All 16 sampled GraphQL checks
+were ready. Node uptime reached 6,010 seconds, approximately 100 minutes, with
+observed node RSS peak 3,865,165,824 bytes. The follower recorded zero restarts
+and Prep recorded zero OOM kills in this observation. The rejected A/B cohorts
+remain separate evidence and are not relabeled as passes by cohort C.
+
+At the repeated independent final observation at Unix time 1,794,825,889, Prep
+archive height was 4,626,029 and actual observed source height was 4,626,030 at
+source observation time 1,794,825,883. Chef checkpoint was 4,587,840, ready with
+source available. Its remaining gap to the archive was **38,189 blocks**:
+the source follower was progressing but **not caught up**. Root repeated the
+original identity, entity-row hash, sole-writer lock, unchanged API and closed
+financial-baseline checks, all passing. Financial supervision remains paused
+pending separate application qualification.
+
+The capacity snapshot at Unix time 1,794,825,825 measured physical free space
+50,887,094,272 bytes and host available RAM 7,789,191,168 bytes. Aggregate Zeer
+storage measured 66,271,082,082 bytes and archive storage 26,501,463,405 bytes.
+The resource guard passed and monitor warnings were empty. These measurements
+and the checked capacity model support the recorded resource assessment; they
+do not constitute an observation of 30 days of future operation.
+
+This passes the measured 15-minute paced source-following observation and its
+repeated unchanged-world checks. It does not establish complete catch-up,
+independent network-head freshness, application financial readiness or month-long
+uptime. No financial activation occurred.
