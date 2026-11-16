@@ -5,9 +5,10 @@ import { tmpdir } from 'node:os';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pathToFileURL } from 'node:url';
-import { runRuntime, digest, validateMetadata, validateDatabase, verifySourceRecovery, runtimeFailure,bindChefDatastorePg, pacedFetch } from './runtime.mjs';
+import { createHash } from 'node:crypto';
+import { runRuntime, digest, validateMetadata, validateDatabase, verifySourceRecovery, runtimeFailure,bindChefDatastorePg, pacedFetch, executionProfileDigest } from './runtime.mjs';
 import { stageContext, projectFiles } from './stage-context.mjs';
-import { fixedPayloadClient } from '../../indexers/zeer/bounded-prep-client.mjs';
+import { fixedPayloadClient, catchupPayloadClient } from '../../indexers/zeer/bounded-prep-client.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 test('dispatch pacing defaults to exact legacy fetch and rejects unsupported private intervals before SDK', async t => {
@@ -112,6 +113,63 @@ async function fixture(t) {
   const prep = { PrepClient: class { constructor(options) { prepOptions.push(options); } async get(query) { requests.push(query); return {}; } } };
   return { app, privateDir, env, sdk, prep, bounded: { fixedPayloadClient }, identity: { uid: 986, gid: 978 }, pins, savePins, calls, requests, prepOptions, status };
 }
+function profileFor(f, n = 16) {
+  const profile = { version: 1, purpose: 'REVIEWED_BOUNDED_CATCHUP', pageSize: n, batchSize: n, maxPayloadBlocks: n, dispatchIntervalMs: 600 };
+  profile.digest = executionProfileDigest(f.pins.projectFingerprint, profile);
+  Object.assign(f.pins, { maxPayloadBlocks: n, prepDispatchIntervalMs: 600, executionProfile: profile });
+  return profile;
+}
+test('execution profile validates all roles before SDK, never overrides API/check and preserves original fields in follower', async t => {
+  for (const role of ['api', 'check', 'follower']) {
+    const f = await fixture(t); await scannerFixture(f); profileFor(f); await f.savePins();
+    const filter = { shielded_pools: ['orchard', 'ironwood'] }, indexer = {}, originalSync = { pageSize: 16, batchSize: 1, transactionFilter: filter };
+    const project = { config: { sync: originalSync, indexer } }; f.sdk.loadProject = async () => project;
+    class PrepError extends Error {}
+    f.prep.PrepError = PrepError; f.bounded.catchupPayloadClient = catchupPayloadClient;
+    await runRuntime([role], f);
+    assert.equal(project.config.sync.batchSize, role === 'follower' ? 16 : 1);
+    assert.equal(project.config.sync === originalSync, role !== 'follower');
+    assert.equal(project.config.sync.transactionFilter, filter); assert.equal(project.config.indexer, indexer);
+    if (role === 'follower') assert.ok(f.calls.at(-1).includes('--follow'));
+    f.pins.executionProfile.digest = '0'.repeat(64); await f.savePins(); f.calls.length = 0;
+    await assert.rejects(runRuntime([role], f), /EXECUTION_PROFILE_INVALID/); assert.deepEqual(f.calls, []);
+  }
+});
+test('v3 requires its exact selector, dispatches finite official SDK only and cannot widen v1/v2', async t => {
+  const f = await fixture(t); await scannerFixture(f); const profile = profileFor(f);
+  const r = recoveryFixture(); r.status.checkpoint = { ...r.status.checkpoint, reconcileKind: 'reorg', anchorHash: 'e'.repeat(64), undoFloor: 100 };
+  r.status.diagnostic.dataRevision = '9'; Object.assign(f.status, r.status);
+  const journal = { version: 1, projectFingerprint: f.pins.projectFingerprint, generation: r.status.diagnostic.projectGeneration,
+    dataRevision: '9', prepEpoch: '35', checkpoint: { ...f.status.checkpoint }, headers: [{ height: 100, hash: f.status.checkpoint.hash, previousHash: 'e'.repeat(64) }] };
+  const bytes = Buffer.from(JSON.stringify(journal)); await writeFile(resolve(f.privateDir, 'canonical-reorg-journal.json'), bytes);
+  f.pins.sourceRecovery = { version: 3, purpose: 'CANONICAL_REORG_FINITE_REPLAY', projectFingerprint: f.pins.projectFingerprint,
+    executionProfileDigest: profile.digest, generation: journal.generation, checkpoint: { ...journal.checkpoint }, dataRevision: '9', prepEpoch: '35',
+    issuedAt: r.now() - 10, expiresAt: r.now() + 100, maxInitialGap: 50000, targetHeight: 150, retainedJournalSha256: createHash('sha256').update(bytes).digest('hex') };
+  await f.savePins(); f.now = r.now;
+  await assert.rejects(runRuntime(['follower'], f), /CANONICAL_REORG_SELECTOR_REQUIRED/); assert.deepEqual(f.calls, []);
+  f.env.CHEF_SOURCE_RECOVERY = 'reviewed-canonical-reorg';
+  class PrepError extends Error {}
+  f.prep = { PrepError, PrepClient: class { async getHeight() { return r.source; } async get() {
+    return { ...r.page, data: { blocks: [{ ...r.page.data.blocks[0], previous_hash: 'e'.repeat(64) }] } };
+  } } }; f.bounded.catchupPayloadClient = catchupPayloadClient;
+  f.sdk.loadProject = async () => ({ config: { sync: { pageSize: 16, batchSize: 1 } } });
+  const original = f.sdk.main;
+  f.sdk.main = async (args, deps) => { if (args[0] === 'sync') f.calls.push(args); else await original(args, deps); };
+  await runRuntime(['follower'], f);
+  assert.deepEqual(f.calls.at(-1), ['sync', '--config', resolve(f.app, 'chef.config.ts'), '--to', '150', '--json']);
+  assert.equal(f.calls.some(args => args.includes('--follow')), false);
+  f.pins.sourceRecovery.purpose = 'CANONICAL_READY_FINITE_REPLAY';
+  for (const cp of [f.pins.sourceRecovery.checkpoint, f.status.checkpoint, journal.checkpoint]) { cp.status = 'ready'; delete cp.reconcileKind; }
+  f.status.state = 'backfill'; f.status.readGate = 'ready';
+  const readyBytes = Buffer.from(JSON.stringify(journal));
+  f.pins.sourceRecovery.retainedJournalSha256 = createHash('sha256').update(readyBytes).digest('hex');
+  await writeFile(resolve(f.privateDir, 'canonical-reorg-journal.json'), readyBytes); await f.savePins();
+  await runRuntime(['follower'], f);
+  assert.deepEqual(f.calls.at(-1), ['sync', '--config', resolve(f.app, 'chef.config.ts'), '--to', '150', '--json']);
+  assert.equal(f.calls.some(args => args.includes('--follow')), false);
+  for (const version of [1, 2]) { f.pins.sourceRecovery.version = version; await f.savePins();
+    await assert.rejects(runRuntime(['follower'], f), /EXECUTION_PROFILE_RECOVERY_MODE/); }
+});
 test('API starts authenticated serve with metadata only, without scanner, UFVK or Prep token files', async t => {
   const f = await fixture(t);
   await runRuntime(['api'], f);

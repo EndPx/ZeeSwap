@@ -298,6 +298,117 @@ Root's operator procedure is:
 Implementation tests are local fixtures; they do not prove VPS recovery, throughput,
 restoration, canonical live state or application readiness.
 
+### Explicit bounded catch-up execution profile and canonical-reorg replay
+
+Legacy default-one, explicit fixed-two and v1/v2 source recovery retain their
+existing behavior. They have no automatic 413 fallback. A separate reviewed
+`pins.executionProfile` enables paired page/batch/payload values **16 or 64**:
+
+```json
+{
+  "version": 1,
+  "purpose": "REVIEWED_BOUNDED_CATCHUP",
+  "pageSize": 16,
+  "batchSize": 16,
+  "maxPayloadBlocks": 16,
+  "dispatchIntervalMs": 600,
+  "digest": "<reviewed executionProfileDigest>"
+}
+```
+
+Top-level `pins.maxPayloadBlocks` and `pins.prepDispatchIntervalMs` must equal
+the profile values. No other profile fields or combinations are accepted.
+`executionProfileDigest(projectFingerprint, profile)` exported by `runtime.mjs`
+hashes UTF-8 `JSON.stringify` of this exact insertion order:
+`{version:1,purpose:"REVIEWED_BOUNDED_CATCHUP",projectFingerprint,pageSize,batchSize,maxPayloadBlocks,dispatchIntervalMs}`.
+For fingerprint `b` repeated 64 times, paired 16 and interval 600, the digest is
+`d3cf151fd80dc1200a8e618fce1ef6660563363275b1e898f033c71fe87b98e8`.
+
+The wrapper validates this profile for every role before SDK calls, but applies
+it only in the follower. After checking the original project fingerprint it
+clones the cached config's `sync` object and changes only effective page/batch
+sizes, then rechecks fingerprint equality. The installed CLI imports the same
+module object in that process and revalidates the override. Original config
+bytes, model, handlers, filters, birthday, account/key and URL remain unchanged;
+effective execution settings deliberately change and are bound separately by
+the profile digest and runtime pins. This is no core SDK patch or npm release.
+API/check roles do not apply the override. A profile cannot accompany v1/v2
+recovery proofs.
+
+Only this new transport retries an actual SDK PrepError with HTTP status 413:
+halve the clipped payload limit down to one, preserving original fields/filter,
+start, options and signal. At most `log2(cap)+1` attempts are possible for paired
+power-of-two limits; there is no widening, header cache or response rewrite.
+A 413 at one, malformed response, epoch error, 429 or other error propagates;
+only the SDK's existing follow loop decides subsequent transient recovery.
+Each attempt retains PrepClient's existing timeout and body validation, and the
+same outer cancellation signal. Root must own the finite operation's deadline.
+The actual 16 November deployed Prep fixed response limit was **8 MiB**, while
+the installed PrepClient body guard is 32 MiB. Neither limit is increased here.
+
+Use `CHEF_SOURCE_RECOVERY=reviewed-canonical-reorg` only for a private version 3
+`sourceRecovery` proof with purpose `CANONICAL_REORG_FINITE_REPLAY`, original
+`projectFingerprint`, `executionProfileDigest`, `generation`, `dataRevision`,
+`prepEpoch`, `issuedAt`, `expiresAt`, `maxInitialGap`, `targetHeight` and
+`retainedJournalSha256`. Its exact `checkpoint` contains `height`, `hash`,
+`status: "reconciling"`, `reconcileKind: "reorg"`, `anchorHash` and `undoFloor`.
+Admission must match the SDK's actual checkpoint, generation/revision and original
+project. Future issuance tolerance is five seconds; authority lifetime remains
+at most 7,200 seconds. Initial actual source gap and finite target advance are
+at most 50,000 blocks. The available target must be strictly above the checkpoint.
+
+A second explicit phase uses a new v3 proof purpose
+`CANONICAL_READY_FINITE_REPLAY` under that same operator selector. It requires
+the exact checkpoint `status: "ready"` with `reconcileKind` absent and actual SDK
+state `backfill` or `caught_up`, read gate ready. All other journal, identity,
+revision, profile, source, time and finite target checks are identical. This
+supports a separately reviewed finite profile-64 canary after a successful
+profile-16 reconciliation run without interrupting an infinite follower mid-fetch.
+The reorg purpose remains strictly reorg-only; changing purpose requires fresh
+exact proof/journal authority. Both purposes run only official finite `--to` and
+never fall through to follow. Missing authority or wrong purpose/state refuses.
+
+Mount the owner-protected regular file `canonical-reorg-journal.json` into the
+follower private directory explicitly; do not mount it into the API. Its exact
+bytes are hashed by `retainedJournalSha256`. It contains `version:1`, original
+`projectFingerprint`, `generation`, `dataRevision`, `prepEpoch`, the exact
+`checkpoint` and `headers:[{height,hash,previousHash},...]` covering every height
+from undo floor through checkpoint, with a complete hash chain. Root must
+independently compare that retained journal against genuine canonical Prep data
+before issuing the proof. Runtime checks its pinned bytes, structure and identity
+and separately verifies the current actual checkpoint header and previous hash
+under a fresh real source sample at the admission epoch. A checkpoint conflict
+is refused; this v3 does not authorize an actual conflicting ancestor repair.
+
+V3 requires the unchanged ready testnet/full-v1 follower source, complete birthday
+history, genuine source timestamps aged -5 through 60 seconds and measured lags
+at most six. It guards expiry and finite request range throughout. It does not
+freeze the admission epoch during execution: official SDK checks bind each step
+to its actual metadata epoch; a finite epoch/reorg error exits for review with
+durable progress retained. No source head is clipped or invented. The SDK owns
+canonicality, scanner validation, sequential handlers, atomic group transactions,
+per-block undo, rollback and readiness. No readiness SQL is published by this wrapper.
+
+Root must snapshot the original namespace, preserve identity/entities/financial
+anchors, stop the previous writer and prove lock release before replacement.
+Start with a bounded profile-16 canary; consider 64 only after actual payload,
+scanner, transaction and resource qualification. Verify the complete target,
+original identity, canonical anchors, financial baseline and cleanup after the
+finite SDK run. Then retire recovery pins/deadlines and separately review normal
+following with the selected profile and recovery disabled. Actual READY plus
+CAUGHT_UP requires genuine current-source comparison after catch-up; a finite
+target or readable prefix alone is insufficient. Financial supervision remains
+paused and financial activation requires separate qualification.
+
+The 16 November operator qualification completed finite profile-16 and
+profile-64 canaries, then separately handed off the follower to normal profile
+64 with 600 ms pacing, recovery disabled and no recovery proof. The original API
+and project/database/key identity were preserved. At the recorded 13:54 UTC
+observation, it was ready and advancing with 33,366 blocks still outstanding.
+Full caught-up/live-follow acceptance remains pending; see the
+[actual canonical-reorg catch-up evidence](../../docs/evidence/chef-canonical-reorg-catchup.md).
+Financial supervision remains paused pending separate application qualification.
+
 ### Continuous normal-operation supervision
 
 The optional private runtime pin `prepDispatchIntervalMs` selects follower-only

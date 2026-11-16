@@ -11,6 +11,27 @@ export class RuntimeError extends Error { constructor(code) { super(code); this.
 const fail = code => { throw new RuntimeError(code); };
 const sha = value => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
 const metadataKeys = ['ZEESWAP_CHEF_PROJECT', 'ZEESWAP_CHEF_ACCOUNT_ID', 'ZEESWAP_CHEF_KEY_FINGERPRINT', 'ZEESWAP_CHEF_BIRTHDAY', 'ZEESWAP_CHEF_PREP_URL'];
+export function executionProfileDigest(projectFingerprint, profile) {
+  return createHash('sha256').update(JSON.stringify({ version: 1, purpose: 'REVIEWED_BOUNDED_CATCHUP', projectFingerprint,
+    pageSize: profile.pageSize, batchSize: profile.batchSize, maxPayloadBlocks: profile.maxPayloadBlocks,
+    dispatchIntervalMs: profile.dispatchIntervalMs })).digest('hex');
+}
+export function validateExecutionProfile(pins) {
+  const p = pins.executionProfile;
+  if (p === undefined) return undefined;
+  if (!p || Object.keys(p).sort().join(',') !== 'batchSize,digest,dispatchIntervalMs,maxPayloadBlocks,pageSize,purpose,version'
+    || p.version !== 1 || p.purpose !== 'REVIEWED_BOUNDED_CATCHUP' || ![16, 64].includes(p.pageSize)
+    || p.batchSize !== p.pageSize || p.maxPayloadBlocks !== p.pageSize || p.dispatchIntervalMs !== 600
+    || pins.maxPayloadBlocks !== p.maxPayloadBlocks || pins.prepDispatchIntervalMs !== p.dispatchIntervalMs
+    || !sha(pins.projectFingerprint) || !sha(p.digest) || p.digest !== executionProfileDigest(pins.projectFingerprint, p)) fail('EXECUTION_PROFILE_INVALID');
+  return p;
+}
+export function applyExecutionProfile(project, profile, fingerprint, expected) {
+  if (!profile) return;
+  // The reviewed operational override changes execution, while preserving original identity bytes.
+  project.config.sync = { ...project.config.sync, pageSize: profile.pageSize, batchSize: profile.batchSize };
+  if (fingerprint(project) !== expected) fail('EXECUTION_PROFILE_IDENTITY_CHANGED');
+}
 export function pacedFetch(fetchImpl, intervalMs = 0, now = () => performance.now()) {
   if (!Number.isInteger(intervalMs) || intervalMs < 0 || intervalMs > 2000) fail('PREP_DISPATCH_INTERVAL_INVALID');
   if (intervalMs === 0) return fetchImpl;
@@ -145,6 +166,77 @@ export async function verifySourceRecovery({ pins, status, metadata, client, now
     },
   };
 }
+export async function verifyCanonicalReorg({ pins, status, metadata, client, journalBytes, now = () => Date.now() / 1000 }) {
+  const p = pins.sourceRecovery, cp = status?.checkpoint, profile = validateExecutionProfile(pins);
+  const uint = n => Number.isSafeInteger(n) && n >= 0;
+  const decimal = n => typeof n === 'string' && /^(0|[1-9][0-9]*)$/.test(n);
+  const validTime = () => p && uint(p.issuedAt) && uint(p.expiresAt) && p.issuedAt <= now() + 5
+    && p.expiresAt > now() && p.expiresAt > p.issuedAt && p.expiresAt - p.issuedAt <= 7200;
+  const checkpointKeys = ['height', 'hash', 'status', 'reconcileKind', 'anchorHash', 'undoFloor'];
+  const sameCheckpoint = value => value && checkpointKeys.every(key => value[key] === p.checkpoint[key]);
+  const readyReplay = p?.purpose === 'CANONICAL_READY_FINITE_REPLAY';
+  const reorgReplay = p?.purpose === 'CANONICAL_REORG_FINITE_REPLAY';
+  if (!profile || p?.version !== 3 || (!readyReplay && !reorgReplay) || !validTime()
+    || p.projectFingerprint !== pins.projectFingerprint || p.executionProfileDigest !== profile.digest
+    || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(p.generation ?? '')
+    || !decimal(p.dataRevision) || !decimal(p.prepEpoch) || !sha(p.retainedJournalSha256)
+    || !uint(p.checkpoint?.height) || p.checkpoint.height > 0xfffffffe || p.checkpoint.height < Number(metadata.ZEESWAP_CHEF_BIRTHDAY)
+    || !sha(p.checkpoint.hash) || !sha(p.checkpoint.anchorHash) || !uint(p.checkpoint.undoFloor)
+    || p.checkpoint.undoFloor > p.checkpoint.height || p.checkpoint.height - p.checkpoint.undoFloor > 1000
+    || (readyReplay ? p.checkpoint.status !== 'ready' || p.checkpoint.reconcileKind !== undefined
+      : p.checkpoint.status !== 'reconciling' || p.checkpoint.reconcileKind !== 'reorg')
+    || !uint(p.maxInitialGap) || p.maxInitialGap < 1 || p.maxInitialGap > 50000
+    || !uint(p.targetHeight) || p.targetHeight > 0xfffffffe || p.targetHeight <= p.checkpoint.height
+    || p.targetHeight - p.checkpoint.height > 50000) fail('CANONICAL_REORG_PINS_INVALID');
+  if (status?.project !== metadata.ZEESWAP_CHEF_PROJECT || status.fingerprint !== pins.projectFingerprint
+    || (readyReplay ? !['backfill', 'caught_up'].includes(status.state) || status.readGate !== 'ready'
+      : status.state !== 'reconciling' || status.readGate !== 'reconciling') || !sameCheckpoint(cp)
+    || status.diagnostic?.projectGeneration !== p.generation || status.diagnostic?.dataRevision !== p.dataRevision
+    || status.source?.identityMatches !== true) fail('CANONICAL_REORG_IDENTITY_MISMATCH');
+  if (createHash('sha256').update(journalBytes).digest('hex') !== p.retainedJournalSha256) fail('CANONICAL_REORG_JOURNAL_MISMATCH');
+  let journal;
+  try { journal = JSON.parse(journalBytes); } catch { fail('CANONICAL_REORG_JOURNAL_MISMATCH'); }
+  if (!journal || journal.version !== 1 || journal.projectFingerprint !== pins.projectFingerprint || journal.generation !== p.generation
+    || journal.dataRevision !== p.dataRevision || journal.prepEpoch !== p.prepEpoch || !sameCheckpoint(journal.checkpoint)
+    || !Array.isArray(journal.headers) || journal.headers.length !== cp.height - cp.undoFloor + 1
+    || journal.headers.some((header, index) => !header || header.height !== cp.undoFloor + index || !sha(header.hash) || !sha(header.previousHash)
+      || (index > 0 && header.previousHash !== journal.headers[index - 1].hash))
+    || journal.headers.at(-1).hash !== cp.hash) fail('CANONICAL_REORG_JOURNAL_MISMATCH');
+  const checkSource = (source, startup = false) => {
+    const age = now() - source.source_observed_at;
+    if (source.network !== 'testnet' || source.payload_kind !== 'full-v1' || source.ready !== true || source.source_mode !== 'follower'
+      || (startup && source.epoch !== p.prepEpoch) || !decimal(source.epoch)
+      || !uint(source.source_observed_at) || age < -5 || age > 60
+      || !uint(source.start_block) || source.start_block > Number(metadata.ZEESWAP_CHEF_BIRTHDAY)
+      || !uint(source.source_height) || !uint(source.indexed_height) || !uint(source.archive_height)
+      || source.source_height < source.indexed_height || source.indexed_height < source.archive_height
+      || !uint(source.lag_blocks) || source.lag_blocks > 6 || source.lag_blocks !== source.source_height - source.indexed_height
+      || source.source_height - source.archive_height > 6 || source.archive_height < p.targetHeight
+      || source.source_height - cp.height > p.maxInitialGap) fail('CANONICAL_REORG_SOURCE_NOT_READY');
+  };
+  let latestSource = await client.getHeight({ timeoutMs: 5000 });
+  checkSource(latestSource, true);
+  const page = await client.get({ from_block: cp.height, to_block: cp.height + 1, limit: 1,
+    field_selection: { block: ['height', 'hash', 'previous_hash', 'time'], transaction: [] } }, { timeoutMs: 5000 });
+  if (!validTime() || page.network !== 'testnet' || page.epoch !== p.prepEpoch || page.next_block !== cp.height + 1
+    || page.data?.blocks?.length !== 1 || page.data.blocks[0].height !== cp.height || page.data.blocks[0].hash !== cp.hash
+    || page.data.blocks[0].previous_hash !== journal.headers.at(-1).previousHash) fail('CANONICAL_REORG_HEADER_MISMATCH');
+  checkSource(latestSource, true);
+  const guard = () => { if (!validTime()) fail('CANONICAL_REORG_AUTHORITY_EXPIRED'); };
+  return {
+    async getHeight(options) {
+      guard(); const source = await client.getHeight(options); guard(); checkSource(source); latestSource = source; return source;
+    },
+    async get(query, options) {
+      guard();
+      if (!uint(query?.from_block) || !uint(query?.to_block) || query.from_block < cp.height
+        || query.to_block > p.targetHeight + 1) fail('CANONICAL_REORG_RANGE_EXCEEDED');
+      const page = await client.get(query, options); guard(); checkSource(latestSource);
+      // The SDK binds each page to its actual step epoch, not the admission epoch.
+      return page;
+    },
+  };
+}
 export async function runRuntime(args = process.argv.slice(2), options = {}) {
   if (args.length !== 1 || !['api', 'check', 'follower'].includes(args[0])) fail('INVALID_ROLE');
   const role = args[0], env = options.env ?? process.env;
@@ -152,8 +244,11 @@ export async function runRuntime(args = process.argv.slice(2), options = {}) {
   const app = options.app ?? '/app', privateDir = options.privateDir ?? '/run/chef';
   const metadata = validateMetadata(JSON.parse(await regularFile(resolve(privateDir, 'metadata.json'))));
   const pins = JSON.parse(await regularFile(resolve(privateDir, 'pins.json')));
+  const executionProfile = validateExecutionProfile(pins);
+  if (executionProfile && [1, 2].includes(pins.sourceRecovery?.version)) fail('EXECUTION_PROFILE_RECOVERY_MODE');
+  if (role === 'follower' && pins.sourceRecovery?.version === 3 && env.CHEF_SOURCE_RECOVERY !== 'reviewed-canonical-reorg') fail('CANONICAL_REORG_SELECTOR_REQUIRED');
   const maxPayloadBlocks = pins.maxPayloadBlocks === undefined ? 1 : pins.maxPayloadBlocks;
-  if (maxPayloadBlocks !== 1 && maxPayloadBlocks !== 2) fail('FIXED_PAYLOAD_CAP_INVALID');
+  if (!executionProfile && maxPayloadBlocks !== 1 && maxPayloadBlocks !== 2) fail('FIXED_PAYLOAD_CAP_INVALID');
   const prepDispatchIntervalMs = pins.prepDispatchIntervalMs === undefined ? 0 : pins.prepDispatchIntervalMs;
   const sourceFetch = pacedFetch(options.fetch ?? globalThis.fetch, prepDispatchIntervalMs);
   const identity = options.identity ?? { uid: process.getuid?.(), gid: process.getgid?.() };
@@ -215,6 +310,7 @@ export async function runRuntime(args = process.argv.slice(2), options = {}) {
     await sdk.main(['status', '--config', config, '--json']);
     return;
   }
+  applyExecutionProfile(project, executionProfile, project => sdk.projectFingerprint(project, metadata.ZEESWAP_CHEF_PREP_URL), pins.projectFingerprint);
   const scanner = resolve(privateDir, 'zeer-scanner');
   if (!sha(pins.scannerSha256) || await digest(scanner) !== pins.scannerSha256) fail('SCANNER_PIN_MISMATCH');
   if (pins.scannerPlatform !== `${process.platform}-${process.arch}`) fail('SCANNER_PLATFORM_MISMATCH');
@@ -223,10 +319,11 @@ export async function runRuntime(args = process.argv.slice(2), options = {}) {
   env.ZEESWAP_CHEF_UFVK_FILE = resolve(privateDir, 'testnet.ufvk');
   const keyInfo = await lstat(env.ZEESWAP_CHEF_UFVK_FILE);
   if (!keyInfo.isFile() || keyInfo.isSymbolicLink() || keyInfo.size < 1 || keyInfo.size > 16384) fail('INVALID_UFVK_FILE');
-  const { PrepClient } = options.prep ?? await import('@zeer-dev/prep-client');
-  const { fixedPayloadClient } = options.bounded ?? await import(pathToFileURL(resolve(app, 'bounded-prep-client.mjs')).href);
-  const client = fixedPayloadClient(new PrepClient({ url: metadata.ZEESWAP_CHEF_PREP_URL, ...(prepToken !== undefined ? { token: prepToken } : {}),
-    ...(prepDispatchIntervalMs > 0 ? { fetch: sourceFetch } : {}) }), maxPayloadBlocks);
+  const { PrepClient, PrepError } = options.prep ?? await import('@zeer-dev/prep-client');
+  const { fixedPayloadClient, catchupPayloadClient } = options.bounded ?? await import(pathToFileURL(resolve(app, 'bounded-prep-client.mjs')).href);
+  const rawClient = new PrepClient({ url: metadata.ZEESWAP_CHEF_PREP_URL, ...(prepToken !== undefined ? { token: prepToken } : {}),
+    ...(prepDispatchIntervalMs > 0 ? { fetch: sourceFetch } : {}) });
+  const client = executionProfile ? catchupPayloadClient(rawClient, maxPayloadBlocks, PrepError) : fixedPayloadClient(rawClient, maxPayloadBlocks);
   let status;
   try {
     await sdk.main(['status', '--config', config, '--json'], { client, write: text => { status = JSON.parse(text); } });
@@ -240,6 +337,12 @@ export async function runRuntime(args = process.argv.slice(2), options = {}) {
     && status.source?.availability === 'available' && status.source.identityMatches === true
     && status.source.checkpointAheadOfPrep === false && Number.isSafeInteger(status.checkpoint?.height)
     && sha(status.checkpoint?.hash);
+  if (env.CHEF_SOURCE_RECOVERY === 'reviewed-canonical-reorg') {
+    const journalBytes = await regularFile(resolve(privateDir, 'canonical-reorg-journal.json'));
+    const boundedClient = await verifyCanonicalReorg({ pins, status, metadata, client, journalBytes, now: options.now });
+    await sdk.main(['sync', '--config', config, '--to', String(pins.sourceRecovery.targetHeight), '--json'], { client: boundedClient });
+    return;
+  }
   if (env.CHEF_SOURCE_RECOVERY === 'reviewed-source-backlog') {
     const boundedClient = await verifySourceRecovery({ pins, status, metadata, client, now: options.now, backlog: true });
     // A recovery campaign always exits at its reviewed target, even if status is already ready.
